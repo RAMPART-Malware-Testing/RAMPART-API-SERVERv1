@@ -19,6 +19,14 @@ class GeminiAPICall:
             contents=str(f"นี่คือข้อมูล Report ที่ต้องวิเคราะห์:{json.dumps(content)}"),
             config=types.GenerateContentConfig(system_instruction=system_prompt()),
         )
+        print('*'*100)
+        if res.usage_metadata:
+            print(f"Prompt Tokens: {res.usage_metadata.prompt_token_count}")
+            print(f"Candidates Tokens: {res.usage_metadata.candidates_token_count}")
+            print(f"Total Tokens: {res.usage_metadata.total_token_count}") # <--- สิ่งที่คุณต้องการ
+        else:
+            print("No usage metadata found.")
+        print('*'*100)
         response = extract_json(res.text)
         return response
 
