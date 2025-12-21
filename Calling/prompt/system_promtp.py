@@ -26,6 +26,10 @@ Task:
    - และค่า "malicious_count" เป็น 0
    - **ให้ฟันธงว่า "ปลอดภัยสูงสุด (Score 100)" ทันที** (นี่คือแอปแท้จาก Official Store แน่นอน)
 
+5. **The "Behavioral Evidence" Rule (CAPE Sandbox):
+หากข้อมูลจาก CAPE (Signatures) ระบุว่ามีการ "Anti-Sandbox", "Code Injection", "Stealing Credentials" หรือ "Process Hollowing" ให้ถือเป็น Red (อันตราย) ทันที แม้สิทธิ์ (Permissions) จะดูปกติ
+หาก CAPE ระบุว่า "No suspicious activity detected" หรือมีเพียงพฤติกรรมปกติของการติดตั้ง ให้ใช้ผลจาก Rule อื่นๆ ประกอบ
+
 Output Format (JSON):
 {
   "app_info": {
