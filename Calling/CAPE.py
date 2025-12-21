@@ -4,134 +4,57 @@ import hashlib
 import time
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
+import json
 
-# Load environment variables
-load_dotenv()
+load_dotenv()    
 
 
 class CAPEAnalyzer:
-    """
-    CAPE Sandbox API Wrapper
-    ใช้สำหรับจัดการ API ทั้ง 4 ตัว:
-    1. File Create - ส่งไฟล์เข้าวิเคราะห์
-    2. Basic Task Search - เช็ค Hash ก่อนส่ง
-    3. Task Status - ตรวจสอบสถานะการวิเคราะห์
-    4. Task Report - ดึงรายงานผลการวิเคราะห์
-    """
-
-    def __init__(self, base_url: Optional[str] = None, api_token: Optional[str] = None):
-        """
-        Initialize CAPE Analyzer
-
-        Args:
-            base_url: CAPE base URL (default: จาก .env CAOE_BASE_URL)
-            api_token: API Token สำหรับ authentication (optional)
-        """
-        self.base_url = base_url or os.getenv("CAOE_BASE_URL")
-        self.api_token = api_token
-
+    def __init__(self):
+        self.base_url = os.getenv("CAPE_BASE_URL")
         if not self.base_url:
-            raise ValueError("CAOE_BASE_URL not found in .env file")
+            raise ValueError("CAPE_BASE_URL not found in .env file")
 
-        # Remove trailing slash
-        self.base_url = self.base_url.rstrip('/')
-
-        # Setup headers
-        self.headers = {}
-        if self.api_token:
-            self.headers["Authorization"] = f"Token {self.api_token}"
-
-    def _calculate_hash(self, file_path: str, hash_type: str = "sha256") -> str:
-        """
-        คำนวณ hash ของไฟล์
-
-        Args:
-            file_path: path ของไฟล์
-            hash_type: ประเภท hash (md5, sha1, sha256)
-
-        Returns:
-            hash string
-        """
+    def calculate_hash(self, file_path: str, hash_type: str = "sha256") -> str:
         hash_obj = hashlib.new(hash_type)
-
         with open(file_path, 'rb') as f:
             for chunk in iter(lambda: f.read(4096), b''):
                 hash_obj.update(chunk)
 
         return hash_obj.hexdigest()
 
-    def search_by_hash(self, file_hash: str, hash_type: str = "sha256") -> Dict[str, Any]:
-        """
-        2. Basic Task Search - เช็ค Hash ของไฟล์ก่อนส่ง
-
-        Args:
-            file_hash: hash ของไฟล์
-            hash_type: ประเภท hash (md5, sha1, sha256)
-
-        Returns:
-            ผลการค้นหา task ที่มี hash นี้
-        """
+    def cheack_analyer(self, file_path: str, hash_type: str = "sha256"):
+        file_hash = self.calculate_hash(file_path, hash_type)
         url = f"{self.base_url}/apiv2/tasks/search/{hash_type}/{file_hash}/"
-
         try:
-            response = requests.get(url, headers=self.headers)
-            response.raise_for_status()
-            return response.json()
+            response = requests.get(url)
+            js = response.json()
+            return js.get("data")
         except requests.exceptions.RequestException as e:
             return {"error": str(e), "data": None}
 
-    def check_file_exists(self, file_path: str, hash_type: str = "sha256") -> Optional[int]:
-        """
-        เช็คว่าไฟล์เคยถูกวิเคราะห์แล้วหรือไม่
-
-        Args:
-            file_path: path ของไฟล์
-            hash_type: ประเภท hash ที่จะใช้เช็ค
-
-        Returns:
-            task_id ถ้าเจอ, None ถ้าไม่เจอ
-        """
-        file_hash = self._calculate_hash(file_path, hash_type)
-        result = self.search_by_hash(file_hash, hash_type)
-
-        if result.get("data") and len(result["data"]) > 0:
-            # Return the most recent task ID
-            return result["data"][0].get("id")
-
-        return None
+    def delete_taskID(self,task_id):
+        requests.get(f"{self.base_url}/apiv2/tasks/delete/{task_id}")
 
     def create_file_task(
         self,
         file_path: str,
         machine: Optional[str] = None,
         is_pcap: bool = False,
-        skip_if_exists: bool = True
     ) -> Dict[str, Any]:
-        """
-        1. File Create - ส่งไฟล์เข้าวิเคราะห์
-
-        Args:
-            file_path: path ของไฟล์ที่จะส่ง
-            machine: VM ที่จะใช้วิเคราะห์ (optional)
-            is_pcap: True ถ้าไฟล์เป็น PCAP
-            skip_if_exists: ถ้า True จะเช็คก่อนว่ามี task เดิมอยู่ไหม
-
-        Returns:
-            ผลการสร้าง task
-        """
-        # เช็คว่ามี task เดิมอยู่ไหม
-        if skip_if_exists:
-            existing_task_id = self.check_file_exists(file_path)
-            if existing_task_id:
-                return {
-                    "status": "exists",
-                    "task_id": existing_task_id,
-                    "message": f"File already analyzed. Task ID: {existing_task_id}"
-                }
+        check_analy = self.cheack_analyer(file_path)
+        # pretty_json = json.dumps(check_analy, indent=4, ensure_ascii=False)
+        if len(check_analy) > 0:
+            return {
+                # "x":json.dumps(existing_task_id)
+                "status": "exists",
+                "task_id": check_analy[0],
+                "message": f"File already analyzed. Task ID: {check_analy[0]["id"]}"
+            }
+        
 
         url = f"{self.base_url}/apiv2/tasks/create/file/"
 
-        # Prepare files and data
         files = {'file': open(file_path, 'rb')}
         data = {}
 
@@ -142,7 +65,7 @@ class CAPEAnalyzer:
             data['pcap'] = '1'
 
         try:
-            response = requests.post(url, files=files, data=data, headers=self.headers)
+            response = requests.post(url, files=files, data=data)
             response.raise_for_status()
             result = response.json()
 
@@ -157,19 +80,9 @@ class CAPEAnalyzer:
             files['file'].close()
 
     def get_task_status(self, task_id: int) -> Dict[str, Any]:
-        """
-        3. Task Status - ตรวจสอบสถานะการวิเคราะห์
-
-        Args:
-            task_id: ID ของ task
-
-        Returns:
-            สถานะของ task
-        """
-        url = f"{self.base_url}/apiv2/tasks/status/{task_id}/"
-
+        url = f"{self.base_url}/apiv2/tasks/status/{task_id}"
         try:
-            response = requests.get(url, headers=self.headers)
+            response = requests.get(url)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
@@ -182,18 +95,6 @@ class CAPEAnalyzer:
         poll_interval: int = 10,
         verbose: bool = True
     ) -> bool:
-        """
-        รอให้ task วิเคราะห์เสร็จ
-
-        Args:
-            task_id: ID ของ task
-            timeout: timeout ในหน่วยวินาที (default: 600 = 10 นาที)
-            poll_interval: ระยะเวลาระหว่างการเช็คสถานะ (วินาที)
-            verbose: แสดงสถานะระหว่างรอ
-
-        Returns:
-            True ถ้าเสร็จ, False ถ้า timeout
-        """
         start_time = time.time()
 
         while time.time() - start_time < timeout:
@@ -223,25 +124,14 @@ class CAPEAnalyzer:
         task_id: int,
         report_format: str = "json",
         download_zip: bool = False
-    ) -> Dict[str, Any]:
-        """
-        4. Task Report - ดึงรายงานผลการวิเคราะห์
-
-        Args:
-            task_id: ID ของ task
-            report_format: รูปแบบรายงาน (json/maec/maec5/metadata/lite/all)
-            download_zip: ดาวน์โหลดเป็น zip หรือไม่
-
-        Returns:
-            รายงานผลการวิเคราะห์
-        """
+    ):
         url = f"{self.base_url}/apiv2/tasks/get/report/{task_id}/{report_format}/"
 
         if download_zip:
             url += "zip/"
 
         try:
-            response = requests.get(url, headers=self.headers)
+            response = requests.get(url)
             response.raise_for_status()
 
             if download_zip:
@@ -251,40 +141,71 @@ class CAPEAnalyzer:
         except requests.exceptions.RequestException as e:
             return {"status": "error", "error": str(e)}
 
-    def filter_report_for_llm(self, task_id: int) -> Dict[str, Any]:
-        """
-        ดึงรายงานและ Filter เฉพาะส่วนที่สำคัญสำหรับ LLM
-        (Signatures, Network, Static)
-
-        Args:
-            task_id: ID ของ task
-
-        Returns:
-            รายงานที่ถูก filter แล้ว
-        """
+    def get_report(self, task_id: int):
         report = self.get_task_report(task_id)
 
         if report.get("status") != "success":
             return report
+        return None
 
-        data = report.get("data", {})
+        raw_data = report.get("data", {})
+        
+        signatures = []
+        for sig in raw_data.get("signatures", []):
+            signatures.append({
+                "name": sig.get("name"),
+                "description": sig.get("description"),
+                "severity": sig.get("severity", 0)
+            })
 
-        # Filter เฉพาะส่วนที่ต้องการ
-        filtered_data = {
-            "task_id": task_id,
-            "target": data.get("target", {}),
-            "signatures": data.get("signatures", []),
-            "network": data.get("network", {}),
-            "static": data.get("static", {}),
-            "info": data.get("info", {}),
-            "behavior": {
-                "summary": data.get("behavior", {}).get("summary", {}),
-            }
+        network = raw_data.get("network", {})
+        network_summary = {
+            "hosts": network.get("hosts", [])[:5],
+            "http_requests": [req.get("uri") for req in network.get("http", [])[:5]],
+            "udp_count": len(network.get("udp", [])),
+            "tcp_count": len(network.get("tcp", []))
         }
+
+        target = raw_data.get("target", {})
+        file_info = target.get("file", {})
+        pe = file_info.get("pe",{})
+        versioninfo = pe.get("versioninfo",{})
+
+        summary = raw_data.get("summary", {})
+        print(summary)
+
+        company_name = "Unknown"
+        for item in versioninfo:
+            if item.get("name") == "CompanyName":
+                company_name = item.get("value")
+
+        filtered_data = {
+            "malscore": raw_data.get("malscore"),
+            "target_info": {
+                "name": file_info.get("name"),
+                "type": file_info.get("type"),
+                "size": file_info.get("size"),
+                "developer_company": company_name
+            },
+            "trust_info": {
+                "is_signed": len(signatures) > 0,
+                "signers": 0
+            },
+            "detected_signatures": signatures,
+            "network_summary": network_summary,
+            # "behavior_summary": {
+            #     "files_written": summary.get("file_written", [])[:10],
+            #     "registry_keys_modified": summary.get("regkey_written", [])[:10],
+            #     "mutexes": summary.get("mutex", [])[:5]
+            # }
+        }
+
+        print(filtered_data)
 
         return {
             "status": "success",
-            "data": filtered_data
+            "data": filtered_data,
+            "defult":raw_data
         }
 
     def analyze_file_complete(
@@ -296,20 +217,6 @@ class CAPEAnalyzer:
         timeout: int = 600,
         get_filtered_report: bool = True
     ) -> Dict[str, Any]:
-        """
-        วิเคราะห์ไฟล์แบบครบวงจร (สร้าง task -> รอเสร็จ -> ดึงรายงาน)
-
-        Args:
-            file_path: path ของไฟล์
-            machine: VM ที่จะใช้
-            is_pcap: ไฟล์เป็น PCAP หรือไม่
-            wait: รอให้วิเคราะห์เสร็จหรือไม่
-            timeout: timeout สำหรับการรอ
-            get_filtered_report: ดึงรายงานที่ filter แล้วหรือไม่
-
-        Returns:
-            ผลการวิเคราะห์ครบวงจร
-        """
         # สร้าง task
         result = self.create_file_task(file_path, machine, is_pcap)
 
@@ -346,54 +253,59 @@ class CAPEAnalyzer:
 
 
 # ตัวอย่างการใช้งาน
-if __name__ == "__main__":
-    # สร้าง instance
-    cape = CAPEAnalyzer()
-    # หรือถ้ามี API Token
-    # cape = CAPEAnalyzer(api_token="YOUR_TOKEN_HERE")
+# สร้าง instance
+cape = CAPEAnalyzer()
+file_path = "AnyDesk.exe"
+# หรือถ้ามี API Token
+# cape = CAPEAnalyzer(api_token="YOUR_TOKEN_HERE")
 
-    # ตัวอย่างที่ 1: เช็คว่าไฟล์เคยถูกวิเคราะห์แล้วหรือไม่
-    print("=== Example 1: Check if file exists ===")
-    task_id = cape.check_file_exists("malware_sample.exe")
+# ตัวอย่างที่ 1: เช็คว่าไฟล์เคยถูกวิเคราะห์แล้วหรือไม่
+# print("=== 1: Check if file exists ===")
+# task_id = cape.cheack_analyer(file_path)
+# print(task_id)
+
+# ตัวอย่างที่ 2: ส่งไฟล์เข้าวิเคราะห์
+print('*'*100)
+result = cape.create_file_task(file_path)
+print(result)
+
+# ตัวอย่างที่ 3: เช็คสถานะของ task
+status_task = {
+    "data":None,
+    "error":False
+}
+
+task_id = result.get("task_id")
+if task_id:
+    status_task = cape.get_task_status(task_id.get("id"))
+    print(f"Status: {status_task}")
+
+# ตัวอย่างที่ 4: ดึงรายงานแบบ filtered สำหรับ LLM
+print('*'*100)
+if not status_task.get("error") and status_task.get("data"): 
     if task_id:
-        print(f"File already analyzed! Task ID: {task_id}")
-    else:
-        print("File not found in database")
+        report = cape.get_report(task_id.get("id"))
+        print(f"Report: {report}")
+        # with open("cape_report.json",'w',encoding="utf-8") as wf:
+        #     report_str = json.dumps(report["defult"], ensure_ascii=False, indent=4)
+        #     wf.write(report_str)
+        #     wf.close()
 
-    # ตัวอย่างที่ 2: ส่งไฟล์เข้าวิเคราะห์
-    print("\n=== Example 2: Submit file for analysis ===")
-    result = cape.create_file_task("malware_sample.exe", skip_if_exists=True)
-    print(f"Result: {result}")
+# # ตัวอย่างที่ 5: วิเคราะห์ไฟล์แบบครบวงจร (แนะนำ!)
+# print("\n=== Example 5: Complete analysis ===")
+# full_result = cape.analyze_file_complete(
+#     file_path="malware_sample.exe",
+#     wait=True,
+#     timeout=600,
+#     get_filtered_report=True
+# )
+# print(f"Complete result: {full_result}")
 
-    # ตัวอย่างที่ 3: เช็คสถานะของ task
-    print("\n=== Example 3: Check task status ===")
-    if result.get("task_id"):
-        status = cape.get_task_status(result["task_id"])
-        print(f"Status: {status}")
-
-    # ตัวอย่างที่ 4: ดึงรายงานแบบ filtered สำหรับ LLM
-    print("\n=== Example 4: Get filtered report ===")
-    if result.get("task_id"):
-        # รอให้วิเคราะห์เสร็จก่อน
-        if cape.wait_for_task(result["task_id"], timeout=300):
-            report = cape.filter_report_for_llm(result["task_id"])
-            print(f"Report: {report}")
-
-    # ตัวอย่างที่ 5: วิเคราะห์ไฟล์แบบครบวงจร (แนะนำ!)
-    print("\n=== Example 5: Complete analysis ===")
-    full_result = cape.analyze_file_complete(
-        file_path="malware_sample.exe",
-        wait=True,
-        timeout=600,
-        get_filtered_report=True
-    )
-    print(f"Complete result: {full_result}")
-
-    # ตัวอย่างที่ 6: วิเคราะห์ PCAP file
-    print("\n=== Example 6: Analyze PCAP file ===")
-    pcap_result = cape.analyze_file_complete(
-        file_path="network_traffic.pcap",
-        is_pcap=True,
-        wait=True
-    )
-    print(f"PCAP result: {pcap_result}")
+# # ตัวอย่างที่ 6: วิเคราะห์ PCAP file
+# print("\n=== Example 6: Analyze PCAP file ===")
+# pcap_result = cape.analyze_file_complete(
+#     file_path="network_traffic.pcap",
+#     is_pcap=True,
+#     wait=True
+# )
+# print(f"PCAP result: {pcap_result}")

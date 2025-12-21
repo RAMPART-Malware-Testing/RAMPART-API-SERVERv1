@@ -26,10 +26,11 @@ Task:
    - และค่า "malicious_count" เป็น 0
    - **ให้ฟันธงว่า "ปลอดภัยสูงสุด (Score 100)" ทันที** (นี่คือแอปแท้จาก Official Store แน่นอน)
 
-5. **The "Behavioral Evidence" Rule (CAPE Sandbox):
-หากข้อมูลจาก CAPE (Signatures) ระบุว่ามีการ "Anti-Sandbox", "Code Injection", "Stealing Credentials" หรือ "Process Hollowing" ให้ถือเป็น Red (อันตราย) ทันที แม้สิทธิ์ (Permissions) จะดูปกติ
-หาก CAPE ระบุว่า "No suspicious activity detected" หรือมีเพียงพฤติกรรมปกติของการติดตั้ง ให้ใช้ผลจาก Rule อื่นๆ ประกอบ
-
+5. **The "Dynamic Reality" Rule (CAPE Sandbox Override):**
+   - นี่คือกฎที่สำคัญที่สุด: ผลจากการรันจริง (CAPE) มีน้ำหนักมากกว่าการวิเคราะห์โค้ด (MobSF)
+   - หาก CAPE พบ **"malware_identification"** (ระบุชื่อมัลแวร์ได้) หรือพบ **"critical_signatures"** ที่รุนแรง (เช่น "Steals credentials", "Ransomware behavior", "Connects to C2 server")
+   - **ให้ฟันธงว่า "อันตราย (Red)" ทันที (Score 0)** ถึงแม้ว่า VirusTotal หรือ MobSF จะบอกว่าปลอดภัยก็ตาม
+   - ในทางกลับกัน หาก CAPE รันแล้วไม่มี Network Traffic แปลกๆ และไม่มี Signature อันตราย ให้เพิ่มความมั่นใจในการให้คะแนน "ปลอดภัย"
 Output Format (JSON):
 {
   "app_info": {
