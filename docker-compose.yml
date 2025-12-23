@@ -1,0 +1,52 @@
+version: "3.9"
+
+services:
+  postgres-rampart:
+    image: postgres:16
+    container_name: postgres-rampart
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres-rampart:/var/lib/postgresql/data
+    networks:
+      - rampart
+
+  pgadmin-rampart:
+    image: dpage/pgadmin4
+    container_name: pgadmin-rampart
+    restart: always
+    ports:
+      - "8080:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+    depends_on:
+      - postgres-rampart
+    networks:
+      - rampart
+
+  redis-rampart:
+    image: redis:7
+    container_name: redis-rampart
+    restart: always
+    command: [ "redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes" ]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-rampart:/data
+    networks:
+      - rampart
+
+networks:
+  rampart:
+    name: rampart
+    external: true
+
+volumes:
+  postgres-rampart:
+  redis-rampart:

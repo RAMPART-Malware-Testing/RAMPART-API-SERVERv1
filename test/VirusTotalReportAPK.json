@@ -1,0 +1,58 @@
+{
+    "file_info": {
+        "names": [
+            "Calculator_9.0 (827797324)_APKPure.apk",
+            "579b410c-d01d-4563-93c8-d6184c7023a7.apk",
+            "91927a1e-a389-4946-94fd-cb4982ca5cc5.apk"
+        ],
+        "meaningful_name": "Calculator_9.0 (827797324)_APKPure.apk",
+        "type": "Android",
+        "size": 6572523,
+        "hashes": {
+            "md5": "77fd3defaca1f7d24b9403ad2098f93c",
+            "sha1": "71898954a8038edf6a520d2496fa89758166c6a8",
+            "sha256": "c687e96e2342db93524e815d6b5a95ff3e116cc9a2de84818e6cce0c61136829"
+        }
+    },
+    "app_identity": {
+        "package_name": "com.google.android.calculator",
+        "developer_signer": "Google Inc.",
+        "is_verified": null,
+        "is_trusted_developer": true
+    },
+    "scan_summary": {
+        "malicious_count": 0,
+        "suspicious_count": 0,
+        "undetected_count": 67,
+        "harmless_count": 0,
+        "total_scanners": 76,
+        "reputation": 0,
+        "community_votes": {
+            "harmless": 0,
+            "malicious": 0
+        }
+    },
+    "threats_found": {
+        "malicious": [],
+        "suspicious": []
+    },
+    "security_analysis": {
+        "sigma_rules": {},
+        "sandbox_results": []
+    },
+    "permissions": [
+        "com.google.android.calculator.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.WAKE_LOCK",
+        "android.permission.INTERNET",
+        "com.google.android.providers.gsf.permission.READ_GSERVICES",
+        "android.permission.GET_PACKAGE_SIZE"
+    ],
+    "tags": [
+        "android",
+        "apk",
+        "obfuscated",
+        "reflection",
+        "clipboard"
+    ]
+}
