@@ -27,11 +27,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-UPLOAD_DIR = Path("Files/files")
+UPLOAD_DIR = Path("temps_files")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
-REPORT_DIR = Path("Files/report")
-REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024
 CHUNK_SIZE = 1024 * 1024
@@ -179,35 +176,7 @@ async def uploadFile(
             status_code=400,
             detail=f"Unsupported file type: {file_extension}. Supported types: {MOBSF_SUPPORTED_EXTENSIONS + CAPE_SUPPORTED_EXTENSIONS}"
         )
-
-    # ตรวจสอบกับ VirusTotal ด้วย hash ก่อน
-    # x = VirusTotal().get_report_by_hash(file_hashes.get("md5",""))
-    # vt_result = None
-    # if total_size <= VIRUSTOTAL_MAX_SIZE:
-        # TODO: ตรวจสอบ hash กับ VirusTotal ก่อน
-        # from Calling.VirusTotal import VirusTotal
-        # vt = VirusTotal()
-        # vt_result = vt.check_hash(file_hashes['sha256'])
     
-        # ถ้าไม่พบใน VirusTotal ให้อัปโหลดไฟล์
-        # if not vt_result:
-        #     vt_result = vt.upload_file(str(file_path))
-        # pass
-
-    # ส่งไปวิเคราะห์ที่ MobSF หรือ CAPE (คอมเม้นไว้ก่อน)
-    # if analysis_tool == 'mobsf':
-    #     # TODO: ส่งไปวิเคราะห์ที่ MobSF
-    #     # from Calling.MobSF import MobSF
-    #     # mobsf = MobSF()
-    #     # mobsf_result = mobsf.scan_file(str(file_path))
-    #     pass
-    # elif analysis_tool == 'cape':
-    #     # TODO: ส่งไปวิเคราะห์ที่ CAPE Sandbox
-    #     # from Calling.CAPE import CAPE
-    #     # cape = CAPE()
-    #     # cape_result = cape.submit_file(str(file_path))
-    #     pass
-
     # สร้าง Task Queue สำหรับวิเคราะห์ไฟล์แบบ Background
     tools = []
     if total_size <= VIRUSTOTAL_MAX_SIZE:
@@ -215,7 +184,7 @@ async def uploadFile(
     tools.append(analysis_tool)
 
     # ส่ง task ไป Celery (ทำงานแบบ async ใน background)
-    task = analyze_malware_task.delay(str(file_path), tools)
+    task = analyze_malware_task.delay(str(file_path), file_hashes, tools)
 
     return {
         "success": True,

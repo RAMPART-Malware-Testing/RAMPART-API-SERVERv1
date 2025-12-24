@@ -104,18 +104,15 @@ class VirusToTalAPI:
     # Upload File and Scan
     # -----------------------------
     def upload_file(self, file_path: str) -> Dict[str, Any]:
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"File not found: {file_path}")
-
         url = f"{self.BASE_URL}/files"
-
         try:
             with open(file_path, "rb") as f:
                 files = {"file": (os.path.basename(file_path), f)}
-                return self._make_request("POST", url, files=files)
+                data = self._make_request("POST", url, files=files)
+                return {"success":True, "data":data}
 
         except Exception as e:
-            raise RuntimeError(f"Error uploading file to VirusTotal: {e}")
+            return {"success":False, "message":e}
 
     # -----------------------------
     # Clean VirusTotal Report
@@ -242,25 +239,28 @@ class VirusToTalAPI:
     # -----------------------------
     # Get Report by File Hash
     # -----------------------------
-    def get_report(self, base64_string: str, clean: bool = True) -> Dict[str, Any]:
+    def get_report_by_base64(self, base64_string: str, clean: bool = True) -> Dict[str, Any]:
         md5_and_number = deCode_base64_string(base64_string)
         file_hash = md5_and_number.split(':')[0]
         url = f"{self.BASE_URL}/files/{file_hash}"
 
         try:
             raw_report = self._make_request("GET", url)
-            return self._clean_virustotal_report(raw_report) if clean else raw_report
+            data = self._clean_virustotal_report(raw_report) if clean else raw_report
+            return {"success":True, "data":data}
         except Exception as e:
-            raise RuntimeError(f"Error fetching report: {e}")
+            return {"success":False, "message":e} 
+
 
     def get_report_by_hash(self, file_hash: str, clean: bool = True) -> Dict[str, Any]:
         url = f"{self.BASE_URL}/files/{file_hash}"
 
         try:
             raw_report = self._make_request("GET", url)
-            return self._clean_virustotal_report(raw_report) if clean else raw_report
+            data =  self._clean_virustotal_report(raw_report) if clean else raw_report
+            return {"success":True, "data":data}
         except Exception as e:
-            raise RuntimeError(f"Error fetching report for hash {file_hash}: {e}")
+            return {"success":False, "message":e} 
 
 virustotal = None
 
