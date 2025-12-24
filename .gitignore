@@ -8,6 +8,7 @@ Files/report/mobsf/*.json
 Files/report/mobsf/re/*.json
 Files/report/virustotal/*.json
 Files/report/virustotal/re/*.json
+temps_files/*
 
 # Ignore APK files in Files/files directory  
 Files/files/*.apk

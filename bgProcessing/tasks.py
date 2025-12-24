@@ -13,24 +13,19 @@ def analyze_malware_task(self, file_path: str, file_hashes:dict, tools: list):
     # try:
     if "virustotal" in tools:
         vt = VirusTotal()
-        ch = vt.get_report_by_hash(file_hashes.get('sha256'))
-        print(f'check status: {ch["success"]}')
-        if not ch["success"]:
-            res = vt.upload_file(file_path=file_path)
-            print(f"response upload: {res}")
-            if res["success"]:
-                id_b64 = ""
-                try:
-                    id_b64 = res['data']['data']['id']
-                except:pass
-                print(f"id_b64 : {id_b64}")
-                time.sleep(5)
-                rp = vt.get_report_by_base64(id_b64)
-                print(f"Response GET Report : {rp}")
-                if rp['success']:
-                    ch = rp["data"]
-        else:
-            results["virustotal"] = ch["data"]
+        res = vt.upload_file(file_path=file_path)
+        print(f"response upload: {res}")
+        if res["success"]:
+            id_b64 = ""
+            try:
+                id_b64 = res['data']['data']['id']
+            except:pass
+            print(f"id_b64 : {id_b64}")
+            time.sleep(5)
+            rp = vt.get_report_by_base64(id_b64)
+            print(f"Response GET Report : {rp}")
+            if rp['success']:
+                results["virustotal"] = rp["data"]
 
     # --- 2. จำลองการส่งไป MobSF ---
     if "mobsf" in tools:
