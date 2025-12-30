@@ -5,3 +5,7 @@ aiofiles
 pydantic
 redis
 celery
+google-genai
+requests
+dotenv
+

@@ -1,0 +1,30 @@
+{
+    "app_info": {
+        "name": "bilibili禁漫",
+        "category_guess": "Manga Viewer / Entertainment",
+        "original_name": "6.apk"
+    },
+    "verdict": {
+        "status": "อันตรายร้ายแรง: พบพฤติกรรมมัลแวร์ประเภท Dropper และ Spyware",
+        "color": "red",
+        "score": 15,
+        "action_text": "ห้ามติดตั้งแอปพลิเคชันนี้เด็ดขาด! มีความเสี่ยงสูงที่จะเป็นมัลแวร์ประเภท Dropper ที่สามารถดาวน์โหลดและติดตั้งโค้ดอันตรายเพิ่มเติม หรือ Spyware ที่ขโมยข้อมูลส่วนตัวได้"
+    },
+    "simple_explanation": "แม้ว่าแอปจะถูกระบุว่าเป็นแอปดูการ์ตูน แต่การวิเคราะห์เชิงลึกโดย AI พบพฤติกรรมที่อันตรายอย่างยิ่ง นั่นคือการใช้ชุดคำสั่ง DexClassLoader (Dynamic Class Loading) ซึ่งเป็นเทคนิคหลักที่มัลแวร์ประเภท Dropper ใช้ในการแอบดาวน์โหลดและติดตั้งไวรัสหรือโมดูลสอดแนมเพิ่มเติมเข้ามาในเครื่องหลังการติดตั้ง แม้แอนตี้ไวรัสบางตัวอาจจะยังไม่รู้จัก แต่พฤติกรรมนี้บ่งชี้ถึงภัยคุกคามที่ซ่อนอยู่ชัดเจน นอกจากนี้ยังมีการพยายามเข้าถึงฐานข้อมูล SMS และรายชื่อติดต่อ (api_sms_call) ซึ่งเป็นพฤติกรรมของ Spyware และขอสิทธิ์อันตรายจำนวนมากที่ไม่เกี่ยวข้องกับการทำงานของแอป ทำให้สรุปได้ว่าเป็นมัลแวร์",
+    "warning_points": [
+        "**RED FLAG (อันตรายทันที):** พบการใช้งาน `api_dexloading` (Dynamic Class Loading) จำนวน 3 ครั้ง ซึ่งเป็นพฤติกรรมคลาสสิกของมัลแวร์ประเภท Dropper ที่ใช้โหลดโค้ดอันตรายมาทำงานทีหลัง",
+        "**RED FLAG (อันตรายทันที):** แอปดูการ์ตูนแต่มีการเรียกใช้ `api_sms_call` (Query Database of SMS, Contacts etc) จำนวน 3 ครั้ง ซึ่งบ่งชี้ถึงพฤติกรรมของ Spyware หรือ SMS Stealer",
+        "ตรวจพบโดย VirusTotal 9/76 รายการ โดยระบุว่าเป็น Trojan, AppRisk:Generisk, Andr/Xgen-BLO, AndroidOS.Evo, PUP/Android.PornAgent ซึ่งยืนยันสถานะเป็นมัลแวร์",
+        "ขอสิทธิ์อันตราย `android.permission.REQUEST_INSTALL_PACKAGES` ซึ่งสามารถใช้ในการติดตั้งแอปพลิเคชันอื่นโดยไม่ได้รับความยินยอมจากผู้ใช้",
+        "ขอสิทธิ์ `android.permission.SYSTEM_ALERT_WINDOW` ที่สามารถสร้างหน้าต่างซ้อนทับเพื่อหลอกลวงผู้ใช้หรือครอบคลุมหน้าจอทั้งหมด",
+        "ขอสิทธิ์ `android.permission.READ_PHONE_STATE` เพื่อเข้าถึงข้อมูลเฉพาะของอุปกรณ์ เช่น IMEI และ `android.permission.MOUNT_UNMOUNT_FILESYSTEMS` ที่มีความสามารถในการจัดการระบบไฟล์",
+        "มีการโหลด Native Code (Shared Library) จำนวน 6 ครั้ง และใช้ Base64 Decode จำนวน 7 ครั้ง ซึ่งอาจใช้ในการซ่อนโค้ดหรือหลบเลี่ยงการวิเคราะห์ (Obfuscation)",
+        "พบการตั้งค่าความปลอดภัยเครือข่ายที่ไม่ปลอดภัย (insecure network configuration) โดยอนุญาตให้มีการสื่อสารผ่าน Clear Text (HTTP) ไปยังทุกโดเมน ซึ่งเสี่ยงต่อการดักจับข้อมูล",
+        "MobSF พบ Risk Findings ระดับ High หลายรายการ เช่น `android_world_writable` (ไฟล์ที่ใครก็เขียนได้), `android_webview_debug` (เปิดการดีบัก WebView ที่อันตราย) และ `cbc_padding_oracle` (ช่องโหว่การเข้ารหัส)"
+    ],
+    "tool_analysis": {
+        "virustotal": "สรุปผล: ตรวจพบว่าเป็นมัลแวร์ 9/76 สแกนเนอร์ (รวมถึง Trojan, Riskware, และ PornAgent) ซึ่งเป็นหลักฐานที่ชัดเจนว่าแอปเป็นอันตราย",
+        "mobsf": "สรุปผล: พบ Suspicious APIs ที่รุนแรงได้แก่ DexLoading (3), SMS/Contacts Database Query (3), Native Code (6), Base64 Decode (7) นอกจากนี้ยังพบ Risk Findings ระดับ High หลายรายการ และการตั้งค่าความปลอดภัยเครือข่ายที่ไม่ปลอดภัย",
+        "cape": "สรุปผล: รายงานผลจาก Zenbox android ว่า 'harmless' ซึ่งขัดแย้งอย่างสิ้นเชิงกับพฤติกรรมการทำงานของโค้ดที่รุนแรงและผลการตรวจจับจาก VirusTotal ซึ่งบ่งชี้ว่า Sandbox นี้อาจไม่สามารถตรวจจับพฤติกรรม Dynamic Payload หรือ Dropper ที่ซับซ้อนได้"
+    }
+}

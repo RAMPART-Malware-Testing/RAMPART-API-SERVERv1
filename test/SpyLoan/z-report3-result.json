@@ -1,0 +1,244 @@
+{
+    "virustotal": {
+        "file_info": {
+            "names": [
+                "6.apk",
+                "jerry_1.9.1_46146860.apk",
+                "ce8750ef4d2df3a4d058bdb0db44e4552a8ae038a1210dd51efa7d4169fc42c4.apk"
+            ],
+            "meaningful_name": "6.apk",
+            "type": "Android",
+            "size": 28558246,
+            "hashes": {
+                "md5": "51eb9133e3feadde267b4ad228e1d5ac",
+                "sha1": "b79432734cc7e925c2eb8a1117c4367ed5a6bce5",
+                "sha256": "ce8750ef4d2df3a4d058bdb0db44e4552a8ae038a1210dd51efa7d4169fc42c4"
+            }
+        },
+        "app_identity": {
+            "package_name": "com.blibiliyyq.bbyyq1025.d1763045974642225934",
+            "developer_signer": "Your Company",
+            "is_verified": null,
+            "is_trusted_developer": false
+        },
+        "scan_summary": {
+            "malicious_count": 9,
+            "suspicious_count": 0,
+            "undetected_count": 57,
+            "harmless_count": 0,
+            "total_scanners": 76,
+            "reputation": -11,
+            "community_votes": {
+                "harmless": 0,
+                "malicious": 1
+            }
+        },
+        "threats_found": {
+            "malicious": [
+                "K7GW: Trojan ( 0001140e1 )",
+                "SymantecMobileInsight: AppRisk:Generisk",
+                "Sophos: Andr/Xgen-BLO",
+                "Ikarus: AndroidOS.Evo",
+                "Google: Detected",
+                "ZoneAlarm: Andr/Xgen-BLO",
+                "Avast-Mobile: Android:Evo-gen [Trj]",
+                "BitDefenderFalx: Android.Riskware.Porn.G",
+                "AhnLab-V3: PUP/Android.PornAgent.1212899"
+            ],
+            "suspicious": []
+        },
+        "security_analysis": {
+            "sigma_rules": {},
+            "sandbox_results": [
+                {
+                    "sandbox": "Zenbox android",
+                    "category": "harmless",
+                    "malware_classification": [
+                        "CLEAN"
+                    ]
+                }
+            ]
+        },
+        "permissions": [
+            "android.permission.REQUEST_INSTALL_PACKAGES",
+            "android.permission.READ_EXTERNAL_STORAGE",
+            "android.permission.ACCESS_WIFI_STATE",
+            "android.permission.SYSTEM_OVERLAY_WINDOW",
+            "android.permission.SYSTEM_ALERT_WINDOW",
+            "android.permission.CAMERA",
+            "android.permission.WAKE_LOCK",
+            "android.permission.ACCESS_NETWORK_STATE",
+            "android.permission.READ_PHONE_STATE",
+            "android.permission.FOREGROUND_SERVICE",
+            "android.permission.MOUNT_UNMOUNT_FILESYSTEMS",
+            "android.permission.INTERNET",
+            "android.permission.WRITE_EXTERNAL_STORAGE"
+        ],
+        "tags": [
+            "telephony",
+            "checks-cpu-name",
+            "runtime-modules",
+            "clipboard",
+            "obfuscated",
+            "contains-elf",
+            "checks-gps",
+            "apk",
+            "crypto",
+            "android"
+        ]
+    },
+    "mobsf": {
+        "file_info": {
+            "app_name": "bilibili禁漫",
+            "package_name": "com.blibiliyyq.bbyyq1025.d1763045974642225934",
+            "version_name": "1.9.1",
+            "size": "27.24MB",
+            "md5": "51eb9133e3feadde267b4ad228e1d5ac"
+        },
+        "security_score": 43,
+        "code_behavior": {
+            "suspicious_apis": [
+                {
+                    "type": "api_dexloading",
+                    "description": "Dynamic Class and Dexloading",
+                    "file_count": 3
+                },
+                {
+                    "type": "api_native_code",
+                    "description": "Loading Native Code (Shared Library)",
+                    "file_count": 6
+                },
+                {
+                    "type": "api_base64_decode",
+                    "description": "Base64 Decode",
+                    "file_count": 7
+                },
+                {
+                    "type": "api_sms_call",
+                    "description": "Query Database of SMS, Contacts etc",
+                    "file_count": 3
+                }
+            ],
+            "risk_findings": [
+                {
+                    "rule_id": "android_insecure_random",
+                    "title": "android_insecure_random",
+                    "severity": "warning"
+                },
+                {
+                    "rule_id": "android_read_write_external",
+                    "title": "android_read_write_external",
+                    "severity": "warning"
+                },
+                {
+                    "rule_id": "android_hardcoded",
+                    "title": "android_hardcoded",
+                    "severity": "warning"
+                },
+                {
+                    "rule_id": "android_ip_disclosure",
+                    "title": "android_ip_disclosure",
+                    "severity": "warning"
+                },
+                {
+                    "rule_id": "android_world_writable",
+                    "title": "android_world_writable",
+                    "severity": "high"
+                },
+                {
+                    "rule_id": "android_webview_debug",
+                    "title": "android_webview_debug",
+                    "severity": "high"
+                },
+                {
+                    "rule_id": "android_md5",
+                    "title": "android_md5",
+                    "severity": "warning"
+                },
+                {
+                    "rule_id": "android_temp_file",
+                    "title": "android_temp_file",
+                    "severity": "warning"
+                },
+                {
+                    "rule_id": "android_sql_raw_query",
+                    "title": "android_sql_raw_query",
+                    "severity": "warning"
+                },
+                {
+                    "rule_id": "android_webview",
+                    "title": "android_webview",
+                    "severity": "warning"
+                },
+                {
+                    "rule_id": "cbc_padding_oracle",
+                    "title": "cbc_padding_oracle",
+                    "severity": "high"
+                },
+                {
+                    "rule_id": "android_sha1",
+                    "title": "android_sha1",
+                    "severity": "warning"
+                }
+            ]
+        },
+        "signer_info": {
+            "raw_data": "Binary is signed\nv1 signature: True\nv2 signature: True\nv3 signature: False\nv4 signature: False\nX.509 Subject: C=Your Country, ST=Your State, L=Your City, O=Your Company, OU=Your Org, CN=Your Name\nSignature Algorithm: rsassa_pkcs1v15\nValid From: 2025-10-18 02:35:47+00:00\nValid To: 2050-10-12 02:35:47+00:00\nIssuer: C=Your Country, ST=Your State, L=Your City, O=Your Company, OU=Your Org, CN=Your Name\nSerial Number: 0xb50331a55c335552\nHash Algorithm: sha256\nmd5: ab3a9030c8c88d637a516342dba1f69d\nsha1",
+            "is_debug_cert": false,
+            "bad_certificate": false
+        },
+        "permissions": [
+            {
+                "name": "android.permission.READ_EXTERNAL_STORAGE",
+                "description": "Allows an application to read from external storage."
+            },
+            {
+                "name": "android.permission.WRITE_EXTERNAL_STORAGE",
+                "description": "Allows an application to write to external storage."
+            },
+            {
+                "name": "android.permission.REQUEST_INSTALL_PACKAGES",
+                "description": "Malicious applications can use this to try and trick users into installing additional malicious packages."
+            },
+            {
+                "name": "android.permission.CAMERA",
+                "description": "Allows application to take pictures and videos with the camera. This allows the application to collect images that the camera is seeing at any time."
+            },
+            {
+                "name": "android.permission.READ_PHONE_STATE",
+                "description": "Allows the application to access the phone features of the device. An application with this permission can determine the phone number and serial number of this phone, whether a call is active, the number that call is connected to and so on."
+            },
+            {
+                "name": "android.permission.MOUNT_UNMOUNT_FILESYSTEMS",
+                "description": "Allows the application to mount and unmount file systems for removable storage."
+            },
+            {
+                "name": "android.permission.SYSTEM_ALERT_WINDOW",
+                "description": "Allows an application to show system-alert windows. Malicious applications can take over the entire screen of the phone."
+            }
+        ],
+        "dangerous_services": [],
+        "suspicious_api_calls": [],
+        "high_risk_components": [],
+        "store_info": null,
+        "network_security": {
+            "summary": {
+                "high": 1,
+                "warning": 0,
+                "secure": 0
+            },
+            "configured_domains": [
+                "*"
+            ],
+            "vulnerabilities": [
+                {
+                    "severity": "high",
+                    "scope": [
+                        "*"
+                    ],
+                    "description": "Base config is insecurely configured to permit clear text traffic to all domains."
+                }
+            ]
+        }
+    }
+}

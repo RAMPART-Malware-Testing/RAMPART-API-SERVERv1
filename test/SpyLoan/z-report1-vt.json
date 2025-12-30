@@ -1,0 +1,1038 @@
+{
+    "data": {
+        "id": "ce8750ef4d2df3a4d058bdb0db44e4552a8ae038a1210dd51efa7d4169fc42c4",
+        "type": "file",
+        "links": {
+            "self": "https://www.virustotal.com/api/v3/files/ce8750ef4d2df3a4d058bdb0db44e4552a8ae038a1210dd51efa7d4169fc42c4"
+        },
+        "attributes": {
+            "type_description": "Android",
+            "times_submitted": 11,
+            "tlsh": "T15B572397FB29883FD5FB15B38D6A013277729E0086826B137654762C2D3329E4F99BC4",
+            "unique_sources": 10,
+            "md5": "51eb9133e3feadde267b4ad228e1d5ac",
+            "trid": [
+                {
+                    "file_type": "Android Package",
+                    "probability": 43.8
+                },
+                {
+                    "file_type": "Java Archive",
+                    "probability": 21.9
+                },
+                {
+                    "file_type": "Sweet Home 3D Design (generic)",
+                    "probability": 17.0
+                },
+                {
+                    "file_type": "GRASP animation",
+                    "probability": 10.5
+                },
+                {
+                    "file_type": "ZIP compressed archive",
+                    "probability": 6.5
+                }
+            ],
+            "reputation": -11,
+            "magika": "APK",
+            "last_analysis_date": 1766997642,
+            "last_analysis_results": {
+                "Bkav": {
+                    "method": "blacklist",
+                    "engine_name": "Bkav",
+                    "engine_version": "2.0.0.1",
+                    "engine_update": "20251227",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Lionic": {
+                    "method": "blacklist",
+                    "engine_name": "Lionic",
+                    "engine_version": "8.16",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Elastic": {
+                    "method": "blacklist",
+                    "engine_name": "Elastic",
+                    "engine_version": "4.0.242",
+                    "engine_update": "20251219",
+                    "category": "undetected",
+                    "result": null
+                },
+                "MicroWorld-eScan": {
+                    "method": "blacklist",
+                    "engine_name": "MicroWorld-eScan",
+                    "engine_version": "14.0.409.0",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "CTX": {
+                    "method": "blacklist",
+                    "engine_name": "CTX",
+                    "engine_version": "2024.8.29.1",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "CAT-QuickHeal": {
+                    "method": "blacklist",
+                    "engine_name": "CAT-QuickHeal",
+                    "engine_version": "22.00",
+                    "engine_update": "20251228",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Skyhigh": {
+                    "method": "blacklist",
+                    "engine_name": "Skyhigh",
+                    "engine_version": "v2021.2.0+4045",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Malwarebytes": {
+                    "method": "blacklist",
+                    "engine_name": "Malwarebytes",
+                    "engine_version": "3.1.0.185",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "VIPRE": {
+                    "method": "blacklist",
+                    "engine_name": "VIPRE",
+                    "engine_version": "6.0.0.35",
+                    "engine_update": "20251228",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Sangfor": {
+                    "method": "blacklist",
+                    "engine_name": "Sangfor",
+                    "engine_version": "2.22.3.0",
+                    "engine_update": "20251226",
+                    "category": "undetected",
+                    "result": null
+                },
+                "CrowdStrike": {
+                    "method": "blacklist",
+                    "engine_name": "CrowdStrike",
+                    "engine_version": "1.0",
+                    "engine_update": "20231026",
+                    "category": "undetected",
+                    "result": null
+                },
+                "BitDefender": {
+                    "method": "blacklist",
+                    "engine_name": "BitDefender",
+                    "engine_version": "7.2",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "K7GW": {
+                    "method": "blacklist",
+                    "engine_name": "K7GW",
+                    "engine_version": "14.25.58130",
+                    "engine_update": "20251229",
+                    "category": "malicious",
+                    "result": "Trojan ( 0001140e1 )"
+                },
+                "K7AntiVirus": {
+                    "method": "blacklist",
+                    "engine_name": "K7AntiVirus",
+                    "engine_version": "14.25.58130",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Baidu": {
+                    "method": "blacklist",
+                    "engine_name": "Baidu",
+                    "engine_version": "1.0.0.2",
+                    "engine_update": "20190318",
+                    "category": "undetected",
+                    "result": null
+                },
+                "VirIT": {
+                    "method": "blacklist",
+                    "engine_name": "VirIT",
+                    "engine_version": "9.5.1112",
+                    "engine_update": "20251224",
+                    "category": "undetected",
+                    "result": null
+                },
+                "SymantecMobileInsight": {
+                    "method": "blacklist",
+                    "engine_name": "SymantecMobileInsight",
+                    "engine_version": "2.0",
+                    "engine_update": "20250124",
+                    "category": "malicious",
+                    "result": "AppRisk:Generisk"
+                },
+                "Symantec": {
+                    "method": "blacklist",
+                    "engine_name": "Symantec",
+                    "engine_version": "1.22.0.0",
+                    "engine_update": "20251228",
+                    "category": "undetected",
+                    "result": null
+                },
+                "ESET-NOD32": {
+                    "method": "blacklist",
+                    "engine_name": "ESET-NOD32",
+                    "engine_version": "18.2.18.0",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "TrendMicro-HouseCall": {
+                    "method": "blacklist",
+                    "engine_name": "TrendMicro-HouseCall",
+                    "engine_version": "24.550.0.1002",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Avast": {
+                    "method": "blacklist",
+                    "engine_name": "Avast",
+                    "engine_version": "23.9.8494.0",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "ClamAV": {
+                    "method": "blacklist",
+                    "engine_name": "ClamAV",
+                    "engine_version": "1.5.1.0",
+                    "engine_update": "20251228",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Kaspersky": {
+                    "method": "blacklist",
+                    "engine_name": "Kaspersky",
+                    "engine_version": "22.0.1.28",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Alibaba": {
+                    "method": "blacklist",
+                    "engine_name": "Alibaba",
+                    "engine_version": "0.3.0.5",
+                    "engine_update": "20190527",
+                    "category": "undetected",
+                    "result": null
+                },
+                "NANO-Antivirus": {
+                    "method": "blacklist",
+                    "engine_name": "NANO-Antivirus",
+                    "engine_version": "1.0.170.26895",
+                    "engine_update": "20251219",
+                    "category": "undetected",
+                    "result": null
+                },
+                "ViRobot": {
+                    "method": "blacklist",
+                    "engine_name": "ViRobot",
+                    "engine_version": "2014.3.20.0",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Rising": {
+                    "method": "blacklist",
+                    "engine_name": "Rising",
+                    "engine_version": "25.0.0.28",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Trustlook": {
+                    "method": "blacklist",
+                    "engine_name": "Trustlook",
+                    "engine_version": "1.0",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Sophos": {
+                    "method": "blacklist",
+                    "engine_name": "Sophos",
+                    "engine_version": "3.3.1.0",
+                    "engine_update": "20251229",
+                    "category": "malicious",
+                    "result": "Andr/Xgen-BLO"
+                },
+                "F-Secure": {
+                    "method": "blacklist",
+                    "engine_name": "F-Secure",
+                    "engine_version": "18.10.1547.307",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "DrWeb": {
+                    "method": "blacklist",
+                    "engine_name": "DrWeb",
+                    "engine_version": "7.0.72.9030",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Zillya": {
+                    "method": "blacklist",
+                    "engine_name": "Zillya",
+                    "engine_version": "2.0.0.5513",
+                    "engine_update": "20251226",
+                    "category": "undetected",
+                    "result": null
+                },
+                "TrendMicro": {
+                    "method": "blacklist",
+                    "engine_name": "TrendMicro",
+                    "engine_version": "24.550.0.1002",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "McAfeeD": {
+                    "method": "blacklist",
+                    "engine_name": "McAfeeD",
+                    "engine_version": "1.2.0.10275",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "CMC": {
+                    "method": "blacklist",
+                    "engine_name": "CMC",
+                    "engine_version": "2.4.2022.1",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Emsisoft": {
+                    "method": "blacklist",
+                    "engine_name": "Emsisoft",
+                    "engine_version": "2024.8.0.61147",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Ikarus": {
+                    "method": "blacklist",
+                    "engine_name": "Ikarus",
+                    "engine_version": "6.4.16.0",
+                    "engine_update": "20251228",
+                    "category": "malicious",
+                    "result": "AndroidOS.Evo"
+                },
+                "GData": {
+                    "method": "blacklist",
+                    "engine_name": "GData",
+                    "engine_version": "GD:27.43003AVA:64.30401",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Jiangmin": {
+                    "method": "blacklist",
+                    "engine_name": "Jiangmin",
+                    "engine_version": "16.0.100",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Webroot": {
+                    "method": "blacklist",
+                    "engine_name": "Webroot",
+                    "engine_version": "1.9.0.8",
+                    "engine_update": "20250227",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Google": {
+                    "method": "blacklist",
+                    "engine_name": "Google",
+                    "engine_version": "1766988037",
+                    "engine_update": "20251229",
+                    "category": "malicious",
+                    "result": "Detected"
+                },
+                "Avira": {
+                    "method": "blacklist",
+                    "engine_name": "Avira",
+                    "engine_version": "8.3.3.24",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Antiy-AVL": {
+                    "method": "blacklist",
+                    "engine_name": "Antiy-AVL",
+                    "engine_version": "3.0",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Kingsoft": {
+                    "method": "blacklist",
+                    "engine_name": "Kingsoft",
+                    "engine_version": "None",
+                    "engine_update": "20251225",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Microsoft": {
+                    "method": "blacklist",
+                    "engine_name": "Microsoft",
+                    "engine_version": "1.1.25110.1",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Gridinsoft": {
+                    "method": "blacklist",
+                    "engine_name": "Gridinsoft",
+                    "engine_version": "1.0.231.174",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Xcitium": {
+                    "method": "blacklist",
+                    "engine_name": "Xcitium",
+                    "engine_version": "38299",
+                    "engine_update": "20251228",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Arcabit": {
+                    "method": "blacklist",
+                    "engine_name": "Arcabit",
+                    "engine_version": "2025.0.0.23",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "SUPERAntiSpyware": {
+                    "method": "blacklist",
+                    "engine_name": "SUPERAntiSpyware",
+                    "engine_version": "5.6.0.1032",
+                    "engine_update": "20251227",
+                    "category": "undetected",
+                    "result": null
+                },
+                "ZoneAlarm": {
+                    "method": "blacklist",
+                    "engine_name": "ZoneAlarm",
+                    "engine_version": "6.21-110947353",
+                    "engine_update": "20251229",
+                    "category": "malicious",
+                    "result": "Andr/Xgen-BLO"
+                },
+                "Avast-Mobile": {
+                    "method": "blacklist",
+                    "engine_name": "Avast-Mobile",
+                    "engine_version": "251228-00",
+                    "engine_update": "20251228",
+                    "category": "malicious",
+                    "result": "Android:Evo-gen [Trj]"
+                },
+                "Varist": {
+                    "method": "blacklist",
+                    "engine_name": "Varist",
+                    "engine_version": "6.6.1.3",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "BitDefenderFalx": {
+                    "method": "blacklist",
+                    "engine_name": "BitDefenderFalx",
+                    "engine_version": "2.0.936",
+                    "engine_update": "20251216",
+                    "category": "malicious",
+                    "result": "Android.Riskware.Porn.G"
+                },
+                "AhnLab-V3": {
+                    "method": "blacklist",
+                    "engine_name": "AhnLab-V3",
+                    "engine_version": "3.29.1.10604",
+                    "engine_update": "20251229",
+                    "category": "malicious",
+                    "result": "PUP/Android.PornAgent.1212899"
+                },
+                "Acronis": {
+                    "method": "blacklist",
+                    "engine_name": "Acronis",
+                    "engine_version": "1.2.0.121",
+                    "engine_update": "20240328",
+                    "category": "undetected",
+                    "result": null
+                },
+                "VBA32": {
+                    "method": "blacklist",
+                    "engine_name": "VBA32",
+                    "engine_version": "5.5.0",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "TACHYON": {
+                    "method": "blacklist",
+                    "engine_name": "TACHYON",
+                    "engine_version": "2025-12-29.02",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Zoner": {
+                    "method": "blacklist",
+                    "engine_name": "Zoner",
+                    "engine_version": "2.2.2.0",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Tencent": {
+                    "method": "blacklist",
+                    "engine_name": "Tencent",
+                    "engine_version": "1.0.0.1",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Yandex": {
+                    "method": "blacklist",
+                    "engine_name": "Yandex",
+                    "engine_version": "5.5.2.24",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "TrellixENS": {
+                    "method": "blacklist",
+                    "engine_name": "TrellixENS",
+                    "engine_version": "6.0.6.653",
+                    "engine_update": "20251228",
+                    "category": "undetected",
+                    "result": null
+                },
+                "huorong": {
+                    "method": "blacklist",
+                    "engine_name": "huorong",
+                    "engine_version": "4136725:4136725:3883e7f:3883e7f",
+                    "engine_update": "20251228",
+                    "category": "undetected",
+                    "result": null
+                },
+                "MaxSecure": {
+                    "method": "blacklist",
+                    "engine_name": "MaxSecure",
+                    "engine_version": "1.0.0.1",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Fortinet": {
+                    "method": "blacklist",
+                    "engine_name": "Fortinet",
+                    "engine_version": "7.0.30.0",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "AVG": {
+                    "method": "blacklist",
+                    "engine_name": "AVG",
+                    "engine_version": "23.9.8494.0",
+                    "engine_update": "20251229",
+                    "category": "undetected",
+                    "result": null
+                },
+                "Panda": {
+                    "method": "blacklist",
+                    "engine_name": "Panda",
+                    "engine_version": "4.6.4.2",
+                    "engine_update": "20251228",
+                    "category": "undetected",
+                    "result": null
+                },
+                "ALYac": {
+                    "method": "blacklist",
+                    "engine_name": "ALYac",
+                    "engine_version": "2.0.0.10",
+                    "engine_update": "20251229",
+                    "category": "failure",
+                    "result": null
+                },
+                "DeepInstinct": {
+                    "method": "blacklist",
+                    "engine_name": "DeepInstinct",
+                    "engine_version": "5.0.0.8",
+                    "engine_update": "20251226",
+                    "category": "type-unsupported",
+                    "result": null
+                },
+                "tehtris": {
+                    "method": "blacklist",
+                    "engine_name": "tehtris",
+                    "engine_version": "v0.1.4",
+                    "engine_update": "20251229",
+                    "category": "type-unsupported",
+                    "result": null
+                },
+                "Trapmine": {
+                    "method": "blacklist",
+                    "engine_name": "Trapmine",
+                    "engine_version": "4.0.7.0",
+                    "engine_update": "20251125",
+                    "category": "type-unsupported",
+                    "result": null
+                },
+                "Paloalto": {
+                    "method": "blacklist",
+                    "engine_name": "Paloalto",
+                    "engine_version": "0.9.0.1003",
+                    "engine_update": "20251229",
+                    "category": "type-unsupported",
+                    "result": null
+                },
+                "Cynet": {
+                    "method": "blacklist",
+                    "engine_name": "Cynet",
+                    "engine_version": "4.0.3.4",
+                    "engine_update": "20251229",
+                    "category": "type-unsupported",
+                    "result": null
+                },
+                "APEX": {
+                    "method": "blacklist",
+                    "engine_name": "APEX",
+                    "engine_version": "6.730",
+                    "engine_update": "20251228",
+                    "category": "type-unsupported",
+                    "result": null
+                },
+                "Cylance": {
+                    "method": "blacklist",
+                    "engine_name": "Cylance",
+                    "engine_version": "3.0.0.0",
+                    "engine_update": "20251205",
+                    "category": "type-unsupported",
+                    "result": null
+                },
+                "SentinelOne": {
+                    "method": "blacklist",
+                    "engine_name": "SentinelOne",
+                    "engine_version": "7.5.3.1",
+                    "engine_update": "20251224",
+                    "category": "type-unsupported",
+                    "result": null
+                },
+                "alibabacloud": {
+                    "method": "blacklist",
+                    "engine_name": "alibabacloud",
+                    "engine_version": "2.2.0",
+                    "engine_update": "20250321",
+                    "category": "type-unsupported",
+                    "result": null
+                }
+            },
+            "vhash": "b749b4d7c1437cdbf028e7aad8f60f28",
+            "bundle_info": {
+                "highest_datetime": "1981-01-01 01:01:02",
+                "lowest_datetime": "1981-01-01 01:01:02",
+                "num_children": 2464,
+                "extensions": {
+                    "dex": 3,
+                    "xml": 695,
+                    "json": 1,
+                    "jpg": 3,
+                    "webp": 4,
+                    "so": 36,
+                    "properties": 1,
+                    "png": 256
+                },
+                "file_types": {
+                    "DEX": 3,
+                    "XML": 695,
+                    "unknown": 7,
+                    "ELF": 36,
+                    "JPG": 3,
+                    "PNG": 256
+                },
+                "type": "APK",
+                "uncompressed_size": 55119606
+            },
+            "sha256": "ce8750ef4d2df3a4d058bdb0db44e4552a8ae038a1210dd51efa7d4169fc42c4",
+            "tags": [
+                "telephony",
+                "checks-cpu-name",
+                "runtime-modules",
+                "clipboard",
+                "obfuscated",
+                "contains-elf",
+                "checks-gps",
+                "apk",
+                "crypto",
+                "android",
+                "reflection"
+            ],
+            "names": [
+                "6.apk",
+                "jerry_1.9.1_46146860.apk",
+                "ce8750ef4d2df3a4d058bdb0db44e4552a8ae038a1210dd51efa7d4169fc42c4.apk"
+            ],
+            "total_votes": {
+                "harmless": 0,
+                "malicious": 1
+            },
+            "sandbox_verdicts": {
+                "Zenbox android": {
+                    "category": "harmless",
+                    "malware_classification": [
+                        "CLEAN"
+                    ],
+                    "sandbox_name": "Zenbox android",
+                    "confidence": 81
+                }
+            },
+            "permhash": "5dc24d0cb24b4928a25e484c430c1c251adb5bf67fbc8c0a49b283d2aab2f80b",
+            "ssdeep": "786432:QZoyJIPMzROtfXyvY9Txn8jz7vAMc3dIkv7BLvfo:QikIPlNyA9TxnuwMcNBv7BL4",
+            "first_submission_date": 1763841619,
+            "magic": "Zip archive data, at least v0.0 to extract, compression method=store",
+            "last_submission_date": 1767034892,
+            "meaningful_name": "6.apk",
+            "type_tags": [
+                "executable",
+                "mobile",
+                "android",
+                "apk"
+            ],
+            "last_analysis_stats": {
+                "malicious": 9,
+                "suspicious": 0,
+                "undetected": 57,
+                "harmless": 0,
+                "timeout": 0,
+                "confirmed-timeout": 0,
+                "failure": 1,
+                "type-unsupported": 9
+            },
+            "picklescan": {
+                "globals": [],
+                "contains_invalid_pickle": false,
+                "issues_count": 0
+            },
+            "size": 28558246,
+            "type_extension": "apk",
+            "androguard": {
+                "VTAndroidInfo": 2.0,
+                "AndroidApplicationError": false,
+                "MinSdkVersion": "22",
+                "AndroguardVersion": "4.1.2",
+                "Activities": [
+                    "com.grass.mh.SplashActivity",
+                    "com.blankj.utilcode.util.UtilsTransActivity",
+                    "com.blankj.utilcode.util.UtilsTransActivity4MainProcess",
+                    "com.grass.mh.MainActivity",
+                    "com.grass.mh.ui.ai.AIWebViewActivity",
+                    "com.grass.mh.ui.comic.activity.ComicDetailActivity",
+                    "com.grass.mh.ui.comic.activity.ComicEndActivity",
+                    "com.grass.mh.ui.comic.activity.ComicMoreActivity",
+                    "com.grass.mh.ui.comic.activity.ComicRankingActivity",
+                    "com.grass.mh.ui.comic.activity.ComicsCategoryActivity",
+                    "com.grass.mh.ui.comic.activity.ComicsChapterDetailActivity",
+                    "com.grass.mh.ui.comic.activity.ComicsSearchActivity",
+                    "com.grass.mh.ui.comic.activity.LabelDetailActivity",
+                    "com.grass.mh.ui.comic.activity.YellowGameActivity",
+                    "com.grass.mh.ui.community.BloggerCollectActivity",
+                    "com.grass.mh.ui.community.BloggerHomeActivity",
+                    "com.grass.mh.ui.community.BloggerMoreActivity",
+                    "com.grass.mh.ui.community.BottleDetailActivity",
+                    "com.grass.mh.ui.community.ChatActivity",
+                    "com.grass.mh.ui.community.FindVideoChannelActivity",
+                    "com.grass.mh.ui.community.GalleryPhotoActivity",
+                    "com.grass.mh.ui.community.GalleryViewActivity",
+                    "com.grass.mh.ui.community.HookUpDetailActivity",
+                    "com.grass.mh.ui.community.MakeMoneyDetailActivity",
+                    "com.grass.mh.ui.community.MyCommunityActivity",
+                    "com.grass.mh.ui.community.NearbyGirlActivity",
+                    "com.grass.mh.ui.community.PlotDetailsActivity",
+                    "com.grass.mh.ui.community.PostDetailActivity",
+                    "com.grass.mh.ui.community.PostDetailPhotoTextActivity",
+                    "com.grass.mh.ui.community.ReleaseActivity",
+                    "com.grass.mh.ui.community.ReleaseBottleActivity",
+                    "com.grass.mh.ui.community.ReleaseLabelActivity",
+                    "com.grass.mh.ui.community.ReleaseRuleActivity",
+                    "com.grass.mh.ui.community.ReleaseTopicActivity",
+                    "com.grass.mh.ui.community.ReleaseVideoActivity",
+                    "com.grass.mh.ui.community.SquareHookDetailActivity",
+                    "com.grass.mh.ui.community.TopicHomeActivity",
+                    "com.grass.mh.ui.community.UpRecruitActivity",
+                    "com.grass.mh.ui.community.VideoPlayCoverActivity",
+                    "com.grass.mh.ui.feature.FansActivity",
+                    "com.grass.mh.ui.feature.FilterActivity",
+                    "com.grass.mh.ui.feature.FreeVideoActivity",
+                    "com.grass.mh.ui.feature.GirlDetailActivity",
+                    "com.grass.mh.ui.feature.HomeActivityActivity",
+                    "com.grass.mh.ui.feature.MangaActivity",
+                    "com.grass.mh.ui.feature.MangaMoreActivity",
+                    "com.grass.mh.ui.feature.MangaMoreActivitySingle",
+                    "com.grass.mh.ui.feature.MangaPicActivity",
+                    "com.grass.mh.ui.feature.NovelActivity",
+                    "com.grass.mh.ui.feature.NovelMoreActivitySingle",
+                    "com.grass.mh.ui.feature.PhotoDetailsActivity",
+                    "com.grass.mh.ui.feature.PhotoMoreActivity",
+                    "com.grass.mh.ui.feature.VideoClassifyActivity",
+                    "com.grass.mh.ui.home.AgentWithDrawalActivity",
+                    "com.grass.mh.ui.home.BloggerUserHomeActivity",
+                    "com.grass.mh.ui.home.GameActivity",
+                    "com.grass.mh.ui.home.GameListActivity",
+                    "com.grass.mh.ui.home.HomeBloggerMoreActivity",
+                    "com.grass.mh.ui.home.HomeClassifySecondActivity",
+                    "com.grass.mh.ui.home.HomeMoreActivity",
+                    "com.grass.mh.ui.home.MakeMoneyDescriptionActivity",
+                    "com.grass.mh.ui.home.MallShopAddressActivity",
+                    "com.grass.mh.ui.home.MallShopDetailActivity",
+                    "com.grass.mh.ui.home.OnlinePlayActivity",
+                    "com.grass.mh.ui.home.OnlinePlayDetailActivity",
+                    "com.grass.mh.ui.home.PromotionDataActivity",
+                    "com.grass.mh.ui.home.RelateVideoMoreActivity",
+                    "com.grass.mh.ui.home.TakeFreeActivity",
+                    "com.grass.mh.ui.home.VideoCollectionMoreActivity",
+                    "com.grass.mh.ui.home.VideoPlayActivity",
+                    "com.grass.mh.ui.home.VideoPlayCollectionActivity",
+                    "com.grass.mh.ui.home.VideoPlayCollectionMoreActivity",
+                    "com.grass.mh.ui.home.VideoPlayFullActivity",
+                    "com.grass.mh.ui.home.VideoStationMoreActivity",
+                    "com.grass.mh.ui.home.VideoTagMoreActivity",
+                    "com.grass.mh.ui.home.VideoTagMoreActivityShort",
+                    "com.grass.mh.ui.home.WebViewActivity",
+                    "com.grass.mh.ui.home.search.SearchOtherActivity",
+                    "com.grass.mh.ui.home.search.SearchOtherComicActivity",
+                    "com.grass.mh.ui.home.search.SearchOtherResultActivity",
+                    "com.grass.mh.ui.live.LiveActivity",
+                    "com.grass.mh.ui.live.LivePlayActivity",
+                    "com.grass.mh.ui.mine.activity.AccountCredentialsActivity",
+                    "com.grass.mh.ui.mine.activity.AddGroupActivity",
+                    "com.grass.mh.ui.mine.activity.BindCodeActivity",
+                    "com.grass.mh.ui.mine.activity.BuyHistoryActivity",
+                    "com.grass.mh.ui.mine.activity.CitySelectActivity",
+                    "com.grass.mh.ui.mine.activity.ContactOfficialActivity",
+                    "com.grass.mh.ui.mine.activity.EditUserInfoActivity",
+                    "com.grass.mh.ui.mine.activity.ExchangeVipActivity",
+                    "com.grass.mh.ui.mine.activity.LoginActivity",
+                    "com.grass.mh.ui.mine.activity.MessageActivity",
+                    "com.grass.mh.ui.mine.activity.MineAttentionActivity",
+                    "com.grass.mh.ui.mine.activity.MineBuyActivity",
+                    "com.grass.mh.ui.mine.activity.MineCollectActivity",
+                    "com.grass.mh.ui.mine.activity.MineDownLoadVideoActivity",
+                    "com.grass.mh.ui.mine.activity.MineHistoryVideoActivity",
+                    "com.grass.mh.ui.mine.activity.MineMessageCommentActivity",
+                    "com.grass.mh.ui.mine.activity.NotificationActivity",
+                    "com.grass.mh.ui.mine.activity.OnlineServiceActivity"
+                ],
+                "certificate": {
+                    "Subject": {
+                        "DN": "C:Your Country, CN:Your Name, L:Your City, O:Your Company, ST:Your State, OU:Your Org",
+                        "C": "Your Country",
+                        "CN": "Your Name",
+                        "L": "Your City",
+                        "O": "Your Company",
+                        "ST": "Your State",
+                        "OU": "Your Org"
+                    },
+                    "validto": "2050-10-12 02:35:47",
+                    "serialnumber": "b50331a55c335552",
+                    "thumbprint": "68ed8a46b5ee9e06fe1c084c34cfc29d4baec2e1",
+                    "validfrom": "2025-10-18 02:35:47",
+                    "Issuer": {
+                        "DN": "C:Your Country, CN:Your Name, L:Your City, O:Your Company, ST:Your State, OU:Your Org",
+                        "C": "Your Country",
+                        "CN": "Your Name",
+                        "L": "Your City",
+                        "O": "Your Company",
+                        "ST": "Your State",
+                        "OU": "Your Org"
+                    }
+                },
+                "AndroidApplication": 1,
+                "RiskIndicator": {
+                    "APK": {
+                        "DEX": 3,
+                        "SHARED LIBRARIES": 36
+                    },
+                    "PERM": {
+                        "DEVELOPMENT": 1,
+                        "INSTANT": 3,
+                        "PRE23": 1,
+                        "APPOP": 2,
+                        "INTERNET": 1,
+                        "SYSTEM": 1,
+                        "DANGEROUS": 2,
+                        "PREINSTALLED": 1,
+                        "SIGNATURE": 3,
+                        "NORMAL": 4,
+                        "PRIVACY": 2
+                    }
+                },
+                "AndroidVersionCode": "191",
+                "Package": "com.blibiliyyq.bbyyq1025.d1763045974642225934",
+                "Services": [
+                    "com.androidx.lv.base.service.AdClickService",
+                    "com.blankj.utilcode.util.MessengerUtils$ServerService"
+                ],
+                "AndroidVersionName": "1.9.1",
+                "TargetSdkVersion": "29",
+                "AndroidApplicationInfo": "APK",
+                "Providers": [
+                    "androidx.core.content.FileProvider",
+                    "androidx.lifecycle.ProcessLifecycleOwnerInitializer",
+                    "com.blankj.utilcode.util.UtilsFileProvider",
+                    "com.download.library.DownloadFileProvider",
+                    "com.flurry.android.agent.FlurryContentProvider",
+                    "com.just.agentweb.AgentWebFileProvider",
+                    "com.luck.picture.lib.PictureFileProvider",
+                    "com.maning.updatelibrary.MNUpdateApkFileProvider",
+                    "org.dsq.library.CustomInitializer"
+                ],
+                "StringsInformation": [
+                    "http://%s:%d/%s",
+                    "http://dashif.org/guidelines/last-segment-number",
+                    "http://ns.adobe.com/xap/1.0/\u0000",
+                    "http://schemas.android.com/apk/res-auto",
+                    "http://schemas.android.com/apk/res/android",
+                    "http://www.w3.org/ns/ttml#parameter",
+                    "https://aomedia.org/emsg/ID3",
+                    "https://data.flurry.com/aap.do",
+                    "https://data.flurry.com/v1/flr.do",
+                    "https://developer.apple.com/streaming/emsg-id3"
+                ],
+                "main_activity": "com.grass.mh.SplashActivity",
+                "intent_filters": {
+                    "Services": {
+                        "com.blankj.utilcode.util.MessengerUtils$ServerService": {
+                            "action": [
+                                "com.blibiliyyq.bbyyq1025.d1763045974642225934.messenger"
+                            ]
+                        }
+                    },
+                    "Activities": {
+                        "com.grass.mh.ui.mine.activity.LoginActivity": {
+                            "action": [
+                                "om_customer_action_LoginActivity"
+                            ],
+                            "category": [
+                                "android.intent.category.DEFAULT"
+                            ]
+                        },
+                        "com.grass.mh.SplashActivity": {
+                            "action": [
+                                "android.intent.action.MAIN"
+                            ],
+                            "category": [
+                                "android.intent.category.LAUNCHER"
+                            ]
+                        }
+                    }
+                },
+                "permission_details": {
+                    "android.permission.REQUEST_INSTALL_PACKAGES": {
+                        "permission_type": "signature|appop",
+                        "short_description": "request install packages",
+                        "full_description": "Allows an application to request installation of packages."
+                    },
+                    "android.permission.READ_EXTERNAL_STORAGE": {
+                        "permission_type": "dangerous",
+                        "short_description": "read the contents of your shared storage",
+                        "full_description": "Allows the app to read the contents of your shared storage."
+                    },
+                    "android.permission.ACCESS_WIFI_STATE": {
+                        "permission_type": "normal",
+                        "short_description": "view Wi-Fi connections",
+                        "full_description": "Allows the app to view information\n      about Wi-Fi networking, such as whether Wi-Fi is enabled and name of\n      connected Wi-Fi devices."
+                    },
+                    "android.permission.SYSTEM_OVERLAY_WINDOW": {
+                        "permission_type": "normal",
+                        "short_description": "Unknown permission from android reference",
+                        "full_description": "Unknown permission from android reference"
+                    },
+                    "android.permission.SYSTEM_ALERT_WINDOW": {
+                        "permission_type": "signature|preinstalled|appop|pre23|development",
+                        "short_description": "This app can appear on top of other apps",
+                        "full_description": "This app can appear on top of other apps or other parts of the screen. This may interfere with normal app usage and change the way that other apps appear."
+                    },
+                    "android.permission.CAMERA": {
+                        "permission_type": "dangerous|instant",
+                        "short_description": "take pictures and videos",
+                        "full_description": "This app can take pictures and record videos using the camera at any time."
+                    },
+                    "android.permission.WAKE_LOCK": {
+                        "permission_type": "normal|instant",
+                        "short_description": "prevent phone from sleeping",
+                        "full_description": "Allows the app to prevent the phone from going to sleep."
+                    },
+                    "android.permission.ACCESS_NETWORK_STATE": {
+                        "permission_type": "normal|instant",
+                        "short_description": "view network connections",
+                        "full_description": "Allows the app to view\n      information about network connections such as which networks exist and are\n      connected."
+                    },
+                    "android.permission.READ_PHONE_STATE": {
+                        "permission_type": "dangerous",
+                        "short_description": "read phone status and identity",
+                        "full_description": "Allows the app to access the phone\n      features of the device.  This permission allows the app to determine the\n      phone number and device IDs, whether a call is active, and the remote number\n      connected by a call."
+                    },
+                    "android.permission.FOREGROUND_SERVICE": {
+                        "permission_type": "normal|instant",
+                        "short_description": "run foreground service",
+                        "full_description": "Allows the app to make use of foreground services."
+                    },
+                    "android.permission.MOUNT_UNMOUNT_FILESYSTEMS": {
+                        "permission_type": "system|signature",
+                        "short_description": "access SD Card filesystem",
+                        "full_description": "Allows the app to mount and\n        unmount filesystems for removable storage."
+                    },
+                    "android.permission.INTERNET": {
+                        "permission_type": "normal|instant",
+                        "short_description": "have full network access",
+                        "full_description": "Allows the app to create\n     network sockets and use custom network protocols. The browser and other\n     applications provide means to send data to the internet, so this\n     permission is not required to send data to the internet."
+                    },
+                    "android.permission.WRITE_EXTERNAL_STORAGE": {
+                        "permission_type": "dangerous",
+                        "short_description": "modify or delete the contents of your shared storage",
+                        "full_description": "Allows the app to write the contents of your shared storage."
+                    }
+                }
+            },
+            "type_tag": "android",
+            "popular_threat_classification": {
+                "popular_threat_name": [
+                    {
+                        "count": 2,
+                        "value": "andr"
+                    },
+                    {
+                        "count": 2,
+                        "value": "xgen"
+                    }
+                ],
+                "suggested_threat_label": "andr/xgen"
+            },
+            "last_modification_date": 1767034895,
+            "sha1": "b79432734cc7e925c2eb8a1117c4367ed5a6bce5",
+            "filecondis": {
+                "raw_md5": "0d95d1f8d3bf149090b1f83d5eb11008",
+                "dhash": "0000001e0e1d0400"
+            }
+        }
+    }
+}
