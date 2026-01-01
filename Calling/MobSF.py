@@ -407,7 +407,7 @@ class MobSFCall:
         print(f"MobSF scanning file!")
         s = self.scan_uploaded_file(file_hash)
         if not s["success"]:
-            print(f"MobSF File scan failed: {upload_result['error']}")
+            print(f"MobSF File scan failed: {str(upload_result)}")
             return upload_result
         
         print(f"MobSF Scan completed!")
