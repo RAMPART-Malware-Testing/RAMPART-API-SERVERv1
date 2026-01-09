@@ -13,20 +13,28 @@ import json
 
 class CleanCapeReport:
     def __init__(self, json_data):
+        if json_data is None:return None
         # รับ JSON Data (ที่เป็น Dict อยู่แล้ว) เข้ามา
-        self.data = json_data
+        self.data = json_data.get("data")
 
     def get_cape_score(self):
-        """ดึงคะแนน Malscore (0-10)"""
         if not self.data:
             return 0
         return self.data.get("malscore", 0)
 
     def get_malware_family(self):
-        """ดึงชื่อตระกูลมัลแวร์ (ถ้า CAPE ระบุได้)"""
-        if not self.data:
-            return None
-        return self.data.get("malware_family")
+        detections = self.data.get("detections", [])
+        if detections and isinstance(detections, list):
+            families = set()
+            for item in detections:
+                family_name = item.get("family")
+                if family_name:
+                    families.add(family_name)
+            
+            # ถ้าเจอ ให้รวมชื่อแล้วส่งกลับ (เช่น "QuasarStealer, QuasarRAT")
+            if families:
+                return ", ".join(list(families))
+        return None
 
     def get_mitre_ttps(self):
         """
@@ -81,21 +89,24 @@ class CleanCapeReport:
         return signatures[:10]
 
     def get_network_activity(self):
-        """ดึงข้อมูล Network (HTTP, DNS)"""
+        """
+        ดึงข้อมูล Network ฉบับปรับปรุง (รองรับ Raw IP/TCP)
+        """
         if not self.data:
             return {}
             
         network = self.data.get("network", {})
         
-        # 1. HTTP Requests (ดูว่ายิงไป URL ไหน)
+        # 1. HTTP Requests (High Level) - ดูว่าเปิดเว็บอะไร
         http_reqs = []
-        for req in network.get("http", [])[:5]: # เอาแค่ 5 อันแรก
+        for req in network.get("http", [])[:5]:
             http_reqs.append({
                 "url": req.get("uri"),
-                "host": req.get("host")
+                "host": req.get("host"),
+                "method": req.get("method")
             })
 
-        # 2. DNS Queries (ดูว่าพยายามเข้าเว็บไหน)
+        # 2. DNS Queries (High Level) - ดูว่าถามหาโดเมนอะไร
         dns_reqs = []
         for dns in network.get("dns", [])[:5]:
             dns_reqs.append({
@@ -103,9 +114,53 @@ class CleanCapeReport:
                 "answer": dns.get("answers", [])
             })
 
+        # 3. Raw IP Connections (Low Level) - *** เพิ่มส่วนนี้ครับ ***
+        # กรณีที่ไม่มี HTTP/DNS เราต้องดูว่ามันยิง IP ไปไหนบ้าง
+        # เราจะรวมข้อมูลจาก 'hosts' และ 'tcp' เข้าด้วยกัน
+        
+        connected_ips = {} # ใช้ Dict เพื่อตัด IP ซ้ำ
+        
+        # 3.1 ดึงจาก hosts (สรุปปลายทาง)
+        for host in network.get("hosts", []):
+            ip = host.get("ip")
+            # กรอง Local IP ของ Sandbox ทิ้ง (มักจะเป็น Gateway/Broadcast)
+            if ip in ["192.168.122.1", "192.168.122.255", "127.0.0.1", "0.0.0.0"]:
+                continue
+                
+            connected_ips[ip] = {
+                "dst_ip": ip,
+                "country": host.get("country_name", "unknown"),
+                "ports": host.get("ports", [])
+            }
+
+        # 3.2 ดึงจาก tcp (Traffic จริง) - เผื่อมี IP ที่ไม่อยู่ใน hosts
+        for tcp in network.get("tcp", []):
+            dst = tcp.get("dst")
+            dport = tcp.get("dport")
+            
+            # กรอง Local IP
+            if dst.startswith("192.168.") or dst == "127.0.0.1":
+                continue
+            
+            # ถ้า IP นี้มีอยู่แล้ว ให้เพิ่ม Port เข้าไป
+            if dst in connected_ips:
+                if dport not in connected_ips[dst]["ports"]:
+                    connected_ips[dst]["ports"].append(dport)
+            else:
+                # ถ้าเป็น IP ใหม่
+                connected_ips[dst] = {
+                    "dst_ip": dst,
+                    "country": "unknown", # ใน TCP ไม่มีบอกประเทศ
+                    "ports": [dport]
+                }
+
+        # แปลงกลับเป็น List และเอาแค่ 10 ไอพีแรก
+        raw_connections = list(connected_ips.values())[:10]
+
         return {
-            "http": http_reqs,
-            "dns": dns_reqs
+            "http_traffic": http_reqs,
+            "dns_queries": dns_reqs,
+            "ip_connections": raw_connections # ส่งอันนี้ให้ AI ดูเพิ่ม
         }
 
     def get_behavior_summary(self):
@@ -133,7 +188,7 @@ class CleanCapeReport:
             "source": "CAPE Sandbox",
             "score": self.get_cape_score(),
             "malware_family": self.get_malware_family(),
-            "mitre_attack_techniques": self.get_mitre_ttps(), # เพิ่ม TTPs
+            "mitre_attack_techniques": self.get_mitre_ttps(),
             "critical_signatures": self.get_signatures(),
             "network_behavior": self.get_network_activity(),
             "system_behavior": self.get_behavior_summary()
@@ -221,7 +276,8 @@ class CAPEAnalyzer:
             wf.write(json.dumps(report, ensure_ascii=False, indent=4))
 
         if report.get("status") != "success": return report
-        return {"status": "success", "data": CleanCapeReport(report.get("data", {}).clean_data())}
+        clean_data = CleanCapeReport(report)
+        return {"status": "success", "data": clean_data.clean_data()}
 
 # (ลบ Method MobSF ที่หลุดเข้ามา: scan_file, get_report_json)
 # (ลบ Test Code ท้ายไฟล์)

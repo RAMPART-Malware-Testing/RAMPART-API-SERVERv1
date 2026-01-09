@@ -197,7 +197,6 @@ def analyze_malware_task(self, file_path: str, file_hashes: dict, total_size: in
         with open('z-report3-result.json', 'w', encoding='utf-8') as f:
             json.dump(results, f, ensure_ascii=False, indent=4)
     except: pass
-    return
 
     print("[Gemini] Sending data to AI...")
     gemini = GeminiAPI()
