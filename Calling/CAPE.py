@@ -218,6 +218,14 @@ def clean_mobsf_report(raw_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     return cleaned
 
+rf = open("Calling\z-report2.0-cape-34.json",'r',encoding='utf-8')
+rf_data = json.load(rf)
+rf.close()
+
+print(rf_data.get("data"))
+print(clean_mobsf_report(rf_data.get("data")))
+
+
 class CAPEAnalyzer:
     def __init__(self):
         self.base_url = os.getenv("CAPE_BASE_URL")
@@ -300,8 +308,7 @@ class CAPEAnalyzer:
             wf.write(json.dumps(report, ensure_ascii=False, indent=4))
 
         if report.get("status") != "success": return report
-        raw_data = report.get("data", {})
-        return {"status": "success", "data": clean_mobsf_report(raw_data)}
+        return {"status": "success", "data": clean_mobsf_report(report.get("data", {}))}
 
 # (ลบ Method MobSF ที่หลุดเข้ามา: scan_file, get_report_json)
 # (ลบ Test Code ท้ายไฟล์)
