@@ -177,7 +177,6 @@ def analyze_malware_task(self, file_path: str, file_hashes: dict, total_size: in
                 results["cape_error"] = f"Analysis failed with state: {state}"
             else:
                 print(f"[CAPE] Status: {state}. Retrying in 30s...")
-                # [FIXED] เพิ่ม args=[]
                 raise self.retry(
                     countdown=30, 
                     args=[],

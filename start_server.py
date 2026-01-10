@@ -41,8 +41,9 @@ MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024  # 1GB
 CHUNK_SIZE = 1024 * 1024
 VIRUSTOTAL_MAX_SIZE = 32 * 1024 * 1024
 
-MOBSF_SUPPORTED_EXTENSIONS = ['.apk', '.xapk', '.ipa', '.appx', '.zip']
-CAPE_SUPPORTED_EXTENSIONS = ['.exe', '.dll', '.bin', '.msi', '.scr', '.com', '.bat', '.cmd', '.vbs', '.jar']
+MOBSF_SUPPORTED_EXTENSIONS = ['.apk', '.xapk', '.ipa', '.appx']
+CAPE_SUPPORTED_EXTENSIONS = ['.exe', '.dll', '.bin', '.msi', '.scr', '.com', '.bat', '.cmd', '.vbs', '.jar',]
+VT_SUPPORTED_EXTENSIONS = ['.zip']
 
 # ==========================================
 # Helper Functions
@@ -63,7 +64,6 @@ def get_file_info_from_redis(sha256_hash):
         return None
 
 def save_file_info_to_redis(sha256_hash, file_path, original_filename, file_hashes, file_size, file_extension):
-    """บันทึกข้อมูลไฟล์ลง Redis"""
     try:
         redis_key = f"file:{sha256_hash}"
         upload_time = datetime.now().isoformat()
@@ -74,7 +74,7 @@ def save_file_info_to_redis(sha256_hash, file_path, original_filename, file_hash
             'md5': file_hashes['md5'],
             'sha1': file_hashes['sha1'],
             'sha256': file_hashes['sha256'],
-            'file_size': str(file_size), # แปลงเป็น string ก่อนเก็บ
+            'file_size': str(file_size),
             'upload_time': upload_time,
             'file_extension': file_extension
         })
@@ -89,6 +89,8 @@ def determine_analysis_tool(file_extension):
         return 'mobsf'
     elif file_extension in CAPE_SUPPORTED_EXTENSIONS:
         return 'cape'
+    elif file_extension in VT_SUPPORTED_EXTENSIONS:
+        return 'vt'
     else:
         return 'unsupported'
 
