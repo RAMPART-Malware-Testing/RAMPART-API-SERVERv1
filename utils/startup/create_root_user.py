@@ -1,5 +1,6 @@
 from sqlalchemy import select
-from cores.posrgrass import SessionLocal, User
+from cores.async_pg_db import SessionLocal
+from cores.models_class import User
 from dotenv import load_dotenv
 import os
 

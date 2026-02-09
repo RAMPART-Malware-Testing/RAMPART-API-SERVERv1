@@ -2,29 +2,29 @@
     "virustotal": {
         "file_info": {
             "names": [
-                "d0d4ef735a8bf076d81a6f3651d6bcfd8c69285049add2e6b6bee1276a99c37c.xyz",
-                "d0d4ef735a8bf076d81a6f3651d6bcfd8c69285049add2e6b6bee1276a99c37c.apk",
-                "base.apk"
+                "c5ab0adaedf391a395387df33b0bf6854f1ccc9c5da937915ea86b5eec6e6103.apk",
+                "v4blnks0.exe",
+                "evil.apk"
             ],
-            "meaningful_name": "d0d4ef735a8bf076d81a6f3651d6bcfd8c69285049add2e6b6bee1276a99c37c.xyz",
+            "meaningful_name": "c5ab0adaedf391a395387df33b0bf6854f1ccc9c5da937915ea86b5eec6e6103.apk",
             "type": "Android",
-            "size": 8676736,
+            "size": 2332330,
             "hashes": {
-                "md5": "70ba1a18381bff82b2300b9e5fbc8ea1",
-                "sha1": "604563ad3f1cae195dcce4f5a9cb3aa1b8ae053a",
-                "sha256": "d0d4ef735a8bf076d81a6f3651d6bcfd8c69285049add2e6b6bee1276a99c37c"
+                "md5": "54a7d8d8f6ee586e266f369b0a8a8dee",
+                "sha1": "3db0f3cb7565a183f8601f5515315ce8e36823d5",
+                "sha256": "c5ab0adaedf391a395387df33b0bf6854f1ccc9c5da937915ea86b5eec6e6103"
             }
         },
         "app_identity": {
-            "package_name": null,
-            "developer_signer": "j4velin development",
+            "package_name": "com.example.reverseshell2",
+            "developer_signer": "US",
             "is_verified": null,
             "is_trusted_developer": false
         },
         "scan_summary": {
-            "malicious_count": 20,
+            "malicious_count": 31,
             "suspicious_count": 0,
-            "undetected_count": 45,
+            "undetected_count": 36,
             "harmless_count": 0,
             "total_scanners": 76,
             "reputation": -12,
@@ -35,127 +35,81 @@
         },
         "threats_found": {
             "malicious": [
-                "Lionic: Trojan.AndroidOS.Hqwar.C!c",
-                "CTX: apk.trojan.hqwar",
-                "K7GW: Trojan ( 005cf1d81 )",
+                "Lionic: Trojan.AndroidOS.SpyAgent.C!c",
+                "CTX: apk.trojan.spyagent",
+                "CAT-QuickHeal: Android.Agent.GEN37832",
+                "Skyhigh: Artemis!Trojan",
+                "K7GW: Trojan ( 0056b0d51 )",
                 "VirIT: Android.Trj.Agent.HNV",
-                "SymantecMobileInsight: AppRisk:Generisk",
-                "Symantec: Trojan.Gen.2",
-                "ESET-NOD32: Android/TrojanDropper.Agent.MZU trojan",
+                "SymantecMobileInsight: Trojan:Malapp",
+                "Symantec: Trojan.Gen.NPE",
+                "ESET-NOD32: Android/Spy.Agent.BEL trojan",
                 "Cynet: Malicious (score: 99)",
-                "Kaspersky: HEUR:Trojan-Dropper.AndroidOS.Hqwar.gy",
-                "Alibaba: TrojanDropper:Android/Hqwar.1f64f51f",
-                "F-Secure: Trojan:Android/Corrupted.BA",
-                "Avast-Mobile: APK:CRepMalware [Trj]",
-                "Varist: ABTrojan.KNNG-",
-                "Avira: TR/AVI.Bank.qahkv",
-                "BitDefenderFalx: Android.Riskware.Marcher.aAGD",
-                "AhnLab-V3: Trojan/Android.Banker.1247637",
-                "Tencent: a.privacy.SpyNote",
-                "TrellixENS: Artemis!70BA1A18381B",
-                "Ikarus: Trojan-Dropper.AndroidOS.Agent",
-                "Fortinet: Android/Agent.MZU!tr"
+                "Kaspersky: HEUR:Trojan-Spy.AndroidOS.Agent.abg",
+                "Alibaba: TrojanSpy:Android/Agent.1e22c830",
+                "NANO-Antivirus: Trojan.Android.Mlw.jiwfmq",
+                "Tencent: a.privacy.InfoStealer",
+                "Sophos: Andr/Xgen-BMC",
+                "F-Secure: Malware.ANDROID/SpyAgent.FKWC.Gen",
+                "DrWeb: Android.Spy.1131.origin",
+                "Zillya: Trojan.Agent.Android.340463",
+                "huorong: TrojanSpy/Android.SMSSpy.ah",
+                "Varist: AndroidOS/Agent.GUL.gen!Eldorado",
+                "Avira: ANDROID/SpyAgent.FKWC.Gen",
+                "Microsoft: Trojan:AndroidOS/AVerseFalc!rfn",
+                "ZoneAlarm: Andr/Xgen-BMC",
+                "Avast-Mobile: Android:Evo-gen [Trj]",
+                "Google: Detected",
+                "BitDefenderFalx: Android.Trojan.SpyAgent.GL",
+                "AhnLab-V3: Trojan/Android.SpyAgent.989141",
+                "Rising: Spyware.Agent/Android!8.3BE (CLOUD)",
+                "TrellixENS: Artemis!54A7D8D8F6EE",
+                "Ikarus: Trojan-Spy.AndroidOS.Agent",
+                "Fortinet: Android/Agent.BEL!tr.spy"
             ],
             "suspicious": []
         },
         "security_analysis": {
             "sigma_rules": {},
-            "sandbox_results": []
-        },
-        "permissions": [],
-        "tags": [
-            "encrypted",
-            "apk",
-            "android"
-        ]
-    },
-    "mobsf_error": "Failed to upload file not support",
-    "cape": {
-        "source": "CAPE Sandbox",
-        "score": 0.0,
-        "malware_family": null,
-        "mitre_attack_techniques": [],
-        "critical_signatures": [],
-        "network_behavior": {
-            "http_traffic": [],
-            "dns_queries": [],
-            "ip_connections": [
+            "sandbox_results": [
                 {
-                    "dst_ip": "122.155.243.145",
-                    "country": "unknown",
-                    "ports": [
-                        443
-                    ]
-                },
-                {
-                    "dst_ip": "110.164.11.107",
-                    "country": "unknown",
-                    "ports": [
-                        443
-                    ]
-                },
-                {
-                    "dst_ip": "23.100.109.78",
-                    "country": "unknown",
-                    "ports": [
-                        443
-                    ]
-                },
-                {
-                    "dst_ip": "40.126.35.85",
-                    "country": "unknown",
-                    "ports": [
-                        443
-                    ]
-                },
-                {
-                    "dst_ip": "110.164.21.136",
-                    "country": "unknown",
-                    "ports": [
-                        443
-                    ]
-                },
-                {
-                    "dst_ip": "150.171.28.11",
-                    "country": "unknown",
-                    "ports": [
-                        443
-                    ]
-                },
-                {
-                    "dst_ip": "150.171.27.10",
-                    "country": "unknown",
-                    "ports": [
-                        443
-                    ]
-                },
-                {
-                    "dst_ip": "13.107.213.59",
-                    "country": "unknown",
-                    "ports": [
-                        443
-                    ]
-                },
-                {
-                    "dst_ip": "172.66.2.5",
-                    "country": "unknown",
-                    "ports": [
-                        80
-                    ]
-                },
-                {
-                    "dst_ip": "20.52.64.201",
-                    "country": "unknown",
-                    "ports": [
-                        443
+                    "sandbox": "Zenbox android",
+                    "category": "malicious",
+                    "malware_classification": [
+                        "MALWARE",
+                        "TROJAN",
+                        "EVADER",
+                        "RAT"
                     ]
                 }
             ]
         },
-        "system_behavior": {
-            "files_written": [],
-            "registry_keys_modified": [],
-            "commands_executed": []
-        }
-    }
+        "permissions": [
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.VIBRATE",
+            "android.permission.READ_EXTERNAL_STORAGE",
+            "android.permission.RECEIVE_BOOT_COMPLETED",
+            "android.permission.INTERNET",
+            "android.permission.READ_SMS",
+            "android.permission.SYSTEM_ALERT_WINDOW",
+            "android.permission.ACCESS_WIFI_STATE",
+            "android.permission.ACCESS_NETWORK_STATE",
+            "android.permission.WAKE_LOCK",
+            "android.permission.READ_CALL_LOG",
+            "android.permission.CAMERA",
+            "android.permission.READ_PHONE_STATE",
+            "android.permission.ACCESS_COARSE_LOCATION",
+            "android.permission.WRITE_EXTERNAL_STORAGE",
+            "android.permission.RECORD_AUDIO"
+        ],
+        "tags": [
+            "reflection",
+            "apk",
+            "android",
+            "checks-gps",
+            "telephony",
+            "checks-network-adapters"
+        ]
+    },
+    "mobsf_error": "Failed to upload file not support"
 }

@@ -33,7 +33,7 @@ CREATE TABLE "logs" (
 -- 4. สร้าง Table Upload (User 1 คน มีหลาย Upload, File 1 ไฟล์ ถูก Upload ได้หลายครั้ง)
 CREATE TABLE "uploads" (
     "up_id" SERIAL PRIMARY KEY,
-    "task_id" TEXT,
+    "file_name" TEXT,
     "uid" INTEGER NOT NULL,
     "fid" INTEGER NOT NULL,
     "privacy" BOOLEAN DEFAULT TRUE,        -- True = Private, False = Public
@@ -46,6 +46,7 @@ CREATE TABLE "uploads" (
 CREATE TABLE "analysis" (
     "aid" SERIAL PRIMARY KEY,
     "fid" INTEGER NOT NULL,
+    "task_id" TEXT,
     "status" VARCHAR(50) DEFAULT 'pending', -- pending, processing, completed
     "platform" TEXT[],                      -- PostgreSQL รองรับ Array โดยใช้ []
     "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -54,18 +55,17 @@ CREATE TABLE "analysis" (
 
 -- 6. สร้าง Table Report (Analysis 1 อัน มี Report ผลลัพธ์)
 CREATE TABLE "reports" (
-    "rid" SERIAL PRIMARY KEY,               -- เพิ่ม Primary Key ให้ Report
-    "aid" INTEGER UNIQUE NOT NULL,          -- เชื่อมกับ Analysis (1:1)
-    "rampart_score" NUMERIC(5, 2),          -- เก็บตัวเลขทศนิยม เช่น 95.50
-    "name" VARCHAR(255),
-    "package" VARCHAR(255),
-    "type" VARCHAR(64),
+    "rid" SERIAL PRIMARY KEY,
+    "aid" INTEGER UNIQUE NOT NULL,
+    "rampart_score" NUMERIC(5, 2),
+    "package" TEXT,
+    "type" VARCHAR(255),
     "score" NUMERIC(5, 2),
     "risk_level" VARCHAR(128),
-    "color" VARCHAR(20),
-    "recommendation" TEXT,                  -- แก้คำผิดจาก recomment เป็น recommendation
+    "color" VARCHAR(128),
+    "recommendation" TEXT, 
     "analysis_summary" TEXT,
-    "risk_indicators" TEXT[],               -- Array ของ String
+    "risk_indicators" TEXT[],
     "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_report_analysis FOREIGN KEY ("aid") REFERENCES "analysis" ("aid") ON DELETE CASCADE
 );

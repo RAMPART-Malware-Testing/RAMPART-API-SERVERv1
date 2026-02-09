@@ -12,3 +12,4 @@ sqlalchemy
 asyncpg 
 argon2-cffi
 python-jose
+psycopg2

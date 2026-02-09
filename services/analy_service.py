@@ -1,6 +1,7 @@
-from sqlalchemy import delete, select
+from typing import List, Optional
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from cores.posrgrass import Files, Uploads
+from cores.models_class import Analysis, Files, Uploads
 
 async def get_file_by_hash(
     session: AsyncSession,
@@ -40,18 +41,44 @@ async def insert_table_files(
     await session.refresh(file)
     return file
 
+async def get_table_uploads(
+    session: AsyncSession,
+    *,
+    uid: int,
+    fid: int,
+    file_name: str
+) -> Uploads | None:
+    result = await session.execute(
+        select(Uploads).where(
+            Uploads.uid == uid,
+            Uploads.fid == fid,
+            Uploads.file_name == file_name
+        ).limit(1)
+    )
+    return result.scalars().first()
+
+
+async def touch_upload_time(
+    session: AsyncSession,
+    upload: Uploads
+) -> Uploads:
+    upload.uploaded_at = func.now()
+    await session.commit()
+    await session.refresh(upload)
+    return upload
+
 async def insert_table_uploads(
     session: AsyncSession,
     *,
     uid: int,
     fid: int,
-    task_id: str | None = None,
+    file_name: str | None = None,
     privacy: bool = True
 ) -> Uploads:
     upload = Uploads(
         uid=uid,
         fid=fid,
-        task_id=task_id,
+        file_name=file_name,
         privacy=privacy
     )
 
@@ -60,3 +87,34 @@ async def insert_table_uploads(
     await session.refresh(upload)
 
     return upload
+
+async def insert_table_analy(
+    session: AsyncSession,
+    *,
+    fid: int,
+    platform: Optional[List[str]] = None
+) -> Analysis:
+
+    analy = Analysis(
+        fid=fid,
+        task_id=None,
+        platform=platform or [],
+        status="pending"
+    )
+
+    session.add(analy)
+    await session.commit()
+    await session.refresh(analy)
+
+    return analy
+
+async def get_table_analy(
+    session: AsyncSession,
+    fid: int
+) -> Analysis | None:
+    result = await session.execute(
+        select(Analysis).where(Analysis.fid == fid)
+    )
+    return result.scalar_one_or_none()
+
+

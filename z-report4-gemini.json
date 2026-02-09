@@ -1,7 +1,7 @@
 {
     "app_metadata": {
-        "name": "d0d4ef735a8bf076d81a6f3651d6bcfd8c69285049add2e6b6bee1276a99c37c.apk",
-        "package": "null",
+        "name": "com.example.reverseshell2",
+        "package": "com.example.reverseshell2",
         "type": "Android"
     },
     "security_assessment": {
@@ -10,10 +10,11 @@
         "verdict_color": "red"
     },
     "user_recommendation": "ห้ามติดตั้งเด็ดขาด",
-    "analysis_summary": "ไฟล์ APK นี้ถูกตรวจพบว่าเป็นมัลแวร์ประเภท Trojan, Dropper และ Banker จากหลายแหล่ง มีความเสี่ยงสูงต่อข้อมูลส่วนตัวและการเงิน",
+    "analysis_summary": "พบเป็นมัลแวร์ประเภท Spyware/RAT ชัดเจน มีการขอสิทธิ์อันตรายเพื่อเข้าถึงข้อมูลส่วนตัวและถูกตรวจจับโดย Antivirus จำนวนมาก",
     "risk_indicators": [
-        "ตรวจพบว่าเป็นมัลแวร์ (Trojan, Dropper, Banker, SpyNote) โดย 20 แอนติไวรัส",
-        "มีชื่อเสียงไม่ดีในชุมชน VirusTotal (reputation: -12, 2 malicious votes)",
-        "มีการเชื่อมต่อเครือข่ายที่น่าสงสัยไปยัง IP ที่ไม่ทราบที่มาจำนวนมาก"
+        "ถูกตรวจจับเป็นมัลแวร์ (Trojan/Spyware/RAT) โดย Antivirus 31/76 ราย",
+        "ผลวิเคราะห์ Sandbox ยืนยันพฤติกรรมอันตราย (MALWARE, TROJAN, RAT)",
+        "ร้องขอสิทธิ์เข้าถึงข้อมูลส่วนบุคคลที่มีความละเอียดอ่อนสูง เช่น SMS, บันทึกการโทร, กล้อง, ไมโครโฟน, สถานะโทรศัพท์ และการแสดงผลทับแอปอื่น (SYSTEM_ALERT_WINDOW)",
+        "ชื่อแพ็กเกจ (com.example.reverseshell2) มักเกี่ยวข้องกับเครื่องมือเจาะระบบหรือมัลแวร์"
     ]
 }

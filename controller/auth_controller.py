@@ -1,5 +1,6 @@
 from sqlalchemy import select
-from cores.posrgrass import SessionLocal, User
+from cores.async_pg_db import SessionLocal
+from cores.models_class import User
 from schemas.auth import LoginUser, LoginConfirmUser
 from utils.cypto.PasswordCreateAndVerify import verify_password
 from utils.jwt import create_token, decode_token
