@@ -1,60 +1,62 @@
--- 1. สร้าง Table User (ต้องสร้างก่อน เพราะ Log และ Upload อ้างอิงถึง)
+
 CREATE TABLE "users" (
-    "uid" SERIAL PRIMARY KEY,              -- ใช้ SERIAL เพื่อ Auto Increment
+    "uid" SERIAL PRIMARY KEY,
     "username" VARCHAR(50) NOT NULL UNIQUE,
     "email" VARCHAR(255) NOT NULL UNIQUE,
-    "password" TEXT NOT NULL,      -- เก็บ Hash Password
-    "role" VARCHAR(20) DEFAULT 'user',     -- เช่น 'admin', 'user'
-    "status" VARCHAR(50) DEFAULT 'ACTIVE' -- ACTIVE, BANNED
-    "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP -- ใช้ TIMESTAMPTZ เพื่อรองรับ Timezone
-);
-
--- 2. สร้าง Table File (ต้องสร้างก่อน เพราะ Upload และ Analysis อ้างอิงถึง)
-CREATE TABLE "files" (
-    "fid" SERIAL PRIMARY KEY,
-    "file_hash" TEXT NOT NULL UNIQUE,
-    "file_path" TEXT NOT NULL,              -- path ที่เก็บไฟล์จริง
-    "file_type" TEXT,               -- MIME type เช่น application/pdf
-    "file_size" BIGINT NOT NULL,             -- ขนาดไฟล์ (bytes)
+    "password" TEXT NOT NULL,
+    "role" VARCHAR(20) DEFAULT 'user',
+    "status" VARCHAR(50) DEFAULT 'ACTIVE'
+    "created_by" INTEGER REFERENCES users(uid)
     "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-
--- 3. สร้าง Table Log (User 1 คน มีหลาย Log)
-CREATE TABLE "logs" (
-    "lid" SERIAL PRIMARY KEY,
-    "uid" INTEGER NOT NULL,
-    "message" TEXT,
-    "success" BOOLEAN DEFAULT FALSE,
-    "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_log_user FOREIGN KEY ("uid") REFERENCES "users" ("uid") ON DELETE CASCADE
-);
-
--- 4. สร้าง Table Upload (User 1 คน มีหลาย Upload, File 1 ไฟล์ ถูก Upload ได้หลายครั้ง)
 CREATE TABLE "uploads" (
     "up_id" SERIAL PRIMARY KEY,
     "file_name" TEXT,
     "uid" INTEGER NOT NULL,
     "fid" INTEGER NOT NULL,
-    "privacy" BOOLEAN DEFAULT TRUE,        -- True = Private, False = Public
+    "privacy" BOOLEAN DEFAULT TRUE,
+    "deleted_at" TIMESTAMPTZ,
+    "deleted_by" INTEGER REFERENCES users.uid
     "uploaded_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_upload_user FOREIGN KEY ("uid") REFERENCES "users" ("uid") ON DELETE CASCADE,
     CONSTRAINT fk_upload_file FOREIGN KEY ("fid") REFERENCES "files" ("fid") ON DELETE RESTRICT
 );
 
--- 5. สร้าง Table Analysis (File 1 ไฟล์ มี Analysis ได้ - เชื่อมโยงไปที่ File)
+
+CREATE TABLE "audit_logs" (
+    "log_id" SERIAL PRIMARY KEY,
+    "actor_uid" INTEGER NOT NULL,
+    "target_uid" INTEGER,
+    "target_up_id" INTEGER,
+    "action" VARCHAR(255),
+    "detail" TEXT,
+    "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_log_actor FOREIGN KEY ("actor_uid") REFERENCES "users" ("uid") ON DELETE CASCADE,
+    CONSTRAINT fk_log_target_user FOREIGN KEY ("target_uid") REFERENCES "users" ("uid") ON DELETE SET NULL,
+    CONSTRAINT fk_log_target_upload FOREIGN KEY ("target_up_id") REFERENCES "uploads" ("up_id") ON DELETE SET NULL
+);
+
+CREATE TABLE "files" (
+    "fid" SERIAL PRIMARY KEY,
+    "file_hash" TEXT NOT NULL UNIQUE,
+    "file_path" TEXT NOT NULL,
+    "file_type" TEXT,
+    "file_size" BIGINT NOT NULL,
+    "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE "analysis" (
     "aid" SERIAL PRIMARY KEY,
     "fid" INTEGER NOT NULL,
     "task_id" TEXT,
-    "status" VARCHAR(50) DEFAULT 'pending', -- pending, processing, completed
-    "platform" TEXT DEFAULT "",                      -- PostgreSQL รองรับ Array โดยใช้ []
+    "status" VARCHAR(50) DEFAULT 'pending',
+    "platform" TEXT DEFAULT "",
     "md5" TEXT DEFAULT NULL,
     "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_analysis_file FOREIGN KEY ("fid") REFERENCES "files" ("fid") ON DELETE CASCADE
 );
 
--- 6. สร้าง Table Report (Analysis 1 อัน มี Report ผลลัพธ์)
 CREATE TABLE "reports" (
     "rid" SERIAL PRIMARY KEY,
     "aid" INTEGER UNIQUE NOT NULL,
