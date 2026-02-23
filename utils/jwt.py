@@ -54,7 +54,7 @@ def decode_token(token: str) -> Dict[str, Any]:
         )
         return payload
     except JWTError as e:
-        raise ValueError("Invalid or expired token") from e
+        return None
 
 
 # ======================
@@ -62,8 +62,12 @@ def decode_token(token: str) -> Dict[str, Any]:
 # ======================
 
 def get_token_subject(payload: Dict[str, Any]) -> str:
+    if not payload:
+        return None
     return payload.get("sub")
 
 
 def get_token_type(payload: Dict[str, Any]) -> str:
+    if not payload:
+        return None
     return payload.get("type")

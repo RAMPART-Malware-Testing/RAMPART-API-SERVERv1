@@ -50,18 +50,13 @@ def analyze_malware_task(self, analy_id: str, file_path: str, file_hashes: dict,
         analy.md5 = md5
         db.commit()
 
-        # ถ้าไม่อยากให้ log งงอาจจเพิ่มตรวจสอบ  PREVIOUS ว่ามันทำซ้ำไหม
         print(f"#######################[ {self.request.id} ]#######################")
-        # เอาผลการวิเคราะห์เดิมเก็บมา ถ้าไม่มีจะได้ {} แต่ถ้ามีจะไม่วิเคราะห์ซ้ำ
         results = previous_results if previous_results else {}
         PREVIOUS = []
         if isinstance(previous_results, dict):
             PREVIOUS = list(previous_results.keys())
         print(f"REPORTED PREVIOUS:{PREVIOUS}")
         
-        # ---------------------------------------------------------
-        # PART 1: VirusTotal (Run Once) !!! cape_task_id is None and  สำคัญมากเอาไว้สำหรับ retry cape ในกณี รอการวิเคราะห์ต้องมีไม่งั้นจะเปลือง VT + Mobsf เพราะวนลูปจนกว่า cape จำเสร็จ
-        # ---------------------------------------------------------
         if cape_task_id is None and "virustotal" not in results and "vt_skipped" not in results:
             analysis_tool = analysis_tool+",virustotal"
             vt = VirusTotal()
@@ -77,11 +72,10 @@ def analyze_malware_task(self, analy_id: str, file_path: str, file_hashes: dict,
                     print(f"[VT] vt_skipped") 
                     results["vt_skipped"] = True
             else:
-                # Upload & Check
                 res = vt.upload_file(file_path=file_path)
                 if res["success"]:
                     try:
-                        time.sleep(5) # VT รอแปปเดียว
+                        time.sleep(5)
                         id_b64 = res['data']['data']['id']
                         rp = vt.get_report_by_base64(id_b64)
                         if rp['success']: 
@@ -91,30 +85,23 @@ def analyze_malware_task(self, analy_id: str, file_path: str, file_hashes: dict,
                         print(f"[VT] get report failed")
                 else:
                     print(f"[VT] vt_skipped")
-                    results["vt_skipped"] = True # Mark as done to prevent loop
+                    results["vt_skipped"] = True
 
-        # ---------------------------------------------------------
-        # PART 2: MobSF (Redis Lock + Fire & Forget)
-        # ---------------------------------------------------------
         if cape_task_id is None and "mobsf" in analysis_tool:
             mobsf = MobSFCall()
             redis_key = f"mobsf_status:{md5}"
-            
-            # 2.1 Check Report
             if "mobsf_report" not in results:
                 report_check = mobsf.generate_json_report(md5)
                 
                 if report_check['success']:
                     print(f"[MobSF] Report Found!")
                     results["mobsf_report"] = report_check['data']
-                    redis_client.delete(redis_key) # Clear lock
+                    redis_client.delete(redis_key)
                 
                 else:
-                    # 2.2 Check Redis Lock
                     status = redis_client.get(redis_key)
                     if status and status.decode() == 'scanning':
                         print(f"[MobSF] Scanning in progress (Redis locked). Retrying in 30s...")
-                        # [FIXED] เพิ่ม args=[]
                         raise self.retry(
                             countdown=30, 
                             args=[], 
@@ -126,19 +113,15 @@ def analyze_malware_task(self, analy_id: str, file_path: str, file_hashes: dict,
                             }
                         )
                     
-                    # 2.3 Upload & Scan
                     else:
                         print(f"[MobSF] Uploading and starting scan...")
                         up_res = mobsf.upload_file(file_path)
                         if up_res['success']:
-                            # Scan with Timeout 5s (Fire & Forget)
                             scan_res = mobsf.scan_uploaded_file(md5, timeout=5)
                             
                             if scan_res['success']:
-                                # Set Lock for 1 hour
                                 redis_client.setex(redis_key, 3600, 'scanning')
                                 print(f"[MobSF] Scan triggered. Locking Redis and waiting...")
-                                # [FIXED] เพิ่ม args=[]
                                 raise self.retry(
                                     countdown=30, 
                                     args=[],
@@ -156,15 +139,10 @@ def analyze_malware_task(self, analy_id: str, file_path: str, file_hashes: dict,
                             print(f"[MobSF] Failed to upload")
                             results["mobsf_error"] = "Failed to upload file not support"
 
-        # ---------------------------------------------------------
-        # PART 3: CAPE (Check -> Create -> Poll)
-        # ---------------------------------------------------------
         if "cape" in analysis_tool:
             cape = CAPEAnalyzer()
             print(f"cape_task_id ==> {cape_task_id}")
-            # cape_task_id จะได้ตอนที่ไม่มี ID จะสั่งรันซ้ำในกรณีกำลังวิเคราะห์ 
             if cape_task_id is None:
-                # 3.1 First time / Check exist
                 print(f"[CAPE] Checking/Submitting file...")
                 ckid = cape.cheack_analyer(file_path)
                 
@@ -181,7 +159,6 @@ def analyze_malware_task(self, analy_id: str, file_path: str, file_hashes: dict,
 
                 if target_id:
                     print(f"[CAPE] Waiting for analysis/generate report... (Retry in 60s)")
-                    #  ถ้ามี ID จะสั่งรันใหม่อีกรอบ ตรงนี้สำคัญต้องตรวจสอบ VT+Mobsf เพื่อให้ทำซ้ำตาม CAPE
                     raise self.retry(
                         countdown=countdown,
                         args=[],
@@ -231,10 +208,6 @@ def analyze_malware_task(self, analy_id: str, file_path: str, file_hashes: dict,
                         }
                     )
 
-        # ---------------------------------------------------------
-        # PART 4: Save & Gemini
-        # ---------------------------------------------------------
-        # Save Intermediate
         try:
             with open('z-report3-result.json', 'w', encoding='utf-8') as f:
                 json.dump(results, f, ensure_ascii=False, indent=4)
@@ -243,27 +216,19 @@ def analyze_malware_task(self, analy_id: str, file_path: str, file_hashes: dict,
         print("[Gemini] Sending data to AI...")
         gemini = GeminiAPI()
         response = gemini.AnalysisGemini(results)
-        
-        # Save Final
         final_data = response if isinstance(response, dict) else {"raw": response}
         if isinstance(response, str):
             try: final_data = json.loads(response.replace("```json","").replace("```",""))
             except: pass
-        # try:
-        #     with open('z-report4-gemini.json', 'w', encoding='utf-8') as f:
-        #         json.dump(final_data, f, ensure_ascii=False, indent=4)
-        # except: pass
         
         report_data = map_final_data_to_report(final_data)
         stmt = select(Reports).where(Reports.aid == analy.aid)
         report = db.execute(stmt).scalar_one_or_none()
 
         if report:
-            # UPDATE
             for key, value in report_data.items():
                 setattr(report, key, value)
         else:
-            # INSERT
             report = Reports(
                 aid=analy.aid,
                 **report_data

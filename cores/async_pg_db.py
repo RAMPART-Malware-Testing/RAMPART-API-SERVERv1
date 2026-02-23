@@ -17,10 +17,11 @@ load_dotenv()
 POSTGRES_USER = os.getenv("POSTGRES_USER")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 POSTGRES_DB = os.getenv("POSTGRES_DB")
+POSTGRES_HOST = os.getenv("POSTGRES_HOST")
 
 DATABASE_URL = (
     f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}"
-    f"@localhost:5433/{POSTGRES_DB}"
+    f"@{POSTGRES_HOST}:5433/{POSTGRES_DB}"
 )
 
 engine = create_async_engine(DATABASE_URL, echo=False)

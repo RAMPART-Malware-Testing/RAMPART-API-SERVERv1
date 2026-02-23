@@ -1,7 +1,8 @@
+from services.auth_service import AuthService
 from sqlalchemy import select
 from cores.async_pg_db import SessionLocal
 from cores.models_class import User
-from schemas.auth import LoginUser, LoginConfirmUser
+from schemas.auth import LoginParame, LoginConfirmParame, RegisterParame, RegisterConfirmParame, ResetPasswdParame, ResetPasswdConfirmParame
 from utils.cypto.PasswordCreateAndVerify import verify_password
 from utils.jwt import create_token, decode_token
 from cores.redis import redis_client
@@ -32,12 +33,26 @@ def generate_accesstoken(
     )
     return access_token
 
-
 LOGIN_TTL = 300
 OTP_ATTEMPT_LIMIT = 5
 
+async def login_controller(body:LoginParame, user_agent:str, ip:str):
+    response = await AuthService.login(body, user_agent, ip)
+    return response
 
-async def login_controller(user: LoginUser, user_agent: str, ip: str):
+async def login_confirm_controller(body: LoginConfirmParame, user_agent: str, ip: str):
+    response = await AuthService.login_confirm(body, user_agent, ip)
+    return response
+
+async def register_controller(body:RegisterParame):
+    response = await AuthService.register(body)
+    return response
+
+async def register_confirm_controller(body:RegisterConfirmParame):
+    response = await AuthService.register_confirm(body)
+    return response
+
+async def resetPasswd_controller(user: ResetPasswdParame, user_agent: str, ip: str):
     async with SessionLocal() as session:
         result = await session.execute(
             select(User).where(User.username == user.username)
@@ -49,7 +64,6 @@ async def login_controller(user: LoginUser, user_agent: str, ip: str):
 
     uid = db_user.uid
 
-    # ---------- trusted device ----------
     device_hash = generate_device_hash(user_agent, ip)
     device_key = f"device:{uid}:{device_hash}"
 
@@ -65,7 +79,6 @@ async def login_controller(user: LoginUser, user_agent: str, ip: str):
             "otp_required": False
         }
 
-    # ---------- login confirm flow ----------
     existing_token = redis_client.get(f"user_login:{uid}")
     if existing_token:
         ttl = redis_client.ttl(f"login:{existing_token}")
@@ -77,7 +90,7 @@ async def login_controller(user: LoginUser, user_agent: str, ip: str):
         }
 
     token = create_token(
-        subject=str(uid),          # ⭐ uid
+        subject=str(uid),
         token_type="login_confirm",
         expires_minutes=5
     )
@@ -97,7 +110,7 @@ async def login_controller(user: LoginUser, user_agent: str, ip: str):
         "otp_required": True
     }
 
-async def login_confirm_controller(data: LoginConfirmUser, user_agent: str, ip: str):
+async def resetPasswd_confirm_controller(data: ResetPasswdConfirmParame, user_agent: str, ip: str):
     try:
         payload = decode_token(data.token)
         if payload["type"] != "login_confirm":
@@ -133,7 +146,6 @@ async def login_confirm_controller(data: LoginConfirmUser, user_agent: str, ip: 
             "message": f"Invalid OTP ({attempts + 1}/{OTP_ATTEMPT_LIMIT})"
         }
 
-    # ---------- trust device ----------
     device_hash = generate_device_hash(user_agent, ip)
     redis_client.setex(
         f"device:{uid}:{device_hash}",
@@ -141,7 +153,6 @@ async def login_confirm_controller(data: LoginConfirmUser, user_agent: str, ip: 
         "trusted"
     )
 
-    # ---------- create access token ----------
     async with SessionLocal() as session:
         user = await session.get(User, uid)
 
@@ -162,6 +173,7 @@ async def login_confirm_controller(data: LoginConfirmUser, user_agent: str, ip: 
         "access_token": access_token,
         "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
     }
+
 
 from fastapi import HTTPException
 

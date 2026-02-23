@@ -7,7 +7,7 @@ load_dotenv()
 
 SYNC_DATABASE_URL = (
     f"postgresql://{os.getenv('POSTGRES_USER')}:"
-    f"{os.getenv('POSTGRES_PASSWORD')}@localhost:5433/"
+    f"{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}:5433/"
     f"{os.getenv('POSTGRES_DB')}"
 )
 
