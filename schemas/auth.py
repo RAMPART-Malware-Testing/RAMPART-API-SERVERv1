@@ -13,6 +13,7 @@ class LoginConfirmParame(BaseModel):
 
 class RegisterParame(BaseModel):
     username: str
+    email: str
     password: str
 
 class RegisterConfirmParame(BaseModel):

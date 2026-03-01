@@ -122,7 +122,7 @@ class AuthService:
             action="register",
             identifier=body.username,
             token=token,
-            email=body.username
+            email=body.email
         )
 
     @staticmethod

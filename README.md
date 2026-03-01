@@ -1,6 +1,13 @@
-# RAMPART-AI-Models
+# RAMPART-SERVER
+
+# Docker setup
+```
+docker network create rampart
+docker-compose up -d
+```
 
 sudo pkill -9 -f 'celery'
+
 
 # Test Commit
 

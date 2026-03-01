@@ -16,20 +16,6 @@ services:
     networks:
       - rampart
 
-  pgadmin-rampart:
-    image: dpage/pgadmin4
-    container_name: pgadmin-rampart
-    restart: always
-    ports:
-      - "8020:80"
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
-    depends_on:
-      - postgres-rampart
-    networks:
-      - rampart
-
   redis-rampart:
     image: redis:7
     container_name: redis-rampart

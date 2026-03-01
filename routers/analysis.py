@@ -7,11 +7,11 @@ from deps.auth import require_access_token
 from schemas.analy import AnalysisReportRequest
 
 router = APIRouter(
-    prefix="/api",
+    prefix="/api/analy/v1",
     tags=["analy"]
 )
 
-@router.post("/analy/upload")
+@router.post("/upload")
 async def uploadFile(
     file: UploadFile = File(...), 
     uid: str = Depends(require_access_token), 
@@ -19,14 +19,14 @@ async def uploadFile(
 ):
     return await upload_file_controller(file, uid, privacy)
 
-@router.post("/analy/report")
+@router.post("/report")
 async def analyReport(
     payload: AnalysisReportRequest,
     uid: str = Depends(require_access_token),
 ):
     return await get_analysis_report(uid, payload.task_id)
 
-@router.get("/analy/report/{file_name}")
+@router.get("/report/{file_name}")
 async def download_report(file_name: str):
 
     file_path = get_analy_report(file_name)
