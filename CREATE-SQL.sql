@@ -10,20 +10,6 @@ CREATE TABLE "users" (
     "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE "uploads" (
-    "up_id" SERIAL PRIMARY KEY,
-    "file_name" TEXT,
-    "uid" INTEGER NOT NULL,
-    "fid" INTEGER NOT NULL,
-    "privacy" BOOLEAN DEFAULT TRUE,
-    "deleted_at" TIMESTAMPTZ,
-    "deleted_by" INTEGER REFERENCES users.uid
-    "uploaded_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_upload_user FOREIGN KEY ("uid") REFERENCES "users" ("uid") ON DELETE CASCADE,
-    CONSTRAINT fk_upload_file FOREIGN KEY ("fid") REFERENCES "files" ("fid") ON DELETE RESTRICT
-);
-
-
 CREATE TABLE "audit_logs" (
     "log_id" SERIAL PRIMARY KEY,
     "actor_uid" INTEGER NOT NULL,
@@ -37,18 +23,24 @@ CREATE TABLE "audit_logs" (
     CONSTRAINT fk_log_target_upload FOREIGN KEY ("target_up_id") REFERENCES "uploads" ("up_id") ON DELETE SET NULL
 );
 
-CREATE TABLE "files" (
-    "fid" SERIAL PRIMARY KEY,
-    "file_hash" TEXT NOT NULL UNIQUE,
-    "file_path" TEXT NOT NULL,
+CREATE TABLE "analysis" (
+    "aid" SERIAL PRIMARY KEY,
+    "uid" INTEGER NOT NULL,
+    "privacy" BOOLEAN DEFAULT TRUE,
+    "file_name" TEXT,
+    "file_size" INTEGER,
+    "file_hash" TEXT,
+    "file_path" TEXT,
     "file_type" TEXT,
-    "file_size" BIGINT NOT NULL,
-    "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    "md5" TEXT DEFAULT NULL,
+    "deleted_at" TIMESTAMPTZ,
+    "deleted_by" INTEGER REFERENCES users.uid
+    "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_upload_user FOREIGN KEY ("uid") REFERENCES "users" ("uid") ON DELETE CASCADE,
+    CONSTRAINT fk_upload_file FOREIGN KEY ("fid") REFERENCES "files" ("fid") ON DELETE RESTRICT
 );
 
 CREATE TABLE "analysis" (
-    "aid" SERIAL PRIMARY KEY,
-    "fid" INTEGER NOT NULL,
     "task_id" TEXT,
     "status" VARCHAR(50) DEFAULT 'pending',
     "platform" TEXT DEFAULT "",
