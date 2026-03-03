@@ -31,7 +31,7 @@ class AuthService:
     async def login(body, user_agent, ip):
         async with SessionLocal() as session:
             result = await session.execute(
-                select(User).where(User.username == body.username)
+                select(User).where(User.email == body.email)
             )
             user = result.scalar_one_or_none()
 
@@ -48,10 +48,13 @@ class AuthService:
                 expires_minutes=60 * 24 * 7
             )
 
+            user_dict = user.__dict__.copy()
+            user_dict.pop("password", None)
+            user = user_dict 
             return success(
                 AuthStatus.LOGIN_SUCCESS,
                 "Login successful.",
-                {"access_token": access_token}
+                {"access_token": access_token, "data":user}
             )
 
         token = create_token(
@@ -64,7 +67,7 @@ class AuthService:
             action="login",
             identifier=str(user.uid),
             token=token,
-            email=user.username
+            email=user.email
         )
 
     @staticmethod
@@ -80,6 +83,22 @@ class AuthService:
 
         uid = int(payload["sub"])
 
+        async with SessionLocal() as session:
+            result = await session.execute(
+                select(
+                    User.uid,
+                    User.email,
+                    User.role,
+                    User.username,
+                    User.status,
+                    User.created_at,
+                ).where(User.uid == uid)
+            )
+            user = result.mappings().one_or_none()
+
+        if not user:
+            return error(AuthStatus.USER_NOT_FOUND, "User not found.")
+
         DeviceService.remember_device(uid, user_agent, ip)
 
         access_token = create_token(
@@ -93,7 +112,7 @@ class AuthService:
         return success(
             AuthStatus.LOGIN_SUCCESS,
             "Login confirmed successfully.",
-            {"access_token": access_token}
+            {"access_token": access_token, "data":user}
         )
 
 # ================= REGISTER =================
@@ -103,7 +122,7 @@ class AuthService:
 
         async with SessionLocal() as session:
             result = await session.execute(
-                select(User).where(User.username == body.username)
+                select(User).where(User.email == body.email)
             )
             if result.scalar_one_or_none():
                 return error(
@@ -112,7 +131,7 @@ class AuthService:
                 )
 
         token = create_token(
-            subject=body.username,
+            subject=body.email,
             token_type="register",
             expires_minutes=5,
             extra_payload={"password": body.password}
@@ -120,7 +139,7 @@ class AuthService:
 
         return await OTPService.create_otp_session(
             action="register",
-            identifier=body.username,
+            identifier=body.email,
             token=token,
             email=body.email
         )
@@ -157,51 +176,53 @@ class AuthService:
 # ================= RESET =================
 
     @staticmethod
-    async def reset_confirm(data):
-
-        payload, err = TokenService.verify_token(data.token, "reset")
-        if err:
-            return err
-
-        ok, otp_err = OTPService.verify_otp("reset", data.token, data.otp)
-        if not ok:
-            return error(AuthStatus.OTP_INVALID, otp_err)
-
+    async def reset(body):
         async with SessionLocal() as session:
             result = await session.execute(
-                select(User).where(User.username == payload["sub"])
+                select(User.uid,User.email).where(User.email == body.email)
             )
-            user = result.scalar_one()
-            user.password = get_password_hash(data.newPasswd)
-            await session.commit()
+            user = result.mappings().one_or_none()
+        print(user)
+        if not user:
+            return error(AuthStatus.USER_NOT_FOUND, "User not found.")
+        
+        token = create_token(
+            subject=str(user.uid),
+            token_type="reset-passwd",
+            expires_minutes=5,
+        )
 
-        OTPService.clear_otp_session("reset", data.token, payload["sub"])
-
-        return success(
-            AuthStatus.PASSWORD_RESET_SUCCESS,
-            "Password reset successfully."
+        return await OTPService.create_otp_session(
+            action="reset-passwd",
+            identifier=str(user.uid),
+            token=token,
+            email=user.email
         )
 
     @staticmethod
-    async def reset_confirm(data):
-
-        payload, err = TokenService.verify_token(data.token, "reset")
+    async def reset_confirm(body):
+        payload, err = TokenService.verify_token(body.token, "reset-passwd")
         if err:
             return err
 
-        ok, otp_err = OTPService.verify_otp("reset", data.token, data.otp)
+        ok, otp_err = OTPService.verify_otp("reset-passwd", body.token, body.otp)
         if not ok:
             return error(AuthStatus.OTP_INVALID, otp_err)
 
+        uid = int(payload["sub"])
+
         async with SessionLocal() as session:
             result = await session.execute(
-                select(User).where(User.username == payload["sub"])
+                select(User).where(User.uid == uid)
             )
-            user = result.scalar_one()
-            user.password = get_password_hash(data.newPasswd)
+            user = result.scalar_one_or_none()
+            if not user:
+                return error(AuthStatus.USER_NOT_FOUND, "User not found.")
+
+            user.password = get_password_hash(body.newPasswd)
             await session.commit()
 
-        OTPService.clear_otp_session("reset", data.token, payload["sub"])
+        OTPService.clear_otp_session("reset-passwd", body.token, str(uid))
 
         return success(
             AuthStatus.PASSWORD_RESET_SUCCESS,

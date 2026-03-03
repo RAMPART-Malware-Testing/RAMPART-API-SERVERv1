@@ -24,11 +24,11 @@ def generate_accesstoken(
     ACCESS_TOKEN_EXPIRE_MINUTES: int
 ):
     access_token = create_token(
-        subject=str(uid),           # ⭐ uid เป็นหลัก
+        subject=str(uid),
         token_type="access",
         expires_minutes=ACCESS_TOKEN_EXPIRE_MINUTES,
         extra_payload={
-            "username": username    # เอาไว้ใช้แสดงผล / debug
+            "username": username
         }
     )
     return access_token
@@ -52,127 +52,13 @@ async def register_confirm_controller(body:RegisterConfirmParame):
     response = await AuthService.register_confirm(body)
     return response
 
-async def resetPasswd_controller(user: ResetPasswdParame, user_agent: str, ip: str):
-    async with SessionLocal() as session:
-        result = await session.execute(
-            select(User).where(User.username == user.username)
-        )
-        db_user = result.scalar_one_or_none()
+async def resetPasswd_controller(body: ResetPasswdParame):
+    response = await AuthService.reset(body)
+    return response
 
-    if not db_user or not verify_password(db_user.password, user.password):
-        return {"success": False, "message": "Invalid credentials"}
-
-    uid = db_user.uid
-
-    device_hash = generate_device_hash(user_agent, ip)
-    device_key = f"device:{uid}:{device_hash}"
-
-    if redis_client.exists(device_key):
-        ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
-        access_token = generate_accesstoken(
-            uid, db_user.username, ACCESS_TOKEN_EXPIRE_MINUTES
-        )
-        return {
-            "success": True,
-            "token": access_token,
-            "message": "Login successful (trusted device)",
-            "otp_required": False
-        }
-
-    existing_token = redis_client.get(f"user_login:{uid}")
-    if existing_token:
-        ttl = redis_client.ttl(f"login:{existing_token}")
-        return {
-            "success": True,
-            "token": existing_token,
-            "expires_in": ttl,
-            "otp_required": True
-        }
-
-    token = create_token(
-        subject=str(uid),
-        token_type="login_confirm",
-        expires_minutes=5
-    )
-
-    otp = generate_otp()
-
-    redis_client.setex(f"login:{token}", LOGIN_TTL, uid)
-    redis_client.setex(f"login:otp:{token}", LOGIN_TTL, otp)
-    redis_client.setex(f"user_login:{uid}", LOGIN_TTL, token)
-    redis_client.setex(f"login:attempt:{token}", LOGIN_TTL, 0)
-
-    return {
-        "otp": otp,
-        "success": True,
-        "token": token,
-        "expires_in": LOGIN_TTL,
-        "otp_required": True
-    }
-
-async def resetPasswd_confirm_controller(data: ResetPasswdConfirmParame, user_agent: str, ip: str):
-    try:
-        payload = decode_token(data.token)
-        if payload["type"] != "login_confirm":
-            return {"success": False, "message": "Token is not supported"}
-    except ValueError:
-        return {"success": False, "message": "Invalid or expired token"}
-
-    redis_key = f"login:{data.token}"
-    uid = redis_client.get(redis_key)
-
-    if not uid:
-        return {"success": False, "message": "Login session expired"}
-
-    uid = int(uid)
-
-    attempt_key = f"login:attempt:{data.token}"
-    attempts = int(redis_client.get(attempt_key) or 0)
-
-    if attempts >= OTP_ATTEMPT_LIMIT:
-        ttl = redis_client.ttl(redis_key)
-        return {
-            "success": False,
-            "message": f"Too many attempts. Try again in {ttl // 60} minutes."
-        }
-
-    otp_key = f"login:otp:{data.token}"
-    correct_otp = redis_client.get(otp_key)
-
-    if data.otp != correct_otp:
-        redis_client.incr(attempt_key)
-        return {
-            "success": False,
-            "message": f"Invalid OTP ({attempts + 1}/{OTP_ATTEMPT_LIMIT})"
-        }
-
-    device_hash = generate_device_hash(user_agent, ip)
-    redis_client.setex(
-        f"device:{uid}:{device_hash}",
-        60 * 60 * 24 * 7,
-        "trusted"
-    )
-
-    async with SessionLocal() as session:
-        user = await session.get(User, uid)
-
-    ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
-    access_token = generate_accesstoken(
-        uid, user.username, ACCESS_TOKEN_EXPIRE_MINUTES
-    )
-
-    redis_client.delete(
-        redis_key,
-        otp_key,
-        attempt_key,
-        f"user_login:{uid}"
-    )
-
-    return {
-        "success": True,
-        "access_token": access_token,
-        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
-    }
+async def resetPasswd_confirm_controller(body: ResetPasswdConfirmParame):
+    response = await AuthService.reset_confirm(body)
+    return response
 
 
 from fastapi import HTTPException

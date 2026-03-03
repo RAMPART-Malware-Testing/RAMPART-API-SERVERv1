@@ -4,7 +4,7 @@ class AccessToken(BaseModel):
     token: str
 
 class LoginParame(BaseModel):
-    username: str
+    email: str
     password: str
 
 class LoginConfirmParame(BaseModel):
@@ -21,7 +21,7 @@ class RegisterConfirmParame(BaseModel):
     otp: str
 
 class ResetPasswdParame(BaseModel):
-    username: str
+    email: str
 
 class ResetPasswdConfirmParame(BaseModel):
     token: str

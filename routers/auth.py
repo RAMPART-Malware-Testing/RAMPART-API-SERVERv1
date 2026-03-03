@@ -1,7 +1,7 @@
 import re
 
 from fastapi import APIRouter, Request
-from controller.auth_controller import access_token_controller, login_confirm_controller, login_controller, register_controller, register_confirm_controller
+from controller.auth_controller import access_token_controller, login_confirm_controller, login_controller, register_controller, register_confirm_controller, resetPasswd_confirm_controller, resetPasswd_controller
 from schemas.auth import LoginParame,  LoginConfirmParame, RegisterParame, RegisterConfirmParame, ResetPasswdParame, ResetPasswdConfirmParame
 from services.auth_service import verify_access_token
 from utils.response import error
@@ -39,16 +39,12 @@ async def register_confirm(body: RegisterConfirmParame):
     return await register_confirm_controller(body)
 
 @router.post("/reset-passwd")
-async def resetpasswd(data: ResetPasswdParame, request: Request):
-    user_agent = request.headers.get("user-agent", "")
-    ip = request.client.host if request.client else "unknown"
-    return await login_confirm_controller(data, user_agent, ip)
+async def resetpasswd(data: ResetPasswdParame):
+    return await resetPasswd_controller(data)
 
 @router.post("/reset-passwd/confirm")
-async def resetpasswd_confirm(data: ResetPasswdConfirmParame, request: Request):
-    user_agent = request.headers.get("user-agent", "")
-    ip = request.client.host if request.client else "unknown"
-    return await login_confirm_controller(data, user_agent, ip)
+async def resetpasswd_confirm(data: ResetPasswdConfirmParame):
+    return await resetPasswd_confirm_controller(data)
 
 # @router.post("/login/access")
 # async def access_token(data: AccessToken):
