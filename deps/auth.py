@@ -1,5 +1,5 @@
 from fastapi import Header, HTTPException
-from services.auth_service import verify_access_token
+from services.auth.auth_service import verify_access_token
 
 async def require_access_token(
     x_access_token: str | None = Header(None)

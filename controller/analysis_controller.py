@@ -1,20 +1,20 @@
-from datetime import datetime
-import os
+# from datetime import datetime
 from pathlib import Path
-import re
-from fastapi import UploadFile, HTTPException
+# import re
+import aiofiles
+from fastapi import Header, UploadFile, HTTPException
+# from bgProcessing.tasks import analyze_malware_task
 from bgProcessing.tasks import analyze_malware_task
 from cores.async_pg_db import SessionLocal
 from cores.models_class import User
-from services.analy_service import get_analy_by_task_id, get_file_by_hash, get_report_by_aid, get_table_analy, get_table_uploads, insert_table_analy, insert_table_files, insert_table_uploads, touch_upload_time
-from utils.calculate_hash import calculate_file_hashes, calculate_hash_from_chunks
+from services.analy.analy_service import get_file_by_hash, insert_table_analy
+from services.token_service import TokenService
 import os
-import aiofiles
 from pathlib import Path
 from cores.redis import redis_client
-from sqlalchemy import select
-from celery.result import AsyncResult
-from bgProcessing.celery_app import celery_app
+from utils.calculate_hash import calculate_hash_from_chunks
+from utils.jwt import create_token
+# from utils.response import error, success
 
 UPLOAD_DIR = Path("temps_files")
 REPORTS_DIR = Path("reports")
@@ -52,15 +52,68 @@ def determine_analysis_tool(file_extension):
         return 'cape'
     else:
         return 'mobsf,cape'
+    
+async def require_upload_token(token: str):
+    payload, err = TokenService.verify_token(token, "upload")
+    if err:
+        raise HTTPException(status_code=401, detail="Invalid upload token")
+
+    uid = payload["sub"]
+    session_key = f"upload_session:{uid}"
+
+    stored_token = redis_client.get(session_key)
+    if not stored_token or stored_token != token:
+        raise HTTPException(status_code=401, detail="Upload token is invalid or already used")
+
+    # redis_client.delete(session_key)
+
+    return int(uid)
+
+async def generateTokenAnaly(body):
+    payload, err = TokenService.verify_token(body.token, "access")
+    if err: 
+        return err
+
+    uid = payload["sub"]
+    session_key = f"upload_session:{uid}"
+
+    existing_token = redis_client.get(session_key)
+    if existing_token:
+        ttl = redis_client.ttl(session_key)
+        return {
+            "success": True,
+            "status": "TOKEN_ALREADY_EXISTS",
+            "message": "Upload token already exists.",
+            "data": {
+                "upload_token": existing_token,
+                "expires_in": ttl
+            }
+        }
+
+    upload_token = create_token(
+        subject=uid,
+        token_type="upload",
+        expires_minutes=15 
+    )
+
+    UPLOAD_TOKEN_TTL = 60 * 15 
+    redis_client.setex(session_key, UPLOAD_TOKEN_TTL, upload_token)
+
+    return {
+        "success": True,
+        "status": "TOKEN_CREATED",
+        "message": "Upload token created successfully.",
+        "data": {
+            "upload_token": upload_token,
+            "expires_in": UPLOAD_TOKEN_TTL
+        }
+    }
 
 async def upload_file_controller(
     file: UploadFile,
     uid: int,
     privacy: bool
 ):
-    # =========================
-    # 1. ตรวจสอบ user ด้วย uid
-    # =========================
     async with SessionLocal() as session:
         user = await session.get(User, uid)
 
@@ -84,9 +137,7 @@ async def upload_file_controller(
                 }
             )
 
-        # =========================
-        # 2. Read & Chunk file
-        # =========================
+        # ========================= Read & Chunk file =========================
         file_path = None
         try:
             original_filename = file.filename
@@ -103,117 +154,103 @@ async def upload_file_controller(
                     )
                 chunks.append(chunk)
 
-            # =========================
-            # 3. Hash calculation
-            # =========================
-            sha256_hash = calculate_hash_from_chunks(chunks)
-
-            # =========================
-            # 4. Check existing file
-            # =========================
-            existing_file = await get_file_by_hash(session, sha256_hash)
-
+            # ========================= Hash calculation =========================
+            hashes = calculate_hash_from_chunks(chunks)
+            existing_file = await get_file_by_hash(session, hashes['sha256'])
             if existing_file:
-                file_path = Path(existing_file.file_path)
+                file_path = Path(existing_file["file_path"])
                 if not file_path.exists():
                     async with aiofiles.open(file_path, "wb") as f:
                         for chunk in chunks:
                             await f.write(chunk)
+                
+                if existing_file.get('rid'):
+                    analysis = await insert_table_analy(
+                        session=session,
+                        uid=uid,
+                        rid=existing_file['rid'],
+                        file_name=original_filename,
+                        file_hash=existing_file['file_hash'],
+                        file_path=existing_file['file_path'],
+                        file_type=existing_file['file_type'],
+                        file_size=existing_file['file_size'],
+                        privacy=privacy,
+                        md5=existing_file['md5'],
+                        tools=existing_file['tools'],
+                        task_id=existing_file['task_id'],
+                        status=existing_file['status']
+                    )
+                    return {
+                        "success": True,
+                        "file_id": hashes,
+                        "filename": original_filename,
+                        "file_path": existing_file['file_path'],
+                        "tool": existing_file['tools'],
+                        "task_id": existing_file['task_id'],
+                        "message": "File uploaded and task queued successfully"
+                    }
+                else:
+                    analysis = await insert_table_analy(
+                        session=session,
+                        uid=uid,
+                        file_name=original_filename,
+                        file_hash=existing_file['file_hash'],
+                        file_path=existing_file['file_path'],
+                        file_type=existing_file['file_type'],
+                        file_size=existing_file['file_size'],
+                        privacy=privacy,
+                        md5=existing_file['md5'],
+                        tools=existing_file['tools'],
+                        task_id=existing_file['task_id'],
+                        status=existing_file['status']
+                    )
+                    return {
+                        "success": True,
+                        "file_id": hashes,
+                        "filename": original_filename,
+                        "file_path": existing_file['file_path'],
+                        "tool": existing_file['tools'],
+                        "task_id": existing_file['task_id'],
+                        "message": "File uploaded and task queued successfully"
+                    }
+
+                return {"existing_file":existing_file}
             else:
                 file_ext = os.path.splitext(original_filename)[1]
-                file_path = UPLOAD_DIR / f"{sha256_hash}{file_ext}"
-
+                file_path = UPLOAD_DIR / f"{hashes['sha256']}{file_ext}"
                 async with aiofiles.open(file_path, "wb") as f:
                     for chunk in chunks:
                         await f.write(chunk)
-
-                existing_file = await insert_table_files(
+                # ========================= Dispatch Celery task =========================
+                analysis_tool = determine_analysis_tool(file_extension)
+                analysis = await insert_table_analy(
                     session=session,
-                    file_hash=sha256_hash,
+                    uid=uid,
+                    file_name=original_filename,
+                    file_hash=hashes['sha256'],
                     file_path=str(file_path),
                     file_type=file.content_type,
-                    file_size=total_size
+                    file_size=total_size,
+                    privacy=privacy,
+                    md5=hashes['md5']
                 )
 
-            # =========================
-            # 5. ตรวจสอบ upload ซ้ำ (ราย user)
-            # =========================
-            existing_upload = await get_table_uploads(
-                session=session,
-                uid=user.uid,
-                fid=existing_file.fid,
-                file_name=original_filename
-            )
-
-            if existing_upload:
-                await touch_upload_time(session, existing_upload)
-
-                analysis = await get_table_analy(session, existing_file.fid)
-                print(analysis)
-                if analysis:
-                    return {
-                        "success": True,
-                        "message": "File already uploaded",
-                        "file_id": sha256_hash,
-                        "filename": original_filename,
-                        "task_id": analysis.task_id,
-                        "status": analysis.status
-                    }
-            else:
-                await insert_table_uploads(
-                    session=session,
-                    uid=user.uid,
-                    fid=existing_file.fid,
-                    file_name=original_filename,
-                    privacy=privacy
+                task = analyze_malware_task.delay(
+                    str(file_path),
+                    hashes,
+                    int(total_size),
+                    analysis_tool
                 )
 
-            # =========================
-            # 6. ตรวจสอบ analysis ซ้ำ
-            # =========================
-            existing_analysis = await get_table_analy(session, existing_file.fid)
-            print(existing_analysis)
-            if existing_analysis:
                 return {
                     "success": True,
-                    "file_id": sha256_hash,
+                    "file_id": hashes,
                     "filename": original_filename,
                     "file_path": str(file_path),
-                    "task_id": existing_analysis.task_id,
-                    "message": "Analysis already exists"
+                    "tool": analysis_tool,
+                    "task_id": task.id,
+                    "message": "File uploaded and task queued successfully"
                 }
-
-            # =========================
-            # 7. Dispatch Celery task
-            # =========================
-            analysis_tool = determine_analysis_tool(file_extension)
-            file_hashes = calculate_file_hashes(file_path)
-
-            print(file_hashes)
-
-            analysis = await insert_table_analy(
-                session=session,
-                fid=existing_file.fid,
-            )
-
-            task = analyze_malware_task.delay(
-                analysis.aid,
-                str(file_path),
-                file_hashes,
-                int(total_size),
-                analysis_tool
-            )
-
-            return {
-                "success": True,
-                "file_id": sha256_hash,
-                "filename": original_filename,
-                "file_path": str(file_path),
-                "tool": analysis_tool,
-                "task_id": task.id,
-                "message": "File uploaded and task queued successfully"
-            }
-
         except HTTPException:
             raise
         except Exception as e:
@@ -223,93 +260,95 @@ async def upload_file_controller(
                 detail="Internal Server Error"
             )
 
-async def get_analysis_report(uid: int, task_id: str):
-    async with SessionLocal() as session:
-        analysis = await get_analy_by_task_id(session, task_id)
-        if not analysis:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "success": False,
-                    "code": "TASK_NOT_FOUND",
-                    "message": "Analysis task not found"
-                }
-            )
 
-        if analysis.status != "success":
-            return {
-                "success": True,
-                "task_id": task_id,
-                "status": analysis.status,
-                "message": "Analysis is not completed yet"
-            }
+        # async def get_analysis_report(uid: int, task_id: str):
+        #     async with SessionLocal() as session:
+        #         analysis = await get_analy_by_task_id(session, task_id)
+        #         if not analysis:
+        #             raise HTTPException(
+        #                 status_code=404,
+        #                 detail={
+        #                     "success": False,
+        #                     "code": "TASK_NOT_FOUND",
+        #                     "message": "Analysis task not found"
+        #                 }
+        #             )
 
-        report = await get_report_by_aid(session, analysis.aid)
-        return {
-            "success": True,
-            "task_id": task_id,
-            "status": analysis.status,
-            "report": {
-                "tools" : report.analysis.platform,
-                "md5" : report.analysis.md5,
-                "rid": report.rid,
-                "rampart_score": float(report.rampart_score) if report.rampart_score else None,
-                "package": report.package,
-                "type": report.type,
-                "score": float(report.score) if report.score else None,
-                "risk_level": report.risk_level,
-                "color": report.color,
-                "recommendation": report.recommendation,
-                "analysis_summary": report.analysis_summary,
-                "risk_indicators": report.risk_indicators,
-                "created_at": report.created_at,
-            }
-        }
+        #         if analysis.status != "success":
+        #             return {
+        #                 "success": True,
+        #                 "task_id": task_id,
+        #                 "status": analysis.status,
+        #                 "message": "Analysis is not completed yet"
+        #             }
 
-
-# from fastapi.responses import StreamingResponse
-
-# def iterfile(path, chunk_size: int = 1024 * 1024):  # 1MB chunk
-#     with open(path, "rb") as f:
-#         while True:
-#             chunk = f.read(chunk_size)
-#             if not chunk:
-#                 break
-#             yield chunk
+        #         report = await get_report_by_aid(session, analysis.aid)
+        #         return {
+        #             "success": True,
+        #             "task_id": task_id,
+        #             "status": analysis.status,
+        #             "report": {
+        #                 "tools" : report.analysis.platform,
+        #                 "md5" : report.analysis.md5,
+        #                 "rid": report.rid,
+        #                 "rampart_score": float(report.rampart_score) if report.rampart_score else None,
+        #                 "package": report.package,
+        #                 "type": report.type,
+        #                 "score": float(report.score) if report.score else None,
+        #                 "risk_level": report.risk_level,
+        #                 "color": report.color,
+        #                 "recommendation": report.recommendation,
+        #                 "analysis_summary": report.analysis_summary,
+        #                 "risk_indicators": report.risk_indicators,
+        #                 "created_at": report.created_at,
+        #             }
+        #         }
 
 
-BASE_REPORT_PATH = Path("reports").resolve()
+        # from fastapi.responses import StreamingResponse
 
-ALLOWED_PLATFORMS = {"cape", "virustotal", "mobsf"}
+        # def iterfile(path, chunk_size: int = 1024 * 1024):  # 1MB chunk
+        #     with open(path, "rb") as f:
+        #         while True:
+        #             chunk = f.read(chunk_size)
+        #             if not chunk:
+        #                 break
+        #             yield chunk
 
-FILENAME_REGEX = re.compile(
-    r"^(cape|virustotal|mobsf)-([a-fA-F0-9]{32})$"
-)
+
+        # BASE_REPORT_PATH = Path("reports").resolve()
+
+        # ALLOWED_PLATFORMS = {"cape", "virustotal", "mobsf"}
+
+        # FILENAME_REGEX = re.compile(
+        #     r"^(cape|virustotal|mobsf)-([a-fA-F0-9]{32})$"
+        # )
 
 async def get_analy_report(file_name):
-    match = FILENAME_REGEX.match(file_name)
-    if not match:
-        raise HTTPException(status_code=400, detail="Invalid file name format")
+    return
+    # match = FILENAME_REGEX.match(file_name)
+    # if not match:
+    #     raise HTTPException(status_code=400, detail="Invalid file name format")
 
-    platform, md5 = match.groups()
+    # platform, md5 = match.groups()
 
-    if platform not in ALLOWED_PLATFORMS:
-        raise HTTPException(status_code=400, detail="Invalid platform")
+    # if platform not in ALLOWED_PLATFORMS:
+    #     raise HTTPException(status_code=400, detail="Invalid platform")
     
-    file_path = (BASE_REPORT_PATH / f"{platform}-{md5}.json").resolve()
+    # file_path = (BASE_REPORT_PATH / f"{platform}-{md5}.json").resolve()
 
-    if not str(file_path).startswith(str(BASE_REPORT_PATH)):
-        raise HTTPException(status_code=403, detail="Access denied")
+    # if not str(file_path).startswith(str(BASE_REPORT_PATH)):
+    #     raise HTTPException(status_code=403, detail="Access denied")
 
-    if not file_path.is_file():
-        raise HTTPException(status_code=404, detail="Report not found")
+    # if not file_path.is_file():
+    #     raise HTTPException(status_code=404, detail="Report not found")
     
-    # return StreamingResponse(
-    #     iterfile(file_path),
-    #     media_type="application/json",
-    #     headers={
-    #         "Content-Disposition": f"attachment; filename={platform}-{md5}.json"
-    #     }
-    # )
-    return file_path
+    # # return StreamingResponse(
+    # #     iterfile(file_path),
+    # #     media_type="application/json",
+    # #     headers={
+    # #         "Content-Disposition": f"attachment; filename={platform}-{md5}.json"
+    # #     }
+    # # )
+    # return file_path
 

@@ -3,7 +3,7 @@ import re
 from fastapi import APIRouter, Request
 from controller.auth_controller import access_token_controller, login_confirm_controller, login_controller, register_controller, register_confirm_controller, resetPasswd_confirm_controller, resetPasswd_controller
 from schemas.auth import LoginParame,  LoginConfirmParame, RegisterParame, RegisterConfirmParame, ResetPasswdParame, ResetPasswdConfirmParame
-from services.auth_service import verify_access_token
+from services.auth.auth_service import verify_access_token
 from utils.response import error
 
 router = APIRouter(

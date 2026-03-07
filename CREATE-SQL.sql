@@ -1,4 +1,3 @@
--- 1. ตารางผู้ใช้งาน (Users)
 CREATE TABLE "users" (
     "uid" SERIAL PRIMARY KEY,
     "username" VARCHAR(50) NOT NULL UNIQUE,
@@ -10,11 +9,10 @@ CREATE TABLE "users" (
     "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. ตารางการวิเคราะห์ (Analysis)
--- ปรับแก้: ลบการอ้างอิงถึง uploads/files ออก
 CREATE TABLE "analysis" (
     "aid" SERIAL PRIMARY KEY,
     "uid" INTEGER NOT NULL,
+    "rid" INTEGER DEFAULT NULL,
     "task_id" TEXT,
     "privacy" BOOLEAN DEFAULT TRUE,
     "file_name" TEXT,
@@ -23,18 +21,17 @@ CREATE TABLE "analysis" (
     "file_path" TEXT,
     "file_type" TEXT,
     "tools" TEXT,
+    "status" TEXT DEFAULT 'pending',
     "md5" TEXT,
     "deleted_at" TIMESTAMPTZ,
     "deleted_by" INTEGER REFERENCES "users"("uid"),
     "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_analysis_user FOREIGN KEY ("uid") REFERENCES "users" ("uid") ON DELETE CASCADE
+    CONSTRAINT fk_analysis_user FOREIGN KEY ("uid") REFERENCES "users" ("uid") ON DELETE CASCADE,
+    CONSTRAINT fk_analysis_report FOREIGN KEY ("rid") REFERENCES "reports" ("rid") ON DELETE SET NULL
 );
 
--- 3. ตารางรายงานผล (Reports)
--- เชื่อมโยง 1:1 หรือ 1:N กับ Analysis
 CREATE TABLE "reports" (
     "rid" SERIAL PRIMARY KEY,
-    "aid" INTEGER NOT NULL,
     "rampart_score" NUMERIC(5, 2),
     "package" TEXT,
     "type" VARCHAR(255),
@@ -43,12 +40,9 @@ CREATE TABLE "reports" (
     "recommendation" TEXT, 
     "analysis_summary" TEXT,
     "risk_indicators" TEXT[],
-    "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_report_analysis FOREIGN KEY ("aid") REFERENCES "analysis" ("aid") ON DELETE CASCADE
+    "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. ตารางประวัติการใช้งาน (Audit Logs)
--- ปรับแก้: ลบฟิลด์ target_up_id (ที่เคยชี้ไป upload) ออก
 CREATE TABLE "audit_logs" (
     "log_id" SERIAL PRIMARY KEY,
     "actor_uid" INTEGER NOT NULL,

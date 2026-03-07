@@ -1,4 +1,4 @@
-from services.auth_service import AuthService
+from services.auth.auth_service import AuthService
 from sqlalchemy import select
 from cores.async_pg_db import SessionLocal
 from cores.models_class import User

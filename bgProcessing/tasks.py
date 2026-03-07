@@ -17,33 +17,48 @@ from cores.sync_pg_db import SyncSessionLocal
 
 load_dotenv()
 
-# Config
 VIRUSTOTAL_MAX_SIZE = 32 * 1024 * 1024
 REDIS_HOST = os.environ.get("REDIS_HOST", "127.0.0.1")
 REDIS_PORT = os.environ.get("REDIS_PORT", "6379")
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "")
 
-# สร้าง URL แบบมี Password (ถ้ามี)
 if REDIS_PASSWORD:
     REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
 else:
     REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
 
-# สร้าง Client เชื่อมต่อ Redis
 redis_client = redis.StrictRedis.from_url(REDIS_URL)
 
+def map_final_data_to_report(final_data: dict) -> dict:
+    return {
+        "package": final_data.get("app_metadata", {}).get("package"),
+        "type": final_data.get("app_metadata", {}).get("type"),
+
+        "score": final_data.get("security_assessment", {}).get("score"),
+        "risk_level": final_data.get("security_assessment", {}).get("risk_level"),
+        # "color": final_data.get("security_assessment", {}).get("verdict_color"),
+
+        "recommendation": final_data.get("user_recommendation"),
+        "analysis_summary": final_data.get("analysis_summary"),
+        "risk_indicators": final_data.get("risk_indicators"),
+
+        # ถ้าอยากให้ rampart_score = score
+        # "rampart_score": final_data.get("security_assessment", {}).get("score"),
+    }
+
 @celery_app.task(bind=True, max_retries=100) 
-def analyze_malware_task(self, analy_id: str, file_path: str, file_hashes: dict, total_size: int, analysis_tool: str, previous_results: dict = None, cape_task_id=None):
+def analyze_malware_task(self, file_path: str, file_hashes: dict, total_size: int, analysis_tool: str, previous_results: dict = None, cape_task_id=None):
     db = SyncSessionLocal()
     analy = None
     try:
-        stmt = select(Analysis).where(Analysis.aid == analy_id)
+        sha256 = file_hashes.get('sha256', '')
+        md5 = file_hashes.get('md5', '')
+
+        stmt = select(Analysis).where(Analysis.file_hash == sha256).limit(1)
         analy = db.execute(stmt).scalar_one_or_none()
 
         if not analy:
-            return { "success": False, "task_id": f"Analysis not found for task_id={self.request.id}" }
-        
-        md5 = file_hashes.get('md5', '')
+            return { "success": False, "task_id": f"Analysis not found for hash={sha256}" }
 
         analy.status = "processing"
         analy.task_id = self.request.id
@@ -106,9 +121,10 @@ def analyze_malware_task(self, analy_id: str, file_path: str, file_hashes: dict,
                             countdown=30, 
                             args=[], 
                             kwargs={
-                                'analy_id' : analy_id,
-                                'file_path': file_path, 'file_hashes': file_hashes, 
-                                'total_size': total_size, 'analysis_tool': analysis_tool,
+                                'file_path': file_path,
+                                'file_hashes': file_hashes, 
+                                'total_size': total_size,
+                                'analysis_tool': analysis_tool,
                                 'previous_results': results
                             }
                         )
@@ -126,9 +142,10 @@ def analyze_malware_task(self, analy_id: str, file_path: str, file_hashes: dict,
                                     countdown=30, 
                                     args=[],
                                     kwargs={
-                                        'analy_id' : analy_id,
-                                        'file_path': file_path, 'file_hashes': file_hashes, 
-                                        'total_size': total_size, 'analysis_tool': analysis_tool,
+                                        'file_path': file_path,
+                                        'file_hashes': file_hashes, 
+                                        'total_size': total_size,
+                                        'analysis_tool': analysis_tool,
                                         'previous_results': results
                                     }
                                 )
@@ -163,7 +180,6 @@ def analyze_malware_task(self, analy_id: str, file_path: str, file_hashes: dict,
                         countdown=countdown,
                         args=[],
                         kwargs={
-                            'analy_id' : analy_id,
                             'file_path': file_path,
                             'file_hashes': file_hashes,
                             'total_size': total_size,
@@ -200,9 +216,10 @@ def analyze_malware_task(self, analy_id: str, file_path: str, file_hashes: dict,
                         countdown=30, 
                         args=[],
                         kwargs={
-                            'analy_id' : analy_id,
-                            'file_path': file_path, 'file_hashes': file_hashes, 
-                            'total_size': total_size, 'analysis_tool': analysis_tool,
+                            'file_path': file_path,
+                            'file_hashes': file_hashes, 
+                            'total_size': total_size,
+                            'analysis_tool': analysis_tool,
                             'previous_results': results,
                             'cape_task_id': cape_task_id
                         }
@@ -222,24 +239,40 @@ def analyze_malware_task(self, analy_id: str, file_path: str, file_hashes: dict,
             except: pass
         
         report_data = map_final_data_to_report(final_data)
-        stmt = select(Reports).where(Reports.aid == analy.aid)
+        stmt = select(Reports).where(Reports.rid == analy.rid)
         report = db.execute(stmt).scalar_one_or_none()
 
         if report:
             for key, value in report_data.items():
                 setattr(report, key, value)
         else:
-            report = Reports(
-                aid=analy.aid,
-                **report_data
-            )
+            report = Reports(**report_data)
             db.add(report)
 
+        db.flush()  # get report.rid before commit
+
+        # อัพเดททุก analysis ที่มี file_hash เหมือนกัน
+        if sha256:
+            stmt_all = select(Analysis).where(
+                Analysis.file_hash == sha256,
+                Analysis.aid != analy.aid
+            )
+            duplicate_analyses = db.execute(stmt_all).scalars().all()
+            for dup in duplicate_analyses:
+                dup.status = "success"
+                dup.task_id = self.request.id
+                dup.tools = analysis_tool
+                dup.rid = report.rid
+                print(f"[SYNC] Updated duplicate analysis aid={dup.aid} with rid={report.rid}")
+
         analy.status = "success"
-        print("INSERT REPORT DB ==> ",analysis_tool)
-        analy.platform = analysis_tool
+        analy.tools = analysis_tool
+        analy.rid = report.rid
+
+        print("INSERT REPORT DB ==> ", analysis_tool)
         db.commit()
-        return {"success": True, "task_id":f"Analysis Successfully. : {self.request.id}"}
+        return {"success": True, "task_id": f"Analysis Successfully. : {self.request.id}"}
+
     except Retry:
         raise
     except Exception as e:
@@ -249,24 +282,7 @@ def analyze_malware_task(self, analy_id: str, file_path: str, file_hashes: dict,
             if analy:
                 analy.status = "failed"
                 db.commit()
-        except:pass
+        except: pass
         raise
     finally:
         db.close()
-
-def map_final_data_to_report(final_data: dict) -> dict:
-    return {
-        "package": final_data.get("app_metadata", {}).get("package"),
-        "type": final_data.get("app_metadata", {}).get("type"),
-
-        "score": final_data.get("security_assessment", {}).get("score"),
-        "risk_level": final_data.get("security_assessment", {}).get("risk_level"),
-        "color": final_data.get("security_assessment", {}).get("verdict_color"),
-
-        "recommendation": final_data.get("user_recommendation"),
-        "analysis_summary": final_data.get("analysis_summary"),
-        "risk_indicators": final_data.get("risk_indicators"),
-
-        # ถ้าอยากให้ rampart_score = score
-        # "rampart_score": final_data.get("security_assessment", {}).get("score"),
-    }
