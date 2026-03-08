@@ -41,21 +41,21 @@ class AuthService:
         if not verify_password(user.password, body.password):
             return error(AuthStatus.INVALID_CREDENTIALS, "Invalid credentials.")
 
-        if DeviceService.is_trusted(user.uid, user_agent, ip):
-            access_token = create_token(
-                subject=str(user.uid),
-                token_type="access",
-                expires_minutes=60 * 24 * 7
-            )
+        # if DeviceService.is_trusted(user.uid, user_agent, ip):
+        #     access_token = create_token(
+        #         subject=str(user.uid),
+        #         token_type="access",
+        #         expires_minutes=60 * 24 * 7
+        #     )
 
-            user_dict = user.__dict__.copy()
-            user_dict.pop("password", None)
-            user = user_dict 
-            return success(
-                AuthStatus.LOGIN_SUCCESS,
-                "Login successful.",
-                {"access_token": access_token, "data":user}
-            )
+        #     user_dict = user.__dict__.copy()
+        #     user_dict.pop("password", None)
+        #     user = user_dict 
+        #     return success(
+        #         AuthStatus.LOGIN_SUCCESS,
+        #         "Login successful.",
+        #         {"access_token": access_token, "data":user}
+        #     )
 
         token = create_token(
             subject=str(user.uid),
