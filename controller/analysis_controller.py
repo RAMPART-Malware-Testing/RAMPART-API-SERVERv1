@@ -1,5 +1,6 @@
 # from datetime import datetime
 from pathlib import Path
+import re
 # import re
 import aiofiles
 from fastapi import Header, UploadFile, HTTPException
@@ -7,7 +8,7 @@ from fastapi import Header, UploadFile, HTTPException
 from bgProcessing.tasks import analyze_malware_task
 from cores.async_pg_db import SessionLocal
 from cores.models_class import User
-from services.analy.analy_service import get_file_by_hash, insert_table_analy
+from services.analy.analy_service import get_analy_by_task_id, get_file_by_hash, get_report, insert_table_analy
 from services.token_service import TokenService
 import os
 from pathlib import Path
@@ -69,8 +70,8 @@ async def require_upload_token(token: str):
 
     return int(uid)
 
-async def generateTokenAnaly(body):
-    payload, err = TokenService.verify_token(body.token, "access")
+async def generateTokenAnaly(token):
+    payload, err = TokenService.verify_token(token, "access")
     if err: 
         return err
 
@@ -164,6 +165,7 @@ async def upload_file_controller(
                         for chunk in chunks:
                             await f.write(chunk)
                 
+                print(existing_file.get('rid'))
                 if existing_file.get('rid'):
                     analysis = await insert_table_analy(
                         session=session,
@@ -214,7 +216,6 @@ async def upload_file_controller(
                         "message": "File uploaded and task queued successfully"
                     }
 
-                return {"existing_file":existing_file}
             else:
                 file_ext = os.path.splitext(original_filename)[1]
                 file_path = UPLOAD_DIR / f"{hashes['sha256']}{file_ext}"
@@ -260,95 +261,87 @@ async def upload_file_controller(
                 detail="Internal Server Error"
             )
 
+async def get_analysis_report(uid: int, task_id: str):
+    async with SessionLocal() as session:
+        analysis = await get_analy_by_task_id(session, task_id, uid=int(uid))
+        if not analysis:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "success": False,
+                    "code": "TASK_NOT_FOUND",
+                    "message": "Analysis task not found"
+                }
+            )
 
-        # async def get_analysis_report(uid: int, task_id: str):
-        #     async with SessionLocal() as session:
-        #         analysis = await get_analy_by_task_id(session, task_id)
-        #         if not analysis:
-        #             raise HTTPException(
-        #                 status_code=404,
-        #                 detail={
-        #                     "success": False,
-        #                     "code": "TASK_NOT_FOUND",
-        #                     "message": "Analysis task not found"
-        #                 }
-        #             )
+        if analysis.status != "success":
+            return {
+                "success": True,
+                "task_id": task_id,
+                "status": analysis.status,
+                "message": "Analysis is not completed yet"
+            }
 
-        #         if analysis.status != "success":
-        #             return {
-        #                 "success": True,
-        #                 "task_id": task_id,
-        #                 "status": analysis.status,
-        #                 "message": "Analysis is not completed yet"
-        #             }
+        report = await get_report(session, analysis.rid)
+        return {
+            "success": True,
+            "task_id": task_id,
+            "status": analysis.status,
+            "report": {
+                "tools" : analysis.tools,
+                "md5" : analysis.md5,
+                "rid": report.rid,
+                "rampart_score": float(report.rampart_score) if report.rampart_score else None,
+                "package": report.package,
+                "type": report.type,
+                "score": float(report.score) if report.score else None,
+                "risk_level": report.risk_level,
+                "recommendation": report.recommendation,
+                "analysis_summary": report.analysis_summary,
+                "risk_indicators": report.risk_indicators,
+                "created_at": report.created_at,
+            }
+        }
 
-        #         report = await get_report_by_aid(session, analysis.aid)
-        #         return {
-        #             "success": True,
-        #             "task_id": task_id,
-        #             "status": analysis.status,
-        #             "report": {
-        #                 "tools" : report.analysis.platform,
-        #                 "md5" : report.analysis.md5,
-        #                 "rid": report.rid,
-        #                 "rampart_score": float(report.rampart_score) if report.rampart_score else None,
-        #                 "package": report.package,
-        #                 "type": report.type,
-        #                 "score": float(report.score) if report.score else None,
-        #                 "risk_level": report.risk_level,
-        #                 "color": report.color,
-        #                 "recommendation": report.recommendation,
-        #                 "analysis_summary": report.analysis_summary,
-        #                 "risk_indicators": report.risk_indicators,
-        #                 "created_at": report.created_at,
-        #             }
-        #         }
+BASE_REPORT_PATH = Path("reports").resolve()
 
+ALLOWED_PLATFORMS = {"cape", "virustotal", "mobsf"}
 
-        # from fastapi.responses import StreamingResponse
+FILENAME_REGEX = re.compile(r"^(cape|virustotal|mobsf)-([a-fA-F0-9]{32})$")
 
-        # def iterfile(path, chunk_size: int = 1024 * 1024):  # 1MB chunk
-        #     with open(path, "rb") as f:
-        #         while True:
-        #             chunk = f.read(chunk_size)
-        #             if not chunk:
-        #                 break
-        #             yield chunk
+async def downloadReport(file_name:str):
+    match = FILENAME_REGEX.match(file_name)
+    if not match:
+        raise HTTPException(status_code=400, detail="Invalid file name format")
 
+    platform, md5 = match.groups()
 
-        # BASE_REPORT_PATH = Path("reports").resolve()
-
-        # ALLOWED_PLATFORMS = {"cape", "virustotal", "mobsf"}
-
-        # FILENAME_REGEX = re.compile(
-        #     r"^(cape|virustotal|mobsf)-([a-fA-F0-9]{32})$"
-        # )
-
-async def get_analy_report(file_name):
-    return
-    # match = FILENAME_REGEX.match(file_name)
-    # if not match:
-    #     raise HTTPException(status_code=400, detail="Invalid file name format")
-
-    # platform, md5 = match.groups()
-
-    # if platform not in ALLOWED_PLATFORMS:
-    #     raise HTTPException(status_code=400, detail="Invalid platform")
+    if platform not in ALLOWED_PLATFORMS:
+        raise HTTPException(status_code=400, detail="Invalid platform")
     
-    # file_path = (BASE_REPORT_PATH / f"{platform}-{md5}.json").resolve()
+    file_path = (BASE_REPORT_PATH / f"{platform}-{md5}.json").resolve()
 
-    # if not str(file_path).startswith(str(BASE_REPORT_PATH)):
-    #     raise HTTPException(status_code=403, detail="Access denied")
+    if not str(file_path).startswith(str(BASE_REPORT_PATH)):
+        raise HTTPException(status_code=403, detail="Access denied")
 
-    # if not file_path.is_file():
-    #     raise HTTPException(status_code=404, detail="Report not found")
-    
-    # # return StreamingResponse(
-    # #     iterfile(file_path),
-    # #     media_type="application/json",
-    # #     headers={
-    # #         "Content-Disposition": f"attachment; filename={platform}-{md5}.json"
-    # #     }
-    # # )
-    # return file_path
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Report not found")
+    # from fastapi.responses import StreamingResponse
+
+    # def iterfile(path, chunk_size: int = 1024 * 1024):  # 1MB chunk
+    #     with open(path, "rb") as f:
+    #         while True:
+    #             chunk = f.read(chunk_size)
+    #             if not chunk:
+    #                 break
+    #             yield chunk
+
+    # return StreamingResponse(
+    #     iterfile(file_path),
+    #     media_type="application/json",
+    #     headers={
+    #         "Content-Disposition": f"attachment; filename={platform}-{md5}.json"
+    #     }
+    # )
+    return file_path
 

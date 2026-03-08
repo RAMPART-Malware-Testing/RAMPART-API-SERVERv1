@@ -150,24 +150,24 @@ class MobSFCall:
         except Exception as e:
             return {"success": False, "error": f"Request failed: {str(e)}"}
 
-    def generate_json_report(self, file_hash):
+    def generate_json_report(self, md5):
         url = f"{self.base_url}/api/v1/report_json"
-        data = {'hash': file_hash}
+        data = {'hash': md5}
         try:
             response = requests.post(url, headers=self._get_headers(), data=data)
             if response.status_code == 200:
                 raw = response.json()
-                with open(f'reports/mobsf-{file_hash}.json', 'w', encoding='utf-8') as f: json.dump(raw, f)
+                with open(f'reports/mobsf-{md5}.json', 'w', encoding='utf-8') as f: json.dump(raw, f)
                 return {"success": True, "data": clean_mobsf_report(raw)}
             else:
                 return {"success": False, "error": "Report not ready"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def delete_scan(self,file_hash):
+    def delete_scan(self,md5):
         url = f"{self.base_url}/api/v1/delete_scan"
         headers = self._get_headers()
-        data = {'hash': file_hash}
+        data = {'hash': md5}
 
         try:
             response = requests.post(url, headers=headers, data=data)

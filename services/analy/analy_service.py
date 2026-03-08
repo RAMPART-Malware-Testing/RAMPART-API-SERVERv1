@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import List, Optional
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,37 +38,6 @@ async def delete_table_files(
     # return result.rowcount > 0
     return 0
 
-async def insert_table_analy(
-    session: AsyncSession,
-    *,
-    uid: int,
-    file_name: str,
-    file_hash: str,
-    file_path: str,
-    file_type: str,
-    file_size: int,
-    privacy: bool,
-    tools: str | None = None,
-    md5: str | None = None,
-    task_id: str | None = None,
-) -> Analysis:
-    analysis = Analysis(
-        uid=uid,
-        file_name=file_name,
-        file_hash=file_hash,
-        file_path=file_path,
-        file_type=file_type,
-        file_size=file_size,
-        privacy=privacy,
-        tools=tools,
-        md5=md5,
-        task_id=task_id,
-    )
-    session.add(analysis)
-    await session.commit()
-    await session.refresh(analysis)
-    return analysis
-
 async def get_table_uploads(
     session: AsyncSession,
     *,
@@ -84,7 +54,6 @@ async def get_table_uploads(
     # )
     # return result.scalars().first()
     return 0
-
 
 async def touch_upload_time(
     session: AsyncSession,
@@ -117,16 +86,14 @@ async def insert_table_uploads(
 
     return upload
 
-
-
 async def insert_table_analy(
     session: AsyncSession,
     *,
     uid: int,
-    rid: int | None,
-    task_id: str | None,
-    tools: str | None,
-    status: str | None,
+    rid: int | None = None,
+    task_id: str | None = None,
+    tools: str | None = None,
+    status: str | None = None,
     file_name: str,
     file_hash: str,
     file_path: str,
@@ -135,6 +102,21 @@ async def insert_table_analy(
     privacy: bool,
     md5: str,
 ) -> Analysis:
+    
+    stmt = select(Analysis).where(
+        Analysis.uid == uid,
+        Analysis.file_name == file_name,
+        Analysis.file_hash == file_hash,
+    )
+    existing = await session.execute(stmt)
+    analy = existing.scalars().first()
+
+    if analy:
+        analy.created_at = datetime.now(timezone.utc)
+        await session.commit()
+        await session.refresh(analy)
+        return analy
+    
     if rid:
         analy = Analysis(
             uid=uid,
@@ -166,9 +148,6 @@ async def insert_table_analy(
     await session.refresh(analy)
     return analy
 
-
-
-
 async def get_table_analy(
     session: AsyncSession,
     fid: int
@@ -180,20 +159,21 @@ async def get_table_analy(
 
 async def get_analy_by_task_id(
     session: AsyncSession,
-    task_id: str
+    task_id: str,
+    uid: int
 ) -> Analysis | None:
     result = await session.execute(
-        select(Analysis).where(Analysis.task_id == task_id)
+        select(Analysis).where(Analysis.task_id == task_id, Analysis.uid == uid)
     )
-    return result.scalar_one_or_none()
+    return result.scalars().first()
 
-async def get_report_by_aid(
+async def get_report(
     session: AsyncSession,
-    aid: int
+    rid: int
 ) -> Reports | None:
     stmt = (
         select(Reports)
-        .where(Reports.aid == aid)
+        .where(Reports.rid == rid)
     )
     result = await session.execute(stmt)
     report = result.scalar_one_or_none()
