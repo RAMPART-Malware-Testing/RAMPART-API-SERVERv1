@@ -22,7 +22,6 @@ async def login(body: LoginParame, request: Request):
     user_agent = request.headers.get("user-agent", "")
     ip = request.client.host if request.client else "unknown"
     deviceToken = request.headers.get("deviceToken", "")
-    print(deviceToken)
     return await login_controller(body, user_agent, ip, deviceToken)
 
 @router.post("/login/confirm")
