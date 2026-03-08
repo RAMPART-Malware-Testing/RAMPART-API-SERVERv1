@@ -1,9 +1,10 @@
 from datetime import datetime, timezone
-from typing import List, Optional
-from sqlalchemy import delete, func, select
+from typing import Any, List, Optional
+from sqlalchemy import and_, asc, delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import contains_eager, joinedload, selectinload
 from cores.models_class import Analysis, User, Reports
+from schemas.analy import AnalysisHistoryParams
 
 async def get_file_by_hash(
     session: AsyncSession,
@@ -26,65 +27,6 @@ async def get_file_by_hash(
         ).limit(1)
     )
     return result.mappings().one_or_none()
-
-async def delete_table_files(
-    session: AsyncSession,
-    file_hash: str
-) -> bool:
-    # result = await session.execute(
-    #     delete(Files).where(Files.file_hash == file_hash)
-    # )
-    # await session.commit()
-    # return result.rowcount > 0
-    return 0
-
-async def get_table_uploads(
-    session: AsyncSession,
-    *,
-    uid: int,
-    fid: int,
-    file_name: str
-) -> Analysis | None:
-    # result = await session.execute(
-    #     select(Uploads).where(
-    #         Uploads.uid == uid,
-    #         Uploads.fid == fid,
-    #         Uploads.file_name == file_name
-    #     ).limit(1)
-    # )
-    # return result.scalars().first()
-    return 0
-
-async def touch_upload_time(
-    session: AsyncSession,
-    upload: Analysis
-) -> Analysis:
-    # upload.uploaded_at = func.now()
-    # await session.commit()
-    # await session.refresh(upload)
-    # return upload
-    return 0
-
-async def insert_table_uploads(
-    session: AsyncSession,
-    *,
-    uid: int,
-    fid: int,
-    file_name: str | None = None,
-    privacy: bool = True
-) -> Analysis:
-    upload = Analysis(
-        uid=uid,
-        fid=fid,
-        file_name=file_name,
-        privacy=privacy
-    )
-
-    session.add(upload)
-    await session.commit()
-    await session.refresh(upload)
-
-    return upload
 
 async def insert_table_analy(
     session: AsyncSession,
@@ -148,15 +90,6 @@ async def insert_table_analy(
     await session.refresh(analy)
     return analy
 
-async def get_table_analy(
-    session: AsyncSession,
-    fid: int
-) -> Analysis | None:
-    result = await session.execute(
-        select(Analysis).where(Analysis.fid == fid)
-    )
-    return result.scalar_one_or_none()
-
 async def get_analy_by_task_id(
     session: AsyncSession,
     task_id: str,
@@ -177,6 +110,149 @@ async def get_report(
     )
     result = await session.execute(stmt)
     report = result.scalar_one_or_none()
-    
     return report
+
+async def get_analysis_history(
+    session: AsyncSession,
+    uid: int,
+    params: AnalysisHistoryParams
+) -> dict[str, Any]:
+
+    # ======================
+    # Build WHERE conditions
+    # ======================
+    conditions = [
+        Analysis.uid == uid,
+        Analysis.deleted_at.is_(None),
+    ]
+
+    if params.status:
+        conditions.append(Analysis.status == params.status)
+
+    if params.file_type:
+        search_term = f"%{params.file_type}%"
+        conditions.append(
+            Analysis.file_type.ilike(params.file_type.strip())
+        )
+
+    if params.s:
+        search_term = f"%{params.s}%"
+        conditions.append(
+            or_(
+                Analysis.file_name.ilike(search_term),
+                Analysis.md5.ilike(search_term),
+                Analysis.file_hash.ilike(search_term),
+            )
+        )
+
+    where_clause = and_(*conditions)
+
+    # ======================
+    # Count total
+    # ======================
+    total: int = (
+        await session.execute(
+            select(func.count())
+            .select_from(Analysis)
+            .where(where_clause)
+        )
+    ).scalar_one()
+
+    # ======================
+    # Build ORDER BY
+    # ======================
+    sort_map = {
+        "created_at": Analysis.created_at,
+        "file_name":  Analysis.file_name,
+        "file_size":  Analysis.file_size,
+        "score":      Reports.score,
+    }
+    sort_priority = [
+        ("created_at", params.created_at),
+        ("file_name",  params.file_name),
+        ("file_size",  params.file_size),
+        ("score",      params.score),
+    ]
+
+    order_by = [
+        asc(sort_map[col]) if direction == 1 else desc(sort_map[col])
+        for col, direction in sort_priority
+        if direction != 0
+    ] or [desc(Analysis.created_at)]
+
+    # ======================
+    # Main query
+    # ======================
+    needs_join = params.score != 0
+
+    stmt = (
+        select(Analysis)
+        .options(joinedload(Analysis.report))
+        .where(where_clause)
+        .order_by(*order_by)
+        .offset((params.page - 1) * params.limit)
+        .limit(params.limit)
+    )
+
+    if needs_join:
+        stmt = (
+            stmt
+            .outerjoin(Reports, Analysis.rid == Reports.rid)
+            .options(contains_eager(Analysis.report))
+        )
+    else:
+        stmt = stmt.options(joinedload(Analysis.report))
+
+    analyses = (await session.execute(stmt)).scalars().unique().all()
+
+    # ======================
+    # Serialize
+    # ======================
+    def serialize(a: Analysis) -> dict[str, Any]:
+        item: dict[str, Any] = {
+            "aid":        a.aid,
+            "task_id":    a.task_id,
+            "file_name":  a.file_name,
+            "file_size":  a.file_size,
+            "file_type":  a.file_type,
+            "file_hash":  a.file_hash,
+            "tools":      a.tools,
+            "status":     a.status,
+            "md5":        a.md5,
+            "privacy":    a.privacy,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+            "report":     None,
+        }
+
+        if a.report:
+            r = a.report
+            item["report"] = {
+                # "rid":              r.rid,
+                "score":            float(r.score) if r.score is not None else None,
+                "rampart_score":    float(r.rampart_score) if r.rampart_score is not None else None,
+                # "risk_level":       r.risk_level,
+                # "package":          r.package,
+                # "type":             r.type,
+                # "recommendation":   r.recommendation,
+                # "analysis_summary": r.analysis_summary,
+                # "risk_indicators":  r.risk_indicators,
+                # "created_at":       r.created_at.isoformat() if r.created_at else None,
+            }
+
+        return item
+
+    total_pages = max(1, -(-total // params.limit))
+
+    return {
+        "success": True,
+        "data": [serialize(a) for a in analyses],
+        "pagination": {
+            "page":        params.page,
+            "limit":       params.limit,
+            "total":       total,
+            "total_pages": total_pages,
+            "has_next":    params.page < total_pages,
+            "has_prev":    params.page > 1,
+        }
+    }
 

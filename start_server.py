@@ -33,6 +33,21 @@ from routers.reports import router as report_router
 app.include_router(auth_router)
 app.include_router(analy_router)
 app.include_router(report_router)
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    errors = []
+    for error in exc.errors():
+        errors.append({
+            "type": error.get("type"),
+            "loc":  list(error.get("loc", [])),
+            "msg":  error.get("msg"),
+            "input": error.get("input"),
+        })
+    print("=== 422 DETAIL ===", errors)
+    return JSONResponse(status_code=422, content={"detail": errors})
 
 @app.get('/')
 async def root():

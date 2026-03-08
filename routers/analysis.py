@@ -1,8 +1,7 @@
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from controller.analysis_controller import generateTokenAnaly, get_analysis_report, require_upload_token, upload_file_controller, downloadReport
-from deps.auth import require_access_token
-from schemas.analy import AnalysisReportParams, GenerateTokenParams
+from controller.analysis_controller import analysisReport_controller, downloadReport_controller, generateToken_controller, history_controller, require_upload_token, scanFile_controller
+from schemas.analy import AnalysisHistoryParams, AnalysisReportParams, GenerateTokenParams
 from services.token_service import TokenService
 
 router = APIRouter(
@@ -13,7 +12,7 @@ router = APIRouter(
 @router.post("/generate-token")
 async def generateToken(body: GenerateTokenParams):
     token = body.token
-    return await generateTokenAnaly(token)
+    return await generateToken_controller(token)
 
 @router.post("/upload")
 async def uploadFile(
@@ -22,22 +21,26 @@ async def uploadFile(
     privacy: bool = Form(False)
 ):  
     uid = await require_upload_token(token)
-    return await upload_file_controller(file, uid, privacy)
+    return await scanFile_controller(file, uid, privacy)
 
 @router.post("/task_id")
-async def analyReport(payload: AnalysisReportParams):
-    verify, err = TokenService.verify_token(payload.token, "access")
+async def analyReport(body: AnalysisReportParams):
+    payload, err = TokenService.verify_token(body.token, "access")
     if err: raise HTTPException(status_code=401, detail="Invalid upload token")
-    uid = verify['sub']
-    return await get_analysis_report(uid, payload.task_id)
+    uid = payload['sub']
+    return await analysisReport_controller(uid, body.task_id)
 
 @router.get("/download/report/{file_name}")
 async def download_report(file_name: str):
     print(file_name)
-    file_path = await downloadReport(file_name)
+    file_path = await downloadReport_controller(file_name)
     return FileResponse(
         path=file_path,
         media_type="application/json",
         filename=file_path.name
     )
+
+@router.post("/history")
+async def getHistoryAnalysis(body: AnalysisHistoryParams):
+    return await history_controller(body);
 

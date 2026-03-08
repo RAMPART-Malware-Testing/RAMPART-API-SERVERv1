@@ -1,21 +1,18 @@
-# from datetime import datetime
 from pathlib import Path
 import re
-# import re
 import aiofiles
-from fastapi import Header, UploadFile, HTTPException
-# from bgProcessing.tasks import analyze_malware_task
+from fastapi import UploadFile, HTTPException
 from bgProcessing.tasks import analyze_malware_task
 from cores.async_pg_db import SessionLocal
 from cores.models_class import User
-from services.analy.analy_service import get_analy_by_task_id, get_file_by_hash, get_report, insert_table_analy
+from schemas.analy import AnalysisHistoryParams
+from services.analy.analy_service import get_analy_by_task_id, get_analysis_history, get_file_by_hash, get_report, insert_table_analy
 from services.token_service import TokenService
 import os
 from pathlib import Path
 from cores.redis import redis_client
 from utils.calculate_hash import calculate_hash_from_chunks
 from utils.jwt import create_token
-# from utils.response import error, success
 
 UPLOAD_DIR = Path("temps_files")
 REPORTS_DIR = Path("reports")
@@ -30,6 +27,9 @@ VIRUSTOTAL_MAX_SIZE = 32 * 1024 * 1024
 MOBSF_SUPPORTED_EXTENSIONS = ['.apk', '.xapk', '.ipa', '.appx']
 CAPE_SUPPORTED_EXTENSIONS = ['.exe', '.dll', '.bin', '.msi', '.scr', '.com', '.bat', '.cmd', '.vbs', '.jar',]
 
+BASE_REPORT_PATH = Path("reports").resolve()
+ALLOWED_PLATFORMS = {"cape", "virustotal", "mobsf"}
+FILENAME_REGEX = re.compile(r"^(cape|virustotal|mobsf)-([a-fA-F0-9]{32})$")
 
 def decode_redis_data(data):
     if not data:
@@ -66,11 +66,11 @@ async def require_upload_token(token: str):
     if not stored_token or stored_token != token:
         raise HTTPException(status_code=401, detail="Upload token is invalid or already used")
 
-    # redis_client.delete(session_key)
+    redis_client.delete(session_key)
 
     return int(uid)
 
-async def generateTokenAnaly(token):
+async def generateToken_controller(token):
     payload, err = TokenService.verify_token(token, "access")
     if err: 
         return err
@@ -110,7 +110,7 @@ async def generateTokenAnaly(token):
         }
     }
 
-async def upload_file_controller(
+async def scanFile_controller(
     file: UploadFile,
     uid: int,
     privacy: bool
@@ -216,7 +216,7 @@ async def upload_file_controller(
                     }
 
             else:
-                file_ext = os.path.splitext(original_filename)[1]
+                file_ext = os.path.splitext(original_filename)[1].lower()
                 file_path = UPLOAD_DIR / f"{hashes['sha256']}{file_ext}"
                 async with aiofiles.open(file_path, "wb") as f:
                     for chunk in chunks:
@@ -229,7 +229,7 @@ async def upload_file_controller(
                     file_name=original_filename,
                     file_hash=hashes['sha256'],
                     file_path=str(file_path),
-                    file_type=file.content_type,
+                    file_type=file_ext.lstrip("."),
                     file_size=total_size,
                     privacy=privacy,
                     md5=hashes['md5']
@@ -260,7 +260,7 @@ async def upload_file_controller(
                 detail="Internal Server Error"
             )
 
-async def get_analysis_report(uid: int, task_id: str):
+async def analysisReport_controller(uid: int, task_id: str):
     async with SessionLocal() as session:
         analysis = await get_analy_by_task_id(session, task_id, uid=int(uid))
         if not analysis:
@@ -299,13 +299,7 @@ async def get_analysis_report(uid: int, task_id: str):
             }
         }
 
-BASE_REPORT_PATH = Path("reports").resolve()
-
-ALLOWED_PLATFORMS = {"cape", "virustotal", "mobsf"}
-
-FILENAME_REGEX = re.compile(r"^(cape|virustotal|mobsf)-([a-fA-F0-9]{32})$")
-
-async def downloadReport(file_name:str):
+async def downloadReport_controller(file_name:str):
     match = FILENAME_REGEX.match(file_name)
     if not match:
         raise HTTPException(status_code=400, detail="Invalid file name format")
@@ -341,3 +335,23 @@ async def downloadReport(file_name:str):
     # )
     return file_path
 
+async def history_controller(body: AnalysisHistoryParams):
+    payload, err = TokenService.verify_token(body.token, "access")
+    if err:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    uid = payload.get("sub")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+
+    try:
+        uid = int(uid)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+    async with SessionLocal() as session:
+        try:
+            return await get_analysis_history(session, uid, body)
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=500, detail="Internal server error")
