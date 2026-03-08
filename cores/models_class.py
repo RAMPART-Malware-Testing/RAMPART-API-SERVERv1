@@ -18,7 +18,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     password: Mapped[str] = mapped_column(Text, nullable=False)
     role: Mapped[str] = mapped_column(String(20), server_default=text("'user'"))
-    status: Mapped[str] = mapped_column(String(50), server_default=text("'ACTIVE'"))
+    status: Mapped[str] = mapped_column(String(50), server_default=text("'active'"))
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.uid"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

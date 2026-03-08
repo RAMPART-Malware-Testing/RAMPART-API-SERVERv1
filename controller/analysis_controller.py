@@ -128,7 +128,7 @@ async def scanFile_controller(
                 }
             )
 
-        if user.status != "ACTIVE":
+        if user.status.lower() != "active":
             raise HTTPException(
                 status_code=403,
                 detail={

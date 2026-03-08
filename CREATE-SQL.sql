@@ -4,7 +4,7 @@ CREATE TABLE "users" (
     "email" VARCHAR(255) NOT NULL UNIQUE,
     "password" TEXT NOT NULL,
     "role" VARCHAR(20) DEFAULT 'user',
-    "status" VARCHAR(50) DEFAULT 'ACTIVE',
+    "status" VARCHAR(50) DEFAULT 'active',
     "created_by" INTEGER REFERENCES "users"("uid"),
     "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );

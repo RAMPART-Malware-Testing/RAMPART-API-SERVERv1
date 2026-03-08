@@ -21,7 +21,9 @@ def is_valid_email(email: str) -> bool:
 async def login(body: LoginParame, request: Request):
     user_agent = request.headers.get("user-agent", "")
     ip = request.client.host if request.client else "unknown"
-    return await login_controller(body, user_agent, ip)
+    deviceToken = request.headers.get("deviceToken", "")
+    print(deviceToken)
+    return await login_controller(body, user_agent, ip, deviceToken)
 
 @router.post("/login/confirm")
 async def login_confirm(data: LoginConfirmParame, request: Request):

@@ -36,8 +36,8 @@ def generate_accesstoken(
 LOGIN_TTL = 300
 OTP_ATTEMPT_LIMIT = 5
 
-async def login_controller(body:LoginParame, user_agent:str, ip:str):
-    response = await AuthService.login(body, user_agent, ip)
+async def login_controller(body:LoginParame, user_agent:str, ip:str,deviceToken:str):
+    response = await AuthService.login(body, user_agent, ip, deviceToken)
     return response
 
 async def login_confirm_controller(body: LoginConfirmParame, user_agent: str, ip: str):

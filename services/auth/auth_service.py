@@ -22,13 +22,12 @@ from cores.models_class import User
 from utils.cypto.PasswordCreateAndVerify import get_password_hash, verify_password
 from utils.jwt import create_token, decode_token
 from services.otp_service import OTPService
-from services.device_service import DeviceService
 
 
 class AuthService:
 
     @staticmethod
-    async def login(body, user_agent, ip):
+    async def login(body, user_agent, ip, deviceToken):
         async with SessionLocal() as session:
             result = await session.execute(
                 select(User).where(User.email == body.email)
@@ -41,21 +40,24 @@ class AuthService:
         if not verify_password(user.password, body.password):
             return error(AuthStatus.INVALID_CREDENTIALS, "Invalid credentials.")
 
-        # if DeviceService.is_trusted(user.uid, user_agent, ip):
-        #     access_token = create_token(
-        #         subject=str(user.uid),
-        #         token_type="access",
-        #         expires_minutes=60 * 24 * 7
-        #     )
+        if deviceToken: 
+            payload, err = TokenService.verify_token(deviceToken, "device")
+            if not err:
+                access_token = create_token(
+                    subject=str(user.uid),
+                    token_type="access",
+                    expires_minutes=60 * 24 * 7
+                )
 
-        #     user_dict = user.__dict__.copy()
-        #     user_dict.pop("password", None)
-        #     user = user_dict 
-        #     return success(
-        #         AuthStatus.LOGIN_SUCCESS,
-        #         "Login successful.",
-        #         {"access_token": access_token, "data":user}
-        #     )
+                user_dict = user.__dict__.copy()
+                user_dict.pop("password", None)
+                user = user_dict 
+                return success(
+                    AuthStatus.LOGIN_SUCCESS,
+                    "Login successful.",
+                    { "access_token": access_token, "data":user, "bypass_otp":True }
+                )
+            pass
 
         token = create_token(
             subject=str(user.uid),
@@ -99,7 +101,11 @@ class AuthService:
         if not user:
             return error(AuthStatus.USER_NOT_FOUND, "User not found.")
 
-        DeviceService.remember_device(uid, user_agent, ip)
+        deiveToken = create_token(
+            subject=str(user.uid),
+            token_type="device",
+            expires_minutes=60*24*7
+        )
 
         access_token = create_token(
             subject=str(uid),
@@ -112,7 +118,7 @@ class AuthService:
         return success(
             AuthStatus.LOGIN_SUCCESS,
             "Login confirmed successfully.",
-            {"access_token": access_token, "data":user}
+            {"access_token": access_token, "data":user, "deiveToken":deiveToken}
         )
 
 # ================= REGISTER =================
