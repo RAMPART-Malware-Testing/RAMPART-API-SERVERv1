@@ -165,7 +165,6 @@ async def upload_file_controller(
                         for chunk in chunks:
                             await f.write(chunk)
                 
-                print(existing_file.get('rid'))
                 if existing_file.get('rid'):
                     analysis = await insert_table_analy(
                         session=session,
@@ -265,14 +264,11 @@ async def get_analysis_report(uid: int, task_id: str):
     async with SessionLocal() as session:
         analysis = await get_analy_by_task_id(session, task_id, uid=int(uid))
         if not analysis:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "success": False,
-                    "code": "TASK_NOT_FOUND",
-                    "message": "Analysis task not found"
-                }
-            )
+            return {
+                "success": False,
+                "task_id": task_id,
+                "message": "TASK_NOT_FOUND"
+            }
 
         if analysis.status != "success":
             return {
