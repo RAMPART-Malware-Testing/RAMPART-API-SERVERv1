@@ -6,7 +6,7 @@ from bgProcessing.tasks import analyze_malware_task
 from cores.async_pg_db import SessionLocal
 from cores.models_class import User
 from schemas.analy import AnalysisHistoryParams
-from services.analy.analy_service import get_analy_by_task_id, get_analysis_history, get_file_by_hash, get_report, insert_table_analy
+from services.analy.analy_service import get_analysis_history, get_analysis_with_report, get_file_by_hash, insert_table_analy
 from services.token_service import TokenService
 import os
 from pathlib import Path
@@ -262,13 +262,16 @@ async def scanFile_controller(
 
 async def analysisReport_controller(uid: int, task_id: str):
     async with SessionLocal() as session:
-        analysis = await get_analy_by_task_id(session, task_id, uid=int(uid))
-        if not analysis:
+        row = await get_analysis_with_report(session, task_id, uid=int(uid))
+        
+        if not row:
             return {
                 "success": False,
                 "task_id": task_id,
                 "message": "TASK_NOT_FOUND"
             }
+
+        analysis, report = row
 
         if analysis.status != "success":
             return {
@@ -278,15 +281,28 @@ async def analysisReport_controller(uid: int, task_id: str):
                 "message": "Analysis is not completed yet"
             }
 
-        report = await get_report(session, analysis.rid)
         return {
             "success": True,
             "task_id": task_id,
             "status": analysis.status,
             "report": {
-                "tools" : analysis.tools,
-                "md5" : analysis.md5,
+                "aid": analysis.aid,
                 "rid": report.rid,
+                "task_id": analysis.task_id,
+                "uid": analysis.uid,
+                "privacy": analysis.privacy,
+                "file_name": analysis.file_name,
+                "file_size": analysis.file_size,
+                "file_hash": analysis.file_hash,
+                "file_path": analysis.file_path,
+                "file_type": analysis.file_type,
+                "tools": analysis.tools,
+                "md5": analysis.md5,
+                "status": analysis.status,
+                "deleted_at": analysis.deleted_at,
+                "deleted_by": analysis.deleted_by,
+                "created_at": analysis.created_at,
+                # report fields
                 "rampart_score": float(report.rampart_score) if report.rampart_score else None,
                 "package": report.package,
                 "type": report.type,
@@ -295,7 +311,6 @@ async def analysisReport_controller(uid: int, task_id: str):
                 "recommendation": report.recommendation,
                 "analysis_summary": report.analysis_summary,
                 "risk_indicators": report.risk_indicators,
-                "created_at": report.created_at,
             }
         }
 

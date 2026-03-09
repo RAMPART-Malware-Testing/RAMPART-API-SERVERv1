@@ -25,10 +25,10 @@ async def login(body: LoginParame, request: Request):
     return await login_controller(body, user_agent, ip, deviceToken)
 
 @router.post("/login/confirm")
-async def login_confirm(data: LoginConfirmParame, request: Request):
+async def login_confirm(body: LoginConfirmParame, request: Request):
     user_agent = request.headers.get("user-agent", "")
     ip = request.client.host if request.client else "unknown"
-    return await login_confirm_controller(data, user_agent, ip)
+    return await login_confirm_controller(body, user_agent, ip)
 
 @router.post("/register")
 async def register(body: RegisterParame):

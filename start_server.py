@@ -32,7 +32,7 @@ from routers.reports import router as report_router
 
 app.include_router(auth_router)
 app.include_router(analy_router)
-app.include_router(report_router)
+# app.include_router(report_router)
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 

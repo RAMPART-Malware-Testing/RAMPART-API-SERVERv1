@@ -90,27 +90,20 @@ async def insert_table_analy(
     await session.refresh(analy)
     return analy
 
-async def get_analy_by_task_id(
+async def get_analysis_with_report(
     session: AsyncSession,
     task_id: str,
     uid: int
-) -> Analysis | None:
+) -> tuple[Analysis, Reports | None] | None:
     result = await session.execute(
-        select(Analysis).where(Analysis.task_id == task_id, Analysis.uid == uid)
+        select(Analysis, Reports)
+        .outerjoin(Reports, Analysis.rid == Reports.rid)
+        .where(Analysis.task_id == task_id, Analysis.uid == uid)
     )
-    return result.scalars().first()
-
-async def get_report(
-    session: AsyncSession,
-    rid: int
-) -> Reports | None:
-    stmt = (
-        select(Reports)
-        .where(Reports.rid == rid)
-    )
-    result = await session.execute(stmt)
-    report = result.scalar_one_or_none()
-    return report
+    row = result.first()
+    if row is None:
+        return None
+    return row.Analysis, row.Reports
 
 async def get_analysis_history(
     session: AsyncSession,
