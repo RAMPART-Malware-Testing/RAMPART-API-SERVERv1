@@ -55,6 +55,7 @@ async def insert_table_analy(
 
     if analy:
         analy.created_at = datetime.now(timezone.utc)
+        analy.privacy = privacy
         await session.commit()
         await session.refresh(analy)
         return analy

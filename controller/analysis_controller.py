@@ -66,7 +66,7 @@ async def require_upload_token(token: str):
     if not stored_token or stored_token != token:
         raise HTTPException(status_code=401, detail="Upload token is invalid or already used")
 
-    redis_client.delete(session_key)
+    # redis_client.delete(session_key)
 
     return int(uid)
 
