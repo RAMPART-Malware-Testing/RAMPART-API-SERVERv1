@@ -84,7 +84,7 @@ async def generateToken_controller(token):
         return {
             "success": True,
             "status": "TOKEN_ALREADY_EXISTS",
-            "message": "Upload token already exists.",
+            "message": "โทเคนสำหรับอัปโหลดไฟล์ถูกสร้างสำเร็จ",
             "data": {
                 "upload_token": existing_token,
                 "expires_in": ttl
@@ -103,7 +103,7 @@ async def generateToken_controller(token):
     return {
         "success": True,
         "status": "TOKEN_CREATED",
-        "message": "Upload token created successfully.",
+        "message": "สร้างโทเคนสำหรับอัปโหลดไฟล์สำเร็จ",
         "data": {
             "upload_token": upload_token,
             "expires_in": UPLOAD_TOKEN_TTL

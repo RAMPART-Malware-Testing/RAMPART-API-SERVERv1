@@ -57,8 +57,7 @@ class AuthService:
                     "Login successful.",
                     { "access_token": access_token, "data":user, "bypass_otp":True }
                 )
-            pass
-
+            
         token = create_token(
             subject=str(user.uid),
             token_type="login",

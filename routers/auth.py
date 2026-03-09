@@ -32,7 +32,8 @@ async def login_confirm(data: LoginConfirmParame, request: Request):
 
 @router.post("/register")
 async def register(body: RegisterParame):
-    if not is_valid_email(body.email): return error("VALID EMAIL ERROR","email valid error")
+    if not is_valid_email(body.email): 
+        return error("VALID EMAIL ERROR","รูปแบบอีเมลไม่ถูกต้อง")
     return await register_controller(body)
 
 @router.post("/register/confirm")
