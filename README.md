@@ -15,8 +15,9 @@ docker run -itd \
   -p 8001:8000 \
   opensecurity/mobile-security-framework-mobsf:latest
 ```
+# 3 create Table SQL !!!
 
-# start process
+# 4 start process
 ```
 python start_server.py
 python start_celery.py
