@@ -1,0 +1,299 @@
+{
+    "virustotal": {
+        "file_info": {
+            "names": [
+                "F-Droid.apk",
+                "F-Droid(2).apk",
+                "f-droid.apk"
+            ],
+            "meaningful_name": "F-Droid.apk",
+            "type": "Android",
+            "size": 12426276,
+            "hashes": {
+                "md5": "8e44c488dc211b4c46cd1206ad598731",
+                "sha1": "f23fb703e39117d110d097d16666ede0e24fc459",
+                "sha256": "1dfce4269081693f10350dbabd26991a59d7c2bb81f870de54e5b113f4785b7a"
+            }
+        },
+        "app_identity": {
+            "package_name": null,
+            "developer_signer": null,
+            "is_verified": null,
+            "is_trusted_developer": false
+        },
+        "scan_summary": {
+            "malicious_count": 0,
+            "suspicious_count": 0,
+            "undetected_count": 67,
+            "harmless_count": 0,
+            "total_scanners": 76,
+            "reputation": 9,
+            "community_votes": {
+                "harmless": 9,
+                "malicious": 0
+            }
+        },
+        "threats_found": {
+            "malicious": [],
+            "suspicious": []
+        },
+        "security_analysis": {
+            "sigma_rules": {},
+            "sandbox_results": []
+        },
+        "permissions": [],
+        "tags": [
+            "clipboard",
+            "runtime-modules",
+            "android",
+            "reflection",
+            "apk",
+            "contains-elf",
+            "telephony",
+            "checks-gps"
+        ]
+    },
+    "mobsf_report": {
+        "file_info": {
+            "app_name": "F-Droid",
+            "package_name": "org.fdroid.fdroid",
+            "version_name": "1.23.1",
+            "size": "11.85MB",
+            "md5": "8e44c488dc211b4c46cd1206ad598731"
+        },
+        "security_score": 62,
+        "code_behavior": {
+            "suspicious_apis": [
+                {
+                    "type": "api_dexloading",
+                    "description": "Dynamic Class and Dexloading",
+                    "file_count": 6
+                },
+                {
+                    "type": "api_base64_decode",
+                    "description": "Base64 Decode",
+                    "file_count": 2
+                },
+                {
+                    "type": "api_sms_call",
+                    "description": "Query Database of SMS, Contacts etc",
+                    "file_count": 3
+                }
+            ],
+            "risk_findings": [
+                {
+                    "rule_id": "android_temp_file",
+                    "title": "android_temp_file",
+                    "severity": "warning"
+                },
+                {
+                    "rule_id": "android_hardcoded",
+                    "title": "android_hardcoded",
+                    "severity": "warning"
+                },
+                {
+                    "rule_id": "android_insecure_random",
+                    "title": "android_insecure_random",
+                    "severity": "warning"
+                },
+                {
+                    "rule_id": "android_md5",
+                    "title": "android_md5",
+                    "severity": "warning"
+                },
+                {
+                    "rule_id": "android_sha1",
+                    "title": "android_sha1",
+                    "severity": "warning"
+                },
+                {
+                    "rule_id": "android_read_write_external",
+                    "title": "android_read_write_external",
+                    "severity": "warning"
+                },
+                {
+                    "rule_id": "android_ip_disclosure",
+                    "title": "android_ip_disclosure",
+                    "severity": "warning"
+                }
+            ]
+        },
+        "signer_info": {
+            "raw_data": "Binary is signed\nv1 signature: True\nv2 signature: True\nv3 signature: True\nv4 signature: False\nX.509 Subject: C=UK, ST=Unknown, L=Wetherby, O=Unknown, OU=Unknown, CN=Ciaran Gultnieks\nSignature Algorithm: rsassa_pkcs1v15\nValid From: 2010-07-23 17:10:24+00:00\nValid To: 2037-12-08 17:10:24+00:00\nIssuer: C=UK, ST=Unknown, L=Wetherby, O=Unknown, OU=Unknown, CN=Ciaran Gultnieks\nSerial Number: 0x4c49cd00\nHash Algorithm: sha1\nmd5: 17c55c628056e193e95644e989792786\nsha1: 05f2e65928088981b317fc9a6dbfe04b0fa",
+            "is_debug_cert": false,
+            "bad_certificate": false
+        },
+        "permissions": [
+            {
+                "name": "android.permission.BLUETOOTH_CONNECT",
+                "description": "Required to be able to connect to paired Bluetooth devices."
+            },
+            {
+                "name": "android.permission.BLUETOOTH_SCAN",
+                "description": "Required to be able to discover and pair nearby Bluetooth devices."
+            },
+            {
+                "name": "android.permission.READ_EXTERNAL_STORAGE",
+                "description": "Allows an application to read from external storage."
+            },
+            {
+                "name": "android.permission.WRITE_EXTERNAL_STORAGE",
+                "description": "Allows an application to write to external storage."
+            },
+            {
+                "name": "android.permission.MANAGE_EXTERNAL_STORAGE",
+                "description": "Allows an application a broad access to external storage in scoped storage. Intended to be used by few apps that need to manage files on behalf of the users."
+            },
+            {
+                "name": "android.permission.WRITE_SETTINGS",
+                "description": "Allows an application to modify the system's settings data. Malicious applications can corrupt your system's configuration."
+            },
+            {
+                "name": "android.permission.REQUEST_INSTALL_PACKAGES",
+                "description": "Malicious applications can use this to try and trick users into installing additional malicious packages."
+            },
+            {
+                "name": "android.permission.POST_NOTIFICATIONS",
+                "description": "Allows an app to post notifications"
+            },
+            {
+                "name": "android.permission.CAMERA",
+                "description": "Allows application to take pictures and videos with the camera. This allows the application to collect images that the camera is seeing at any time."
+            },
+            {
+                "name": "android.permission.ACCESS_COARSE_LOCATION",
+                "description": "Access coarse location sources, such as the mobile network database, to determine an approximate phone location, where available. Malicious applications can use this to determine approximately where you are."
+            }
+        ],
+        "dangerous_services": [],
+        "suspicious_api_calls": [],
+        "high_risk_components": [],
+        "store_info": null,
+        "network_security": {
+            "summary": {
+                "high": 2,
+                "warning": 1,
+                "secure": 7
+            },
+            "configured_domains": [
+                "*",
+                "github.com",
+                "amazonaws.com",
+                "github.io",
+                "f-droid.org",
+                "gitlab.io",
+                "gitlab.com",
+                "githubusercontent.com"
+            ],
+            "vulnerabilities": [
+                {
+                    "severity": "high",
+                    "scope": [
+                        "*"
+                    ],
+                    "description": "Base config is insecurely configured to permit clear text traffic to all domains."
+                },
+                {
+                    "severity": "warning",
+                    "scope": [
+                        "*"
+                    ],
+                    "description": "Base config is configured to trust system certificates."
+                },
+                {
+                    "severity": "high",
+                    "scope": [
+                        "*"
+                    ],
+                    "description": "Base config is configured to trust user installed certificates."
+                }
+            ]
+        }
+    },
+    "cape": {
+        "source": "CAPE Sandbox",
+        "score": 0.0,
+        "malware_family": null,
+        "mitre_attack_techniques": [],
+        "critical_signatures": [],
+        "network_behavior": {
+            "http_traffic": [],
+            "dns_queries": [],
+            "ip_connections": [
+                {
+                    "dst_ip": "110.164.11.107",
+                    "country": "unknown",
+                    "ports": [
+                        443
+                    ]
+                },
+                {
+                    "dst_ip": "23.100.109.78",
+                    "country": "unknown",
+                    "ports": [
+                        443
+                    ]
+                },
+                {
+                    "dst_ip": "40.126.35.85",
+                    "country": "unknown",
+                    "ports": [
+                        443
+                    ]
+                },
+                {
+                    "dst_ip": "110.164.21.136",
+                    "country": "unknown",
+                    "ports": [
+                        443
+                    ]
+                },
+                {
+                    "dst_ip": "150.171.28.11",
+                    "country": "unknown",
+                    "ports": [
+                        443
+                    ]
+                },
+                {
+                    "dst_ip": "150.171.27.10",
+                    "country": "unknown",
+                    "ports": [
+                        443
+                    ]
+                },
+                {
+                    "dst_ip": "13.107.213.59",
+                    "country": "unknown",
+                    "ports": [
+                        443
+                    ]
+                },
+                {
+                    "dst_ip": "172.66.2.5",
+                    "country": "unknown",
+                    "ports": [
+                        80
+                    ]
+                },
+                {
+                    "dst_ip": "20.52.64.201",
+                    "country": "unknown",
+                    "ports": [
+                        443
+                    ]
+                }
+            ]
+        },
+        "system_behavior": {
+            "files_written": [],
+            "registry_keys_modified": [],
+            "commands_executed": []
+        }
+    },
+    "rampart_ai": {
+        "success": true,
+        "rampart_score": 0.028,
+        "prediction": "Benign"
+    }
+}

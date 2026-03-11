@@ -6,6 +6,7 @@ __pycache__/
 z-report*
 
 reports/*.json
+result/*.json
 
 # Ignore JSON files in Files/report directory
 Files/report/mobsf/*.json

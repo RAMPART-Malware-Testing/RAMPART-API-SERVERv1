@@ -16,16 +16,17 @@ from utils.jwt import create_token
 
 UPLOAD_DIR = Path("temps_files")
 REPORTS_DIR = Path("reports")
+RESULTS_DIR = Path("results")
 
-for directory in [UPLOAD_DIR, REPORTS_DIR]:
+for directory in [UPLOAD_DIR, REPORTS_DIR, RESULTS_DIR]:
     directory.mkdir(parents=True, exist_ok=True)
 
 MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024  # 1GB
 CHUNK_SIZE = 1024 * 1024
 VIRUSTOTAL_MAX_SIZE = 32 * 1024 * 1024
 
-MOBSF_SUPPORTED_EXTENSIONS = ['.apk', '.xapk', '.ipa', '.appx']
-CAPE_SUPPORTED_EXTENSIONS = ['.exe', '.dll', '.bin', '.msi', '.scr', '.com', '.bat', '.cmd', '.vbs', '.jar',]
+# MOBSF_SUPPORTED_EXTENSIONS = ['.apk', '.xapk', '.ipa', '.appx']
+# CAPE_SUPPORTED_EXTENSIONS = ['.exe', '.dll', '.bin', '.msi', '.scr', '.com', '.bat', '.cmd', '.vbs', '.jar',]
 
 BASE_REPORT_PATH = Path("reports").resolve()
 ALLOWED_PLATFORMS = {"cape", "virustotal", "mobsf"}
@@ -45,14 +46,14 @@ def get_file_info_from_redis(sha256_hash):
         print(f"Redis error when getting file info: {e}")
         return None
 
-def determine_analysis_tool(file_extension):
-    file_extension = file_extension.lower()
-    if file_extension in MOBSF_SUPPORTED_EXTENSIONS:
-        return 'mobsf'
-    elif file_extension in CAPE_SUPPORTED_EXTENSIONS:
-        return 'cape'
-    else:
-        return 'mobsf,cape'
+# def determine_analysis_tool(file_extension):
+#     file_extension = file_extension.lower()
+#     if file_extension in MOBSF_SUPPORTED_EXTENSIONS:
+#         return 'mobsf'
+#     elif file_extension in CAPE_SUPPORTED_EXTENSIONS:
+#         return 'cape'
+#     else:
+#         return 'mobsf,cape'
     
 async def require_upload_token(token: str):
     payload, err = TokenService.verify_token(token, "upload")
@@ -117,33 +118,28 @@ async def scanFile_controller(
 ):
     async with SessionLocal() as session:
         user = await session.get(User, uid)
-
         if not user:
             raise HTTPException(
                 status_code=401,
                 detail={
                     "success": False,
                     "code": "USER_NOT_FOUND",
-                    "message": "User not found"
+                    "message": "ไม่พบผู้ใช้งานในระบบ"
                 }
             )
-
         if user.status.lower() != "active":
             raise HTTPException(
                 status_code=403,
                 detail={
                     "success": False,
                     "code": "USER_NOT_ACTIVE",
-                    "message": "User account is not active"
+                    "message": "ผู้ใช้งานไม่อยู๋ในสถานะ active กรุณาติดต่อผู้ดูแลระบบ"
                 }
             )
-
         # ========================= Read & Chunk file =========================
         file_path = None
         try:
             original_filename = file.filename
-            file_extension = os.path.splitext(original_filename)[1]
-
             chunks = []
             total_size = 0
             while chunk := await file.read(CHUNK_SIZE):
@@ -154,7 +150,6 @@ async def scanFile_controller(
                         detail="File size exceeds limit"
                     )
                 chunks.append(chunk)
-
             # ========================= Hash calculation =========================
             hashes = calculate_hash_from_chunks(chunks)
             existing_file = await get_file_by_hash(session, hashes['sha256'])
@@ -164,57 +159,29 @@ async def scanFile_controller(
                     async with aiofiles.open(file_path, "wb") as f:
                         for chunk in chunks:
                             await f.write(chunk)
-                
-                if existing_file.get('rid'):
-                    analysis = await insert_table_analy(
-                        session=session,
-                        uid=uid,
-                        rid=existing_file['rid'],
-                        file_name=original_filename,
-                        file_hash=existing_file['file_hash'],
-                        file_path=existing_file['file_path'],
-                        file_type=existing_file['file_type'],
-                        file_size=existing_file['file_size'],
-                        privacy=privacy,
-                        md5=existing_file['md5'],
-                        tools=existing_file['tools'],
-                        task_id=existing_file['task_id'],
-                        status=existing_file['status']
-                    )
-                    return {
-                        "success": True,
-                        "file_id": hashes,
-                        "filename": original_filename,
-                        "file_path": existing_file['file_path'],
-                        "tool": existing_file['tools'],
-                        "task_id": existing_file['task_id'],
-                        "message": "File uploaded and task queued successfully"
-                    }
-                else:
-                    analysis = await insert_table_analy(
-                        session=session,
-                        uid=uid,
-                        file_name=original_filename,
-                        file_hash=existing_file['file_hash'],
-                        file_path=existing_file['file_path'],
-                        file_type=existing_file['file_type'],
-                        file_size=existing_file['file_size'],
-                        privacy=privacy,
-                        md5=existing_file['md5'],
-                        tools=existing_file['tools'],
-                        task_id=existing_file['task_id'],
-                        status=existing_file['status']
-                    )
-                    return {
-                        "success": True,
-                        "file_id": hashes,
-                        "filename": original_filename,
-                        "file_path": existing_file['file_path'],
-                        "tool": existing_file['tools'],
-                        "task_id": existing_file['task_id'],
-                        "message": "File uploaded and task queued successfully"
-                    }
-
+                await insert_table_analy(
+                    session=session,
+                    uid=uid,
+                    rid=existing_file.get('rid'),
+                    file_name=original_filename,
+                    file_hash=existing_file.get('file_hash'),
+                    file_path=existing_file.get('file_path'),
+                    file_type=existing_file.get('file_type'),
+                    file_size=existing_file.get('file_size'),
+                    privacy=privacy,
+                    md5=existing_file.get('md5'),
+                    tools=existing_file.get('tools'),
+                    task_id=existing_file.get('task_id'),
+                    status=existing_file.get('status')
+                )
+                return {
+                    "success": True,
+                    "file_id": hashes,
+                    "filename": original_filename,
+                    "file_path": existing_file.get('file_path'),
+                    "task_id": existing_file.get('task_id'),
+                    "message": "File uploaded and task queued successfully"
+                }
             else:
                 file_ext = os.path.splitext(original_filename)[1].lower()
                 file_path = UPLOAD_DIR / f"{hashes['sha256']}{file_ext}"
@@ -222,8 +189,7 @@ async def scanFile_controller(
                     for chunk in chunks:
                         await f.write(chunk)
                 # ========================= Dispatch Celery task =========================
-                analysis_tool = determine_analysis_tool(file_extension)
-                analysis = await insert_table_analy(
+                await insert_table_analy(
                     session=session,
                     uid=uid,
                     file_name=original_filename,
@@ -234,20 +200,17 @@ async def scanFile_controller(
                     privacy=privacy,
                     md5=hashes['md5']
                 )
-
                 task = analyze_malware_task.delay(
                     str(file_path),
                     hashes,
                     int(total_size),
-                    analysis_tool
+                    analysis_tool='mobsf,cape'
                 )
-
                 return {
                     "success": True,
                     "file_id": hashes,
                     "filename": original_filename,
                     "file_path": str(file_path),
-                    "tool": analysis_tool,
                     "task_id": task.id,
                     "message": "File uploaded and task queued successfully"
                 }

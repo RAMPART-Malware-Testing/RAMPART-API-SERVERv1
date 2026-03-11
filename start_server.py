@@ -28,7 +28,7 @@ async def startup_event():
 # ==========================================
 from routers.auth import router as auth_router
 from routers.analysis import router as analy_router
-from routers.reports import router as report_router
+# from routers.reports import router as report_router
 
 app.include_router(auth_router)
 app.include_router(analy_router)

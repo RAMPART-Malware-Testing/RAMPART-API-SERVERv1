@@ -7,13 +7,6 @@ from typing import Dict, Any, List, Optional
 
 load_dotenv()
 
-# ==========================================
-# Helper Functions (ฟังก์ชันช่วยดึงข้อมูล)
-# ==========================================
-# ... (คงเดิม: extract_critical_apis, extract_high_risk_findings, etc.) ...
-# เพื่อประหยัดพื้นที่ ผมขอละ Helper Functions ไว้เหมือนเดิมนะครับ 
-# เพราะ Logic ส่วนนี้ถูกต้องแล้ว
-
 def extract_critical_apis(raw_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     critical_keys = ["api_dexloading", "api_native_code", "api_base64_decode", "api_sms_call", "api_system_properties"]
     found_apis = []
@@ -141,10 +134,8 @@ class MobSFCall:
         data = {'hash': file_hash}
         try:
             requests.post(url, headers=self._get_headers(), data=data, timeout=timeout)
-            # ถ้าตอบกลับทันเวลา (ไฟล์เล็ก)
             return {"success": True, "data": "scan_started_finished"}
         except ReadTimeout:
-            # *** HERO LOGIC *** ตัดสายแล้วบอกว่าสำเร็จ (Background Processing)
             print(f"[MobSF] Scan triggered successfully (Background Mode).")
             return {"success": True, "data": "scan_started_background"}
         except Exception as e:

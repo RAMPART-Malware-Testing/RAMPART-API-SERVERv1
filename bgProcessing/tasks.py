@@ -230,9 +230,20 @@ def analyze_malware_task(
                         'previous_results': results, 'cape_task_id': cape_task_id,
                     })
 
+        with open(f'results/{md5}.json', 'w', encoding='utf-8') as f: json.dump(results, f)
+        # ── Gemini AI ─────────────────────────────────────────────────────────
+        print("[Gemini] Sending data to AI...")
+        gemini   = GeminiAPI()
+        response = gemini.AnalysisGemini(results)
+        final_data = response if isinstance(response, dict) else {"raw": response}
+        if isinstance(response, str):
+            try:
+                final_data = json.loads(response.replace("```json", "").replace("```", ""))
+            except:
+                pass
         # ── RampartAI Predict ─────────────────────────────────────────────────
         if results.get('mobsf_report') and "rampart_ai" not in results:
-            mobsf_report_path = os.path.join("reports", f'mobsf-{md5}.json')  # ← เพิ่ม path
+            mobsf_report_path = os.path.join("reports", f'mobsf-{md5}.json')
             print(f"[RampartAI] Predicting: {mobsf_report_path} (attempt {predict_retried + 1}/5)")
 
             redic = asyncio.run(predicRampartAI(mobsf_report_path))
@@ -252,17 +263,6 @@ def analyze_malware_task(
                 else:
                     print("[RampartAI] Max retries exceeded, skipping...")
                     results["rampart_ai_error"] = redic.get("message")
-
-        # ── Gemini AI ─────────────────────────────────────────────────────────
-        print("[Gemini] Sending data to AI...")
-        gemini   = GeminiAPI()
-        response = gemini.AnalysisGemini(results)
-        final_data = response if isinstance(response, dict) else {"raw": response}
-        if isinstance(response, str):
-            try:
-                final_data = json.loads(response.replace("```json", "").replace("```", ""))
-            except:
-                pass
             
         if results.get("rampart_ai", {}).get("success"):
             final_data["rampart_score"] = results["rampart_ai"].get("rampart_score")

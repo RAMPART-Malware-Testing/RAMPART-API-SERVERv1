@@ -3,9 +3,7 @@ import requests
 from dotenv import load_dotenv
 import base64
 import json
-# import hashlib
 from typing import Dict, Any, List, Optional
-# import json
 
 def deCode_base64_string(b64_string: str) -> str:
     b64_bytes = b64_string.encode("utf-8")
@@ -242,29 +240,25 @@ class VirusToTalAPI:
     # -----------------------------
     def get_report_by_base64(self, base64_string: str) -> Dict[str, Any]:
         md5_and_number = deCode_base64_string(base64_string)
-        file_hash = md5_and_number.split(':')[0]
-        url = f"{self.BASE_URL}/files/{file_hash}"
+        md5 = md5_and_number.split(':')[0]
+        url = f"{self.BASE_URL}/files/{md5}"
 
         try:
-            raw_report = self._make_request("GET", url)
-            with open(f'reports/virustotal-{file_hash}.json','w',encoding='utf-8') as wf:
-                wf.write(json.dumps(raw_report,ensure_ascii=False, indent=4))
-                wf.close()
-            data = self._clean_virustotal_report(raw_report)
+            raw = self._make_request("GET", url)
+            with open(f'reports/virustotal-{md5}.json', 'w', encoding='utf-8') as f: json.dump(raw, f)
+            data = self._clean_virustotal_report(raw)
             return {"success":True, "data":data}
         except Exception as e:
             return {"success":False, "message":e} 
 
 
-    def get_report_by_hash(self, file_hash: str) -> Dict[str, Any]:
-        url = f"{self.BASE_URL}/files/{file_hash}"
+    def get_report_by_hash(self, md5: str) -> Dict[str, Any]:
+        url = f"{self.BASE_URL}/files/{md5}"
 
         try:
-            raw_report = self._make_request("GET", url)
-            with open(f'reports/virustotal-{file_hash}.json','w',encoding='utf-8') as wf:
-                wf.write(json.dumps(raw_report, ensure_ascii=False, indent=4))
-                wf.close()
-            data =  self._clean_virustotal_report(raw_report)
+            raw = self._make_request("GET", url)
+            with open(f'reports/virustotal-{md5}.json', 'w', encoding='utf-8') as f: json.dump(raw, f)
+            data =  self._clean_virustotal_report(raw)
             return {"success":True, "data":data}
         except Exception as e:
             return {"success":False, "message":e} 
