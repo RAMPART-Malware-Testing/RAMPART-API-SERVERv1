@@ -99,9 +99,6 @@ class VirusToTalAPI:
         self._reset_key_index()
         raise RuntimeError(f"All API keys failed. Last error: {last_error}")
 
-    # -----------------------------
-    # Upload File and Scan
-    # -----------------------------
     def upload_file(self, file_path: str) -> Dict[str, Any]:
         url = f"{self.BASE_URL}/files"
         try:
@@ -113,54 +110,32 @@ class VirusToTalAPI:
         except Exception as e:
             return {"success":False, "message":e}
 
-    # -----------------------------
-    # Clean VirusTotal Report
-    # -----------------------------
     def _clean_virustotal_report(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         if not raw_data:
             return None
-
-        # Extract attributes
         attrs = raw_data.get("data", {}).get("attributes", {})
-
-        # Detect file type
         file_type = attrs.get("type_description", "")
         type_tags = attrs.get("type_tags", [])
         is_android = "androguard" in attrs or "apk" in type_tags or "android" in type_tags
         is_windows = "peexe" in type_tags or "pe" in type_tags or "Win" in file_type
-
-        # 1. Extract identity information (CRITICAL)
         developer_signer = None
         package_name = None
         permissions = []
-
         if is_android:
-            # Android APK - use androguard
             androguard = attrs.get("androguard", {})
             cert = androguard.get("certificate", {}).get("Subject", {})
-            developer_signer = cert.get("O")  # Organization
+            developer_signer = cert.get("O")
             package_name = androguard.get("Package")
-
-            # Extract permissions (just names, not descriptions)
             perms_raw = androguard.get("permission_details", {})
             permissions = list(perms_raw.keys()) if perms_raw else []
 
         elif is_windows:
-            # Windows PE - use signature_info
             sig_info = attrs.get("signature_info", {})
             signers = sig_info.get("signers", "")
-
-            # Extract first signer (usually the actual developer)
             if signers:
                 developer_signer = signers.split(";")[0].strip()
-
-            # Product name as identifier
             package_name = sig_info.get("product", attrs.get("meaningful_name"))
-
-        # 2. Extract security statistics
         stats = attrs.get("last_analysis_stats", {})
-
-        # 3. Extract only MALICIOUS and SUSPICIOUS findings (not the 60+ safe ones)
         malware_findings = []
         suspicious_findings = []
         results = attrs.get("last_analysis_results", {})
@@ -171,22 +146,14 @@ class VirusToTalAPI:
                 malware_findings.append(f"{engine}: {result.get('result')}")
             elif category == "suspicious":
                 suspicious_findings.append(f"{engine}: {result.get('result')}")
-
-        # 4. Extract file hashes
         file_hashes = {
             "md5": attrs.get("md5"),
             "sha1": attrs.get("sha1"),
             "sha256": attrs.get("sha256")
         }
-
-        # 5. Extract reputation and votes
         reputation = attrs.get("reputation", 0)
         total_votes = attrs.get("total_votes", {})
-
-        # 6. Extract sigma analysis (security rules)
         sigma_stats = attrs.get("sigma_analysis_stats", {})
-
-        # 7. Extract sandbox verdicts
         sandbox_verdicts = attrs.get("sandbox_verdicts", {})
         sandbox_summary = []
         for sandbox_name, verdict in sandbox_verdicts.items():
@@ -195,10 +162,9 @@ class VirusToTalAPI:
                 "category": verdict.get("category"),
                 "malware_classification": verdict.get("malware_classification", [])
             })
-
         return {
             "file_info": {
-                "names": attrs.get("names", [])[:3],  # First 3 names only
+                "names": attrs.get("names", [])[:3],
                 "meaningful_name": attrs.get("meaningful_name"),
                 "type": file_type,
                 "size": attrs.get("size"),
@@ -206,7 +172,7 @@ class VirusToTalAPI:
             },
             "app_identity": {
                 "package_name": package_name,
-                "developer_signer": developer_signer,  # Critical for authenticity check
+                "developer_signer": developer_signer,
                 "is_verified": attrs.get("signature_info", {}).get("verified") == "Signed" if is_windows else None,
                 "is_trusted_developer": any(trusted in str(developer_signer).lower()
                                            for trusted in ["google", "microsoft", "apple"]) if developer_signer else False
@@ -224,20 +190,17 @@ class VirusToTalAPI:
                 }
             },
             "threats_found": {
-                "malicious": malware_findings,  # Critical threats
-                "suspicious": suspicious_findings  # Potential threats
+                "malicious": malware_findings, 
+                "suspicious": suspicious_findings
             },
             "security_analysis": {
-                "sigma_rules": sigma_stats,  # High/Medium/Low security rules triggered
-                "sandbox_results": sandbox_summary  # Sandbox execution results
+                "sigma_rules": sigma_stats,
+                "sandbox_results": sandbox_summary
             },
-            "permissions": permissions,  # Android permissions only
-            "tags": attrs.get("tags", [])[:10]  # First 10 tags for behavior indicators
+            "permissions": permissions,
+            "tags": attrs.get("tags", [])[:10]
         }
 
-    # -----------------------------
-    # Get Report by File Hash
-    # -----------------------------
     def get_report_by_base64(self, base64_string: str) -> Dict[str, Any]:
         md5_and_number = deCode_base64_string(base64_string)
         md5 = md5_and_number.split(':')[0]
@@ -264,17 +227,10 @@ class VirusToTalAPI:
             return {"success":False, "message":e} 
 
 virustotal = None
-
 def VirusTotal():
     global virustotal
     if virustotal is None:
         virustotal = VirusToTalAPI()
         return virustotal
     return virustotal
-
-
-# x = VirusTotal().upload_file("AnyDesk.exe")
-# print(x["data"]['id'])
-# y = VirusTotal().get_report(x["data"]['id'])
-# print(y)
 

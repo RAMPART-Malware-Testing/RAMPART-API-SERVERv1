@@ -235,12 +235,14 @@ def analyze_malware_task(
         print("[Gemini] Sending data to AI...")
         gemini   = GeminiAPI()
         response = gemini.AnalysisGemini(results)
+        with open(f'results/test-gemini1.txt', 'w', encoding='utf-8') as f: f.write(response if isinstance(response, str) else str(response))
         final_data = response if isinstance(response, dict) else {"raw": response}
         if isinstance(response, str):
             try:
                 final_data = json.loads(response.replace("```json", "").replace("```", ""))
             except:
                 pass
+        with open(f'results/test-gemini2.txt', 'w', encoding='utf-8') as f: json.dump(final_data, f)
         # ── RampartAI Predict ─────────────────────────────────────────────────
         if results.get('mobsf_report') and "rampart_ai" not in results:
             mobsf_report_path = os.path.join("reports", f'mobsf-{md5}.json')

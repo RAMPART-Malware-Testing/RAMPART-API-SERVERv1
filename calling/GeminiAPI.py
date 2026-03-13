@@ -10,49 +10,30 @@ from google.genai.errors import ServerError, ClientError
 load_dotenv()
 
 def normalize_attributes(attributes):
-    """Normalize attributes to have consistent format"""
     normalized = []
     seen_keys = {}
-
     for attr in attributes:
         if not attr or ":" not in attr:
             continue
-
         key, value = attr.split(":", 1)
         key = key.strip()
         value = value.strip()
-
-        # Normalize volume units
         if key == "volume":
-            # Remove ALL spaces and convert units
-            value = re.sub(r'\s+', '', value)  # Remove all spaces
-            # Convert to lowercase
+            value = re.sub(r'\s+', '', value) 
             value = value.replace('ML', 'ml').replace('มล.', 'ml').replace('G', 'g')
-
-        # Normalize PA values (remove extra spaces)
         if key == "pa":
             value = re.sub(r'PA\s+', 'PA', value)
-
-        # Store normalized attribute
         normalized_attr = f"{key}: {value}"
-
-        # Track unique keys to avoid duplicates
         if key not in seen_keys:
             seen_keys[key] = []
-
-        # Add only if not duplicate
         if value not in seen_keys[key]:
             seen_keys[key].append(value)
             normalized.append(normalized_attr)
-
     return normalized
 
 def extract_json(text):
-    """Extract and normalize JSON from text response"""
-    # Try to find JSON in code blocks (both array and object)
     pattern_array = r"```(?:json)?\s*(\[.*?\])\s*```"
     pattern_object = r"```(?:json)?\s*(\{.*?\})\s*```"
-
     match = re.search(pattern_array, text, re.DOTALL)
     if match:
         json_str = match.group(1)
@@ -64,12 +45,8 @@ def extract_json(text):
             json_str = text.strip()
         else:
             return None
-
     try:
-        # Parse JSON
         data = json.loads(json_str)
-
-        # Normalize attributes in each item
         if isinstance(data, list):
             for item in data:
                 if "attributes" in item and isinstance(item["attributes"], list):
@@ -77,11 +54,8 @@ def extract_json(text):
         elif isinstance(data, dict):
             if "attributes" in data and isinstance(data["attributes"], list):
                 data["attributes"] = normalize_attributes(data["attributes"])
-
-        # Return normalized JSON string
         return json.dumps(data, ensure_ascii=False, indent=2)
     except json.JSONDecodeError:
-        # If parsing fails, return original string
         return json_str
     
 def system_prompt():
@@ -133,30 +107,24 @@ Task:
 class GeminiAPICall:
     def __init__(self):
         self.api_keys = self._load_api_keys()
-        
         if len(self.api_keys)<=0:
             raise Exception("No Gemini API Key found. Please set GEMINI_API_KEY1 environment variable.")
-        
         self.current_key_index = 0
         self.current_model_index = 0
-
         self.models = [
-            "gemini-2.5-flash",           # แนะนำสูงสุด - แม่นยำและเร็ว
-            "gemini-2.0-flash",           # สมดุลดี
-            "gemini-2.0-flash-001",       # ทางเลือกสำรอง
-            # กลุ่ม Economy (เร็วแต่แม่นยำน้อยกว่า)
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-001",
             "gemini-2.5-flash-lite",
             "gemini-2.0-flash-lite",
             "gemini-2.0-flash-lite-001",
         ]
-        
         self.current_model_index = 0
         self.model = self.models[self.current_model_index]
-
         self.AI = genai.Client(api_key=self.api_keys[self.current_key_index])
-        self.max_retries = 3  # จำนวนครั้งที่จะลองใหม่ต่อโมเดล
-        self.retry_delay = 2  # วินาทีที่จะรอก่อนลองใหม่
-        self.rate_limit_delay = 4  # วินาทีที่รอหลังแต่ละ request (15 RPM = 60/15 = 4s)
+        self.max_retries = 3
+        self.retry_delay = 2
+        self.rate_limit_delay = 4 
 
     def _load_api_keys(self):
         keys = []
@@ -217,26 +185,17 @@ class GeminiAPICall:
                         contents=str(f"นี่คือข้อมูล Report ที่ต้องวิเคราะห์:{json.dumps(content)}"),
                         config=types.GenerateContentConfig(system_instruction=system_prompt()),
                     )
-
-                    # สำเร็จ - แสดงผลและ return
                     self._print_usage(res)
                     response = extract_json(res.text)
                     print(f"Analysis successfully! By: {self.model} (API Key #{self.current_key_index + 1})")
-
                     time.sleep(self.rate_limit_delay)
-
                     return response
-
                 except ServerError as e:
                     error_msg = str(e)
                     print(f"ServerError: {error_msg}")
-
-                    # ตรวจสอบว่าเป็น 503 overload หรือไม่
                     if "503" in error_msg or "overloaded" in error_msg.lower():
                         retry_count += 1
-
                         if retry_count < self.max_retries:
-                            # พยายามดึงเวลา retry ที่แนะนำจาก error message
                             retry_seconds = None
                             try:
                                 match = re.search(r'retry in (\d+\.?\d*)s', error_msg)
@@ -244,8 +203,6 @@ class GeminiAPICall:
                                     retry_seconds = float(match.group(1))
                             except:
                                 pass
-
-                            # ใช้ suggested delay ถ้ามี ไม่งั้นใช้ default
                             wait_time = retry_seconds if retry_seconds else (self.retry_delay * retry_count)
                             print(f"Wait {wait_time}s before retrying...")
                             time.sleep(wait_time)
@@ -259,10 +216,7 @@ class GeminiAPICall:
                 except ClientError as e:
                     error_msg = str(e)
                     print(f"ClientError: {error_msg}")
-
-                    # ตรวจสอบว่าเป็น 429 quota exceeded หรือไม่
                     if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg or "quota" in error_msg.lower():
-                        # พยายามดึงเวลา retry จาก error message
                         retry_seconds = None
                         try:
                             match = re.search(r'retry in (\d+\.?\d*)s', error_msg)
@@ -270,59 +224,42 @@ class GeminiAPICall:
                                 retry_seconds = float(match.group(1))
                         except:
                             pass
-
-                        # สลับไปใช้โมเดลอื่นทันที
                         print(f"Model {self.model} quota exceeded. Switching to next model...")
                         if retry_seconds:
                             print(f"Suggested retry delay: {retry_seconds}s")
-                            # รอตาม suggested delay ก่อนสลับโมเดล (ป้องกันโมเดลใหม่โดนบล็อกทันที)
-                            wait_time = min(retry_seconds, 20)  # จำกัดไม่เกิน 20 วินาที
+                            wait_time = min(retry_seconds, 20) 
                             print(f"Waiting {wait_time}s before switching model...")
                             time.sleep(wait_time)
                         else:
-                            # ถ้าไม่มี suggested delay ให้รอ 5 วินาที
                             print(f"Waiting 5s before switching model...")
                             time.sleep(5)
-
-                        break  # ออกจาก retry loop เพื่อสลับโมเดล
+                        break 
                     else:
-                        # ClientError อื่นๆ ที่ไม่ใช่ quota
                         print(f"Non-quota ClientError, stopping...")
                         break
 
                 except Exception as e:
                     print(f"Unexpected Error: {type(e).__name__}: {str(e)}")
                     retry_count += 1
-
                     if retry_count < self.max_retries:
                         wait_time = self.retry_delay * retry_count
                         print(f"Wait {wait_time} secound Tey again...")
                         time.sleep(wait_time)
                     else:
                         break
-
-            # ลองโมเดลถัดไป
             models_tried_in_current_key += 1
-
-            # ถ้าลองโมเดลทั้งหมดใน API Key ปัจจุบันแล้ว
             if models_tried_in_current_key >= len(self.models):
                 keys_tried += 1
-
-                # ถ้ายังมี API Key อื่นให้ลอง
                 if keys_tried < max_keys:
                     print("="*100)
                     print(f"All models in API Key #{self.current_key_index + 1} exhausted. Switching to next API Key...")
                     print("="*100)
                     self._switch_api_key()
-                    models_tried_in_current_key = 0  # รีเซ็ต counter
+                    models_tried_in_current_key = 0
                 else:
-                    # หมด API Key แล้ว
                     break
             else:
-                # ยังมีโมเดลให้ลองใน API Key ปัจจุบัน
                 self._switch_model()
-
-        # ถ้าลองทุก API Key และทุกโมเดลแล้วยังไม่สำเร็จ
         error_response = {
             "error": "All API keys and models failed",
             "reason": f"Tried {len(self.api_keys)} API key(s) with {len(self.models)} model(s) each",
@@ -332,24 +269,6 @@ class GeminiAPICall:
         }
         print(f"Failed all API keys and models: {json.dumps(error_response, ensure_ascii=False)}")
         return error_response
-    
-    def testPrompt(self, content):
-        # model = "gemini-2.5-flash-lite"
-        model = "gemini-2.5-flash"
-        AI = genai.Client(api_key=os.getenv("GEMINI_API_KEY1"))
-        content = str(f"นี่คือข้อมูล Report ที่ต้องวิเคราะห์:{json.dumps(content)}")
-        token_check = AI.models.count_tokens(
-            model=model,
-            contents=content
-        )
-        print(token_check)
-        res = AI.models.generate_content(
-            model=model,
-            contents=content,
-            config=types.GenerateContentConfig(system_instruction=system_prompt()),
-        )
-        response = extract_json(res.text)
-        return response
 
 Gemini = None
 def GeminiAPI():
@@ -357,18 +276,3 @@ def GeminiAPI():
     if Gemini is None:
         Gemini = GeminiAPICall()
     return Gemini
-
-
-# g = GeminiAPI()
-
-# with open('z-report3-result.json', 'r', encoding='utf-8') as f:
-#     data = json.load(f)
-#     response = g.testPrompt(data)
-#     print(f"gemini response : {response}")
-#     with open('z-report4-gemini.json', 'w', encoding='utf-8') as wf:
-#         response = response.replace("```json", "").replace("```", "").strip()
-#         response = json.loads(response)
-#         wf.write(json.dumps(response,indent=4))
-#         wf.close()
-#     f.close()
-    
