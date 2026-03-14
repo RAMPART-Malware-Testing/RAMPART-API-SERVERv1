@@ -250,3 +250,14 @@ async def get_analysis_history(
         }
     }
 
+
+async def testxL(
+    session: AsyncSession,
+):
+    stmt = select(User).where(
+        User.uid == 11
+    )
+    existing = await session.execute(stmt)
+    analy = existing.scalars().first()
+    return analy
+

@@ -6,7 +6,7 @@ from bgProcessing.tasks import analyze_malware_task
 from cores.async_pg_db import SessionLocal
 from cores.models_class import User
 from schemas.analy import AnalysisHistoryParams
-from services.analy.analy_service import get_analysis_history, get_analysis_with_report, get_file_by_hash, insert_table_analy
+from services.analy.analy_service import get_analysis_history, get_analysis_with_report, get_file_by_hash, insert_table_analy, testxL
 from services.token_service import TokenService
 import os
 from pathlib import Path
@@ -329,6 +329,15 @@ async def history_controller(body: AnalysisHistoryParams):
     async with SessionLocal() as session:
         try:
             return await get_analysis_history(session, uid, body)
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=500, detail="Internal server error")
+
+async def test_controller():
+    async with SessionLocal() as session:
+        try:
+            return await testxL(session)
         except HTTPException:
             raise
         except Exception:

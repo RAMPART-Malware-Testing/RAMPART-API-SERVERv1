@@ -92,10 +92,10 @@ def analyze_malware_task(
         if not analy:
             return {"success": False, "message": f"Analysis not found for hash={sha256}"}
 
-        analy.status  = "processing"
-        analy.task_id = self.request.id
-        analy.md5     = md5
-        db.commit()
+        # analy.status  = "processing"
+        # analy.task_id = self.request.id
+        # analy.md5     = md5
+        # db.commit()
 
         print(f"#######################[ {self.request.id} ]#######################")
         results  = previous_results if previous_results else {}
@@ -242,7 +242,7 @@ def analyze_malware_task(
                 final_data = json.loads(response.replace("```json", "").replace("```", ""))
             except:
                 pass
-        with open(f'results/test-gemini2.txt', 'w', encoding='utf-8') as f: json.dump(final_data, f)
+        with open(f'results/test-gemini2.json', 'w', encoding='utf-8') as f: json.dump(final_data, f)
         # ── RampartAI Predict ─────────────────────────────────────────────────
         if results.get('mobsf_report') and "rampart_ai" not in results:
             mobsf_report_path = os.path.join("reports", f'mobsf-{md5}.json')

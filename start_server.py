@@ -28,11 +28,12 @@ async def startup_event():
 # ==========================================
 from routers.auth import router as auth_router
 from routers.analysis import router as analy_router
-# from routers.reports import router as report_router
+from routers.dashboar_route import router as dashboard_route
 
 app.include_router(auth_router)
 app.include_router(analy_router)
-# app.include_router(report_router)
+app.include_router(dashboard_route)
+
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
