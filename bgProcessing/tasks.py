@@ -300,6 +300,7 @@ def analyze_malware_task(
         analy.status = "success"
         analy.tools  = analysis_tool
         analy.rid    = report.rid
+        analy.task_id = self.request.id
 
         db.commit()
         print(f"[DONE] Analysis complete: {self.request.id}")
