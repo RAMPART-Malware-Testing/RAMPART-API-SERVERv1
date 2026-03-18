@@ -1,6 +1,7 @@
 from fastapi import HTTPException
 from cores.async_pg_db import SessionLocal
-from services.dashboard.dashboars_service import get_dashboard_summary, get_recent_activities
+from schemas.dashboard import ReportsHistoryParams
+from services.dashboard.dashboars_service import get_dashboard_summary, get_recent_activities, get_reports_history
 from services.token_service import TokenService
 from pydantic import BaseModel
 
@@ -28,7 +29,6 @@ async def dashboard_summary_controller(body: DashboardParams):
         except Exception:
             raise HTTPException(status_code=500, detail="Internal server error")
 
-
 async def recent_activities_controller(body: DashboardParams):
     payload, err = TokenService.verify_token(body.token, "access")
     if err:
@@ -49,3 +49,13 @@ async def recent_activities_controller(body: DashboardParams):
             return await get_recent_activities(session, uid, role)
         except Exception:
             raise HTTPException(status_code=500, detail="Internal server error")
+        
+async def reports_history_controller(body: ReportsHistoryParams):
+    async with SessionLocal() as session:
+        try:
+            return await get_reports_history(session, body)
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=500, detail="Internal server error")
+

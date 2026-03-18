@@ -1,3 +1,4 @@
+from schemas.auth import RegisterConfirmParame, RegisterParame, ResetPasswdParame
 from services.token_service import TokenService
 from utils.jwt import decode_token, get_token_type, get_token_subject
 from utils.response import error, success
@@ -123,7 +124,7 @@ class AuthService:
 # ================= REGISTER =================
 
     @staticmethod
-    async def register(body):
+    async def register(body:RegisterParame):
 
         async with SessionLocal() as session:
             result = await session.execute(
@@ -150,13 +151,13 @@ class AuthService:
         )
 
     @staticmethod
-    async def register_confirm(data):
+    async def register_confirm(body:RegisterConfirmParame):
 
-        payload, err = TokenService.verify_token(data.token, "register")
+        payload, err = TokenService.verify_token(body.token, "register")
         if err:
             return err
 
-        ok, otp_err = OTPService.verify_otp("register", data.token, data.otp)
+        ok, otp_err = OTPService.verify_otp("register", body.token, body.otp)
         if not ok:
             return error(AuthStatus.OTP_INVALID, otp_err)
 
@@ -171,7 +172,7 @@ class AuthService:
             session.add(new_user)
             await session.commit()
 
-        OTPService.clear_otp_session("register", data.token, payload["sub"])
+        OTPService.clear_otp_session("register", body.token, payload["sub"])
 
         return success(
             AuthStatus.REGISTER_SUCCESS,
@@ -181,28 +182,47 @@ class AuthService:
 # ================= RESET =================
 
     @staticmethod
-    async def reset(body):
-        async with SessionLocal() as session:
-            result = await session.execute(
-                select(User.uid,User.email).where(User.email == body.email)
-            )
-            user = result.mappings().one_or_none()
-        print(user)
-        if not user:
-            return error(AuthStatus.USER_NOT_FOUND, "User not found.")
-        
-        token = create_token(
-            subject=str(user.uid),
-            token_type="reset-passwd",
-            expires_minutes=5,
-        )
+    async def reset(body:ResetPasswdParame):
+        if body.token and body.newPasswd:
+            verifytoken = decode_token(body.token)
+            if not verifytoken: return error(AuthStatus.TOKEN_INVALID, "Token invalid")
+            if verifytoken.get("type") != 'access': return error(AuthStatus.TOKEN_WRONG_TYPE, "Token type invalid")
+            uid = int(verifytoken.get('sub'))
+            async with SessionLocal() as session:
+                result = await session.execute(
+                    select(User).where(User.uid == uid)
+                )
+                user = result.scalar_one_or_none()
+                if not user:
+                    return error(AuthStatus.USER_NOT_FOUND, "User not found.")
 
-        return await OTPService.create_otp_session(
-            action="reset-passwd",
-            identifier=str(user.uid),
-            token=token,
-            email=user.email
-        )
+                user.password = get_password_hash(body.newPasswd)
+                await session.commit()
+            return success(
+                AuthStatus.PASSWORD_RESET_SUCCESS,
+                "Password reset successfully."
+            )
+        else:
+            async with SessionLocal() as session:
+                result = await session.execute(
+                    select(User.uid,User.email).where(User.email == body.email)
+                )
+                user = result.mappings().one_or_none()
+            if not user:
+                return error(AuthStatus.USER_NOT_FOUND, "User not found.")
+            
+            token = create_token(
+                subject=str(user.uid),
+                token_type="reset-passwd",
+                expires_minutes=5,
+            )
+
+            return await OTPService.create_otp_session(
+                action="reset-passwd",
+                identifier=str(user.uid),
+                token=token,
+                email=user.email
+            )
 
     @staticmethod
     async def reset_confirm(body):

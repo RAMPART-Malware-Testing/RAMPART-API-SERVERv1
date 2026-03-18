@@ -7,8 +7,8 @@ import uvicorn
 load_dotenv()
 
 app = FastAPI(
-    title="RAMPART-AI",
-    description="RAMPART-AI Models Testing",
+    title="RAMPART",
+    description="RAMPART",
     version="1.0.0"
 )
 
@@ -23,9 +23,6 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     await create_root_user()
-# ==========================================
-# Endpoints
-# ==========================================
 from routers.auth import router as auth_router
 from routers.analysis import router as analy_router
 from routers.dashboar_route import router as dashboard_route
@@ -52,8 +49,7 @@ async def validation_exception_handler(request, exc):
 
 @app.get('/')
 async def root():
-    x = get_password_hash("12345678aA!")
-    print(x)
+    print(get_password_hash("12345678aA!"))
     return { "success": True, "message": "RAMPART-API is running" }
 
 if __name__=="__main__":

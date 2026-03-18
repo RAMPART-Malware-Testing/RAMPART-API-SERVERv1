@@ -1,6 +1,6 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from controller.analysis_controller import analysisReport_controller, downloadReport_controller, generateToken_controller, history_controller, require_upload_token, scanFile_controller, test_controller
+from controller.analysis_controller import analysisReport_controller, downloadReport_controller, generateToken_controller, history_controller, require_upload_token, scanFile_controller
 from schemas.analy import AnalysisHistoryParams, AnalysisReportParams, GenerateTokenParams
 from services.token_service import TokenService
 
@@ -44,7 +44,3 @@ async def download_report(file_name: str):
 async def getHistoryAnalysis(body: AnalysisHistoryParams):
     return await history_controller(body);
 
-
-@router.get("/test-x")
-async def testx():
-    return await test_controller()

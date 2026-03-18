@@ -6,7 +6,7 @@ from bgProcessing.tasks import analyze_malware_task
 from cores.async_pg_db import SessionLocal
 from cores.models_class import User
 from schemas.analy import AnalysisHistoryParams
-from services.analy.analy_service import get_analysis_history, get_analysis_with_report, get_file_by_hash, insert_table_analy, testxL
+from services.analy.analy_service import get_analysis_history, get_analysis_with_report, get_file_by_hash, insert_table_analy
 from services.token_service import TokenService
 import os
 from pathlib import Path
@@ -24,9 +24,6 @@ for directory in [UPLOAD_DIR, REPORTS_DIR, RESULTS_DIR]:
 MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024  # 1GB
 CHUNK_SIZE = 1024 * 1024
 VIRUSTOTAL_MAX_SIZE = 32 * 1024 * 1024
-
-# MOBSF_SUPPORTED_EXTENSIONS = ['.apk', '.xapk', '.ipa', '.appx']
-# CAPE_SUPPORTED_EXTENSIONS = ['.exe', '.dll', '.bin', '.msi', '.scr', '.com', '.bat', '.cmd', '.vbs', '.jar',]
 
 BASE_REPORT_PATH = Path("reports").resolve()
 ALLOWED_PLATFORMS = {"cape", "virustotal", "mobsf"}
@@ -46,15 +43,6 @@ def get_file_info_from_redis(sha256_hash):
         print(f"Redis error when getting file info: {e}")
         return None
 
-# def determine_analysis_tool(file_extension):
-#     file_extension = file_extension.lower()
-#     if file_extension in MOBSF_SUPPORTED_EXTENSIONS:
-#         return 'mobsf'
-#     elif file_extension in CAPE_SUPPORTED_EXTENSIONS:
-#         return 'cape'
-#     else:
-#         return 'mobsf,cape'
-    
 async def require_upload_token(token: str):
     payload, err = TokenService.verify_token(token, "upload")
     if err:
@@ -294,23 +282,6 @@ async def downloadReport_controller(file_name:str):
 
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="Report not found")
-    # from fastapi.responses import StreamingResponse
-
-    # def iterfile(path, chunk_size: int = 1024 * 1024):  # 1MB chunk
-    #     with open(path, "rb") as f:
-    #         while True:
-    #             chunk = f.read(chunk_size)
-    #             if not chunk:
-    #                 break
-    #             yield chunk
-
-    # return StreamingResponse(
-    #     iterfile(file_path),
-    #     media_type="application/json",
-    #     headers={
-    #         "Content-Disposition": f"attachment; filename={platform}-{md5}.json"
-    #     }
-    # )
     return file_path
 
 async def history_controller(body: AnalysisHistoryParams):
@@ -334,11 +305,3 @@ async def history_controller(body: AnalysisHistoryParams):
         except Exception:
             raise HTTPException(status_code=500, detail="Internal server error")
 
-async def test_controller():
-    async with SessionLocal() as session:
-        try:
-            return await testxL(session)
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(status_code=500, detail="Internal server error")

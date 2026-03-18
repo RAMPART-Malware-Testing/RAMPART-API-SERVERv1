@@ -21,7 +21,9 @@ class RegisterConfirmParame(BaseModel):
     otp: str
 
 class ResetPasswdParame(BaseModel):
-    email: str
+    email: str | None = None
+    token: str | None = None
+    newPasswd: str | None = None
 
 class ResetPasswdConfirmParame(BaseModel):
     token: str

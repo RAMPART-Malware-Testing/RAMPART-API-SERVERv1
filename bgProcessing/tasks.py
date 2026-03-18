@@ -92,11 +92,6 @@ def analyze_malware_task(
         if not analy:
             return {"success": False, "message": f"Analysis not found for hash={sha256}"}
 
-        # analy.status  = "processing"
-        # analy.task_id = self.request.id
-        # analy.md5     = md5
-        # db.commit()
-
         print(f"#######################[ {self.request.id} ]#######################")
         results  = previous_results if previous_results else {}
         PREVIOUS = list(previous_results.keys()) if isinstance(previous_results, dict) else []
@@ -300,6 +295,7 @@ def analyze_malware_task(
         analy.status = "success"
         analy.tools  = analysis_tool
         analy.rid    = report.rid
+        analy.md5     = md5
         analy.task_id = self.request.id
 
         db.commit()

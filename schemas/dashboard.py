@@ -1,17 +1,11 @@
 import re
-
 from pydantic import BaseModel, field_validator, model_validator
 
 ALLOWED_STATUSES    = {"pending", "processing", "success", "failed"}
 MAX_SEARCH_LENGTH   = 100
 MAX_LIMIT           = 100
 
-class AnalysisReportParams(BaseModel):
-    task_id: str
-    token: str
-
-class AnalysisHistoryParams(BaseModel):
-    token: str
+class ReportsHistoryParams(BaseModel):
     page: int = 1
     limit: int = 10
     s: str | None = None
@@ -87,12 +81,9 @@ class AnalysisHistoryParams(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def validate_sort_conflict(self) -> "AnalysisHistoryParams":
+    def validate_sort_conflict(self) -> "ReportsHistoryParams":
+        # ป้องกันการ sort หลายคอลัมน์พร้อมกันเกิน 2
         active_sorts = sum(1 for v in [self.created_at, self.file_name, self.file_size, self.score] if v != 0)
         if active_sorts > 2:
             raise ValueError("Cannot sort by more than 2 columns simultaneously")
         return self
-
-class GenerateTokenParams(BaseModel):
-    token: str
-

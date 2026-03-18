@@ -1,15 +1,10 @@
 from services.auth.auth_service import AuthService
-from sqlalchemy import select
-from cores.async_pg_db import SessionLocal
-from cores.models_class import User
 from schemas.auth import LoginParame, LoginConfirmParame, RegisterParame, RegisterConfirmParame, ResetPasswdParame, ResetPasswdConfirmParame
-from utils.cypto.PasswordCreateAndVerify import verify_password
-from utils.jwt import create_token, decode_token
-from cores.redis import redis_client
-import json
 
 import random
 import hashlib
+
+from utils.jwt import create_token
 
 def generate_otp() -> str:
     return f"{random.randint(100000, 999999)}"
@@ -59,30 +54,4 @@ async def resetPasswd_controller(body: ResetPasswdParame):
 async def resetPasswd_confirm_controller(body: ResetPasswdConfirmParame):
     response = await AuthService.reset_confirm(body)
     return response
-
-
-from fastapi import HTTPException
-
-async def access_token_controller(uid: int):
-    async with SessionLocal() as session:
-        uid = int(uid)
-        user = await session.get(User, uid)
-
-
-        if not user:
-            return {
-                "success": False,
-                "message": "User not found"
-            }
-
-        return {
-            "success": True,
-            "user": {
-                "uid": user.uid,
-                "username": user.username,
-                "email": user.email,
-                "role": user.role,
-                "created_at": user.created_at
-            }
-        }
 

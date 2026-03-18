@@ -1,9 +1,8 @@
 import re
 
 from fastapi import APIRouter, Request
-from controller.auth_controller import access_token_controller, login_confirm_controller, login_controller, register_controller, register_confirm_controller, resetPasswd_confirm_controller, resetPasswd_controller
+from controller.auth_controller import login_confirm_controller, login_controller, register_controller, register_confirm_controller, resetPasswd_confirm_controller, resetPasswd_controller
 from schemas.auth import LoginParame,  LoginConfirmParame, RegisterParame, RegisterConfirmParame, ResetPasswdParame, ResetPasswdConfirmParame
-from services.auth.auth_service import verify_access_token
 from utils.response import error
 
 router = APIRouter(
@@ -41,20 +40,12 @@ async def register_confirm(body: RegisterConfirmParame):
     return await register_confirm_controller(body)
 
 @router.post("/reset-passwd")
-async def resetpasswd(data: ResetPasswdParame):
-    return await resetPasswd_controller(data)
+async def resetpasswd(body: ResetPasswdParame):
+    return await resetPasswd_controller(body)
 
 @router.post("/reset-passwd/confirm")
-async def resetpasswd_confirm(data: ResetPasswdConfirmParame):
-    return await resetPasswd_confirm_controller(data)
+async def resetpasswd_confirm(body: ResetPasswdConfirmParame):
+    return await resetPasswd_confirm_controller(body)
 
-# @router.post("/login/access")
-# async def access_token(data: AccessToken):
-#     try:
-#         user = verify_access_token(data.token)
-#     except ValueError as e:
-#         return {
-#             "success": False,
-#             "message": str(e)
-#         }
-#     return await access_token_controller(user)
+
+
