@@ -1,9 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from cores.models_class import init_db
 from utils.cypto.PasswordCreateAndVerify import get_password_hash
 from utils.startup.create_root_user import create_root_user
 from dotenv import load_dotenv
 import uvicorn
+
 load_dotenv()
 
 app = FastAPI(
@@ -20,9 +22,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.on_event("startup")
 async def startup_event():
+    await init_db()
     await create_root_user()
+    
 from routers.auth import router as auth_router
 from routers.analysis import router as analy_router
 from routers.dashboar_route import router as dashboard_route

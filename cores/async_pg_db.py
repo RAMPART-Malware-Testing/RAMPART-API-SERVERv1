@@ -8,10 +8,6 @@ import os
 from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import ARRAY
 
-
-# ======================
-# ENV + DB
-# ======================
 load_dotenv()
 
 POSTGRES_USER = os.getenv("POSTGRES_USER")

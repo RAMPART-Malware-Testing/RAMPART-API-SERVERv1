@@ -99,3 +99,10 @@ class AuditLog(Base):
 
     actor = relationship("User", foreign_keys=[actor_uid], back_populates="audit_logs_as_actor")
     target = relationship("User", foreign_keys=[target_uid], back_populates="audit_logs_as_target")
+
+from cores.async_pg_db import engine
+
+async def init_db():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    print("✅ Database synced and tables created!")

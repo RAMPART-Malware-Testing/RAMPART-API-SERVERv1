@@ -7,9 +7,9 @@ redis
 celery
 google-genai
 requests
-dotenv
-sqlalchemy 
-asyncpg 
+python-dotenv
+sqlalchemy[asyncio]
+asyncpg
 argon2-cffi
-python-jose
-psycopg2
+python-jose[cryptography]
+psycopg2-binary
