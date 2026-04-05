@@ -27,12 +27,100 @@ class OTPService:
         message["To"] = email
 
         body = f"""
-        Your OTP Code is: {otp}
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>OTP Code</title>
+                <style>
+                    .countdown-timer {{
+                        font-size: 24px;
+                        font-weight: bold;
+                        color: #e74c3c;
+                        background-color: #fff5f5;
+                        display: inline-block;
+                        padding: 8px 20px;
+                        border-radius: 50px;
+                        margin-top: 10px;
+                    }}
+                    .expired-message {{
+                        color: #e74c3c;
+                        font-weight: bold;
+                        margin-top: 15px;
+                        padding: 10px;
+                        background-color: #ffeaea;
+                        border-radius: 8px;
+                        display: none;
+                    }}
+                    .otp-box {{
+                        background-color: #f0f4ff;
+                        padding: 20px;
+                        border-radius: 12px;
+                        margin: 30px 0;
+                        display: inline-block;
+                        width: auto;
+                        cursor: pointer;
+                    }}
+                    .otp-code {{
+                        font-size: 42px;
+                        font-weight: bold;
+                        letter-spacing: 8px;
+                        color: #4A6CF7;
+                        font-family: monospace;
+                    }}
+                </style>
+            </head>
+            <body style="margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; background-color: #f4f4f7;">
+                <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #f4f4f7; padding: 20px;">
+                    <tr>
+                        <td align="center">
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #ffffff; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden;">
+                                <tr>
+                                    <td style="background-color: #393e50; padding: 30px 20px; text-align: center;">
+                                        <h1 style="color: #ffffff; margin: 0; font-size: 28px;">OTP Verification</h1>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 40px 30px; text-align: center;">
+                                        <p style="font-size: 18px; color: #333333; margin-bottom: 30px;">Hello, {email}</p>
+                                        <p style="font-size: 16px; color: #555555; margin-bottom: 20px;">Use the following One-Time Password (OTP) to complete your verification:</p>
 
-        This code will expire in 5 minutes.
-        """
+                                        <div class="otp-box" id="otpBox">
+                                            <span class="otp-code" id="otpCode">{otp}</span>
+                                        </div>
 
-        message.attach(MIMEText(body, "plain"))
+                                        <div style="margin: 20px 0;">
+                                            <p style="font-size: 14px; color: #666666; margin-bottom: 5px;">This code will expire in:</p>
+                                            <div class="countdown-timer" id="timer">05:00 Minute...</div>
+                                            <div class="expired-message" id="expiredMessage">
+                                                This OTP has expired. Please request a new one.
+                                            </div>
+                                        </div>
+
+                                        <p style="font-size: 12px; color: #999999; margin-top: 10px;">
+                                            <span id="statusText">Code is valid</span>
+                                        </p>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="background-color: #f9f9fb; padding: 20px; text-align: center; border-top: 1px solid #eeeeee;">
+                                        <p style="font-size: 12px; color: #aaaaaa; margin: 0;">
+                                            If you didn't request this code, please ignore this email.
+                                        </p>
+                                        <p style="font-size: 12px; color: #aaaaaa; margin-top: 10px;">
+                                            &copy; 2025 RAMPART. All rights reserved.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </body>
+            </html>
+            """
+
+        message.attach(MIMEText(body, "html"))
 
         context = ssl.create_default_context()
 
