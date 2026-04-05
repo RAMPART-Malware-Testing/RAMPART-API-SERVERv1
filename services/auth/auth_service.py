@@ -8,11 +8,11 @@ def verify_access_token(token: str) -> str:
     payload = decode_token(token)
 
     if get_token_type(payload) != "access":
-        raise ValueError("Invalid token type")
+        raise ValueError("ประเภทโทเค็นไม่ถูกต้อง")
 
     uid = get_token_subject(payload)
     if not uid:
-        raise ValueError("Invalid token payload")
+        raise ValueError("ข้อมูลเพย์โหลดของโทเค็นไม่ถูกต้อง")
 
     return uid
 
@@ -36,10 +36,10 @@ class AuthService:
             user = result.scalar_one_or_none()
 
         if not user:
-            return error(AuthStatus.USER_NOT_FOUND, "User not found.")
+            return error(AuthStatus.USER_NOT_FOUND, "ไม่พบผู้ใช้งานระบบ")
 
         if not verify_password(user.password, body.password):
-            return error(AuthStatus.INVALID_CREDENTIALS, "Invalid credentials.")
+            return error(AuthStatus.INVALID_CREDENTIALS, "ข้อมูลการเข้าสู่ระบบไม่ถูกต้อง")
 
         if deviceToken: 
             payload, err = TokenService.verify_token(deviceToken, "device")
@@ -55,7 +55,7 @@ class AuthService:
                 user = user_dict 
                 return success(
                     AuthStatus.LOGIN_SUCCESS,
-                    "Login successful.",
+                    "เข้าสู่ระบบสำเร็จ",
                     { "access_token": access_token, "data":user, "bypass_otp":True }
                 )
             
@@ -81,7 +81,7 @@ class AuthService:
 
         ok, otp_err = OTPService.verify_otp("login", body.token, body.otp)
         if not ok:
-            return error(AuthStatus.OTP_INVALID, otp_err)
+            return error(AuthStatus.OTP_INVALID, otp_err) # อาจจะต้องไปแปลเพิ่มใน OTPService หากมีการส่ง error ออกมาจากตรงนั้น
 
         uid = int(payload["sub"])
 
@@ -99,7 +99,7 @@ class AuthService:
             user = result.mappings().one_or_none()
 
         if not user:
-            return error(AuthStatus.USER_NOT_FOUND, "User not found.")
+            return error(AuthStatus.USER_NOT_FOUND, "ไม่พบผู้ใช้งานระบบ")
 
         deiveToken = create_token(
             subject=str(user.uid),
@@ -117,7 +117,7 @@ class AuthService:
 
         return success(
             AuthStatus.LOGIN_SUCCESS,
-            "Login confirmed successfully.",
+            "ยืนยันการเข้าสู่ระบบสำเร็จ",
             {"access_token": access_token, "data":user, "deiveToken":deiveToken}
         )
 
@@ -133,7 +133,7 @@ class AuthService:
             if result.scalar_one_or_none():
                 return error(
                     AuthStatus.INVALID_CREDENTIALS,
-                    "User already exists."
+                    "มีอีเมลผู้ใช้งานนี้ในระบบแล้ว"
                 )
 
         token = create_token(
@@ -176,7 +176,7 @@ class AuthService:
 
         return success(
             AuthStatus.REGISTER_SUCCESS,
-            "User registered successfully."
+            "ลงทะเบียนผู้ใช้งานสำเร็จ"
         )
 
 # ================= RESET =================
@@ -185,8 +185,8 @@ class AuthService:
     async def reset(body:ResetPasswdParame):
         if body.token and body.newPasswd:
             verifytoken = decode_token(body.token)
-            if not verifytoken: return error(AuthStatus.TOKEN_INVALID, "Token invalid")
-            if verifytoken.get("type") != 'access': return error(AuthStatus.TOKEN_WRONG_TYPE, "Token type invalid")
+            if not verifytoken: return error(AuthStatus.TOKEN_INVALID, "โทเค็นไม่ถูกต้อง")
+            if verifytoken.get("type") != 'access': return error(AuthStatus.TOKEN_WRONG_TYPE, "ประเภทโทเค็นไม่ถูกต้อง")
             uid = int(verifytoken.get('sub'))
             async with SessionLocal() as session:
                 result = await session.execute(
@@ -194,13 +194,13 @@ class AuthService:
                 )
                 user = result.scalar_one_or_none()
                 if not user:
-                    return error(AuthStatus.USER_NOT_FOUND, "User not found.")
+                    return error(AuthStatus.USER_NOT_FOUND, "ไม่พบผู้ใช้งานระบบ")
 
                 user.password = get_password_hash(body.newPasswd)
                 await session.commit()
             return success(
                 AuthStatus.PASSWORD_RESET_SUCCESS,
-                "Password reset successfully."
+                "รีเซ็ตรหัสผ่านสำเร็จ"
             )
         else:
             async with SessionLocal() as session:
@@ -209,7 +209,7 @@ class AuthService:
                 )
                 user = result.mappings().one_or_none()
             if not user:
-                return error(AuthStatus.USER_NOT_FOUND, "User not found.")
+                return error(AuthStatus.USER_NOT_FOUND, "ไม่พบผู้ใช้งานระบบ")
             
             token = create_token(
                 subject=str(user.uid),
@@ -242,7 +242,7 @@ class AuthService:
             )
             user = result.scalar_one_or_none()
             if not user:
-                return error(AuthStatus.USER_NOT_FOUND, "User not found.")
+                return error(AuthStatus.USER_NOT_FOUND, "ไม่พบผู้ใช้งานระบบ")
 
             user.password = get_password_hash(body.newPasswd)
             await session.commit()
@@ -251,6 +251,5 @@ class AuthService:
 
         return success(
             AuthStatus.PASSWORD_RESET_SUCCESS,
-            "Password reset successfully."
+            "รีเซ็ตรหัสผ่านสำเร็จ"
         )
-    
