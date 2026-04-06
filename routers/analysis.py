@@ -1,7 +1,7 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from controller.analysis_controller import analysisReport_controller, downloadReport_controller, generateToken_controller, history_controller, require_upload_token, scanFile_controller
-from schemas.analy import AnalysisHistoryParams, AnalysisReportParams, GenerateTokenParams
+from controller.analysis_controller import analysisReport_controller, downloadReport_controller, generateToken_controller,get_file_by_hash_controller, history_controller, require_upload_token, scanFile_controller
+from schemas.analy import AnalysisHistoryParams, AnalysisReportParams, GenerateTokenParams,AnalysisReportParamsTarget
 from services.token_service import TokenService
 
 router = APIRouter(
@@ -29,6 +29,14 @@ async def analyReport(body: AnalysisReportParams):
     if err: raise HTTPException(status_code=401, detail="Invalid upload token")
     uid = payload['sub']
     return await analysisReport_controller(uid, body.task_id)
+
+@router.post("/report_target")
+async def getAnalysisReport(body: AnalysisReportParamsTarget):
+    payload, err = TokenService.verify_token(body.token, "access")
+    if err: raise HTTPException(status_code=401, detail="Invalid upload token")
+    uid = payload['sub']
+    return await get_file_by_hash_controller( body.task_id, uid,body.tool)
+
 
 @router.get("/download/report/{file_name}")
 async def download_report(file_name: str):

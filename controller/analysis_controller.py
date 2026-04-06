@@ -5,7 +5,7 @@ from fastapi import UploadFile, HTTPException
 from bgProcessing.tasks import analyze_malware_task
 from cores.async_pg_db import SessionLocal
 from cores.models_class import User
-from schemas.analy import AnalysisHistoryParams
+from schemas.analy import AnalysisHistoryParams 
 from services.analy.analy_service import get_analysis_history, get_analysis_with_report, get_file_by_hash, insert_table_analy
 from services.token_service import TokenService
 import os
@@ -13,6 +13,7 @@ from pathlib import Path
 from cores.redis import redis_client
 from utils.calculate_hash import calculate_hash_from_chunks
 from utils.jwt import create_token
+import json
 
 UPLOAD_DIR = Path("temps_files")
 REPORTS_DIR = Path("reports")
@@ -264,7 +265,48 @@ async def analysisReport_controller(uid: int, task_id: str):
                 "risk_indicators": report.risk_indicators,
             }
         }
+    
+async def get_file_by_hash_controller(task_id: str,uid: int,tool: str):
+    async with SessionLocal() as session:
+        row = await get_analysis_with_report(session, task_id, uid=int(uid))
+        if not row:
+            return {
+                "success": False,
+                "task_id": task_id,
+                "message": "TASK_NOT_FOUND"
+            }
 
+        analysis, report = row
+
+        if analysis.status != "success":
+            return {
+                "success": True,
+                "task_id": task_id,
+                "status": analysis.status,
+                "message": "Analysis is not completed yet"
+            }
+        
+        path = f"./reports/{tool.value}-{analysis.md5}.json"
+        print(f"Looking for report at: {path}")
+        try:
+            if os.path.exists(path):
+                async with aiofiles.open(path, "r") as f:
+                    content = await f.read()
+                    data = json.loads(content)
+            else:
+                data = {"error": "file not found"}
+        except Exception as e:
+            data = {"error": str(e)}
+
+
+        return{
+            "success": True,
+            "task_id": task_id,
+            "status": analysis.status,
+            "report":data
+        }
+
+        return
 async def downloadReport_controller(file_name:str):
     match = FILENAME_REGEX.match(file_name)
     if not match:

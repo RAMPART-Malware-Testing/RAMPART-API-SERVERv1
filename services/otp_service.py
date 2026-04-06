@@ -91,7 +91,7 @@ class OTPService:
 
                                         <div style="margin: 20px 0;">
                                             <p style="font-size: 14px; color: #666666; margin-bottom: 5px;">This code will expire in:</p>
-                                            <div class="countdown-timer" id="timer">05:00 Minute...</div>
+                                            <div class="countdown-timer" id="timer"> 5 minute</div>
                                             <div class="expired-message" id="expiredMessage">
                                                 This OTP has expired. Please request a new one.
                                             </div>
