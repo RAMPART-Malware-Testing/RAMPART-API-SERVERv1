@@ -1,4 +1,5 @@
 import re
+from enum import Enum
 
 from pydantic import BaseModel, field_validator, model_validator
 
@@ -9,6 +10,18 @@ MAX_LIMIT           = 100
 class AnalysisReportParams(BaseModel):
     task_id: str
     token: str
+
+
+class ToolEnum(str, Enum):
+    mobsf = "mobsf"
+    virustotal = "virustotal"
+    capr = "cape"
+
+class AnalysisReportParamsTarget(BaseModel):
+    task_id: str
+    tool: ToolEnum
+    token: str
+
 
 class AnalysisHistoryParams(BaseModel):
     token: str

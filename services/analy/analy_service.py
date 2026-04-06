@@ -28,6 +28,8 @@ async def get_file_by_hash(
     )
     return result.mappings().one_or_none()
 
+
+
 async def insert_table_analy(
     session: AsyncSession,
     *,
@@ -105,6 +107,8 @@ async def get_analysis_with_report(
     if row is None:
         return None
     return row.Analysis, row.Reports
+
+
 
 async def get_analysis_history(
     session: AsyncSession,
