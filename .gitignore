@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 
 z-report*
+AnyDesk.exe
 
 reports/*.json
 results/*.json

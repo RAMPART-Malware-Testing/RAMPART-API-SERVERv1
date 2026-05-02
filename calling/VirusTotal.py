@@ -220,7 +220,7 @@ class VirusToTalAPI:
 
         try:
             raw = self._make_request("GET", url)
-            with open(f'reports/virustotal-{md5}.json', 'w', encoding='utf-8') as f: json.dump(raw, f)
+            # with open(f'reports/virustotal-{md5}.json', 'w', encoding='utf-8') as f: json.dump(raw, f)
             data =  self._clean_virustotal_report(raw)
             return {"success":True, "data":data}
         except Exception as e:

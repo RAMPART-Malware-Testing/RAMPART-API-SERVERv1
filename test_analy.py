@@ -6,15 +6,13 @@ import redis
 import asyncio
 import uuid
 from dotenv import load_dotenv
-from sqlalchemy import select
 
-# จำเป็นต้องปรับ Import Path ให้ตรงกับโครงสร้างโปรเจกต์ของคุณ
 from calling.VirusTotal import VirusTotal
-from calling.GeminiAPI import GeminiAPI
-from calling.MobSF import MobSFCall
-from calling.CAPE import CAPEAnalyzer
-from cores.models_class import Analysis, Reports
-from cores.sync_pg_db import SyncSessionLocal
+# from calling.GeminiAPI import GeminiAPI
+# from calling.MobSF import MobSFCall
+# from calling.CAPE import CAPEAnalyzer
+# from cores.models_class import Analysis, Reports
+# from cores.sync_pg_db import SyncSessionLocal
 
 load_dotenv()
 
