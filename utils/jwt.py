@@ -7,7 +7,7 @@ from jose import jwt, JWTError
 # Config
 # ======================
 
-JWT_SECRET = os.getenv("SUPER_SECRET_KEY")
+JWT_SECRET = os.getenv("JWT_SECRET")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 
 if not JWT_SECRET:
