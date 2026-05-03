@@ -131,5 +131,5 @@ def run_virustotal_test(file_path: str):
 
 if __name__ == "__main__":
     # เปลี่ยนชื่อไฟล์ตรงนี้ให้ตรงกับไฟล์ที่คุณมีในเครื่อง
-    TEST_FILE_PATH = "./AnyDesk.exe" 
+    TEST_FILE_PATH = input("input file : ") 
     result = run_virustotal_test(file_path=TEST_FILE_PATH)
