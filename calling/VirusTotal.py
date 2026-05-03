@@ -11,7 +11,6 @@ def deCode_base64_string(b64_string: str) -> str:
     decoded_text = decoded_bytes.decode("utf-8")
     return decoded_text
 
-
 class VirusToTalAPI:
     BASE_URL = "https://www.virustotal.com/api/v3"
 
@@ -226,11 +225,4 @@ class VirusToTalAPI:
         except Exception as e:
             return {"success":False, "message":e} 
 
-virustotal = None
-def VirusTotal():
-    global virustotal
-    if virustotal is None:
-        virustotal = VirusToTalAPI()
-        return virustotal
-    return virustotal
 

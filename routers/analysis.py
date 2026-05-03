@@ -1,9 +1,9 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from controller.analysis_controller import analysisReport_controller, downloadReport_controller, generateToken_controller,get_file_by_hash_controller, history_controller, require_upload_token, scanFile_controller
+from controller.analysis_controller import analysisReport_controller, downloadReport_controller, generateToken_controller,get_file_by_hash_controller, history_controller, require_upload_token
 from schemas.analy import AnalysisHistoryParams, AnalysisReportParams, GenerateTokenParams,AnalysisReportParamsTarget
 from services.token_service import TokenService
-
+from controller.Analysis.ScanFile_controller import scan_file_controller
 router = APIRouter(
     prefix="/api/analy/v1",
     tags=["analy"]
@@ -21,7 +21,7 @@ async def uploadFile(
     privacy: bool = Form(False)
 ):  
     uid = await require_upload_token(token)
-    return await scanFile_controller(file, uid, privacy)
+    return await scan_file_controller(file, uid, privacy)
 
 @router.post("/task_id")
 async def analyReport(body: AnalysisReportParams):

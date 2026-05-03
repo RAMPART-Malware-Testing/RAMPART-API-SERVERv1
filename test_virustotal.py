@@ -5,17 +5,38 @@ import hashlib
 from dotenv import load_dotenv
 
 # นำเข้าเฉพาะคลาส VirusTotal ของคุณ
-from calling.VirusTotal import VirusTotal
+from calling.VirusTotal import VirusToTalAPI
 
 load_dotenv()
 
 VIRUSTOTAL_MAX_SIZE = 32 * 1024 * 1024
 
+# ─── ฟังก์ชันใหม่สำหรับสกัดชนิดมัลแวร์ ────────────────────────────────────
+def extract_malware_types(vt_data: dict) -> list:
+    """
+    สกัดรายชื่อ/ชนิดของมัลแวร์จาก Report ของ VirusTotal
+    และตัดข้อมูลที่ซ้ำกันออก
+    """
+    if not vt_data:
+        return []
+        
+    malicious_list = vt_data.get("threats_found", {}).get("malicious", [])
+    extracted_types = set() # ใช้ set เพื่อป้องกันรายชื่อมัลแวร์ซ้ำกัน
+    
+    for threat in malicious_list:
+        # รูปแบบข้อความจะเป็น "EngineName: MalwareType/Name"
+        # เช่น "ESET-NOD32: Android/Spy.Banker.BGB trojan"
+        if ":" in threat:
+            # แยกข้อความด้วย ":" และเอาเฉพาะส่วนที่ 2 (index 1) มาใช้
+            malware_name = threat.split(":", 1)[1].strip()
+            extracted_types.add(malware_name)
+        else:
+            extracted_types.add(threat.strip())
+            
+    return list(extracted_types)
+# ──────────────────────────────────────────────────────────────────
+
 def calculate_hashes(file_path: str) -> dict:
-    """
-    1. อ่านไฟล์และคำนวณค่า MD5 และ SHA256 
-    ใช้การอ่านแบบ chunk เพื่อไม่ให้กิน Memory หากไฟล์มีขนาดใหญ่
-    """
     md5_hash = hashlib.md5()
     sha256_hash = hashlib.sha256()
 
@@ -36,7 +57,6 @@ def run_virustotal_test(file_path: str):
         print(f"[ERROR] ไม่พบไฟล์ที่ระบุ: {file_path}")
         return {"success": False, "message": "File not found"}
 
-    # วิเคราะห์ค่า hash และขนาดไฟล์
     file_hashes = calculate_hashes(file_path)
     md5 = file_hashes["md5"]
     sha256 = file_hashes["sha256"]
@@ -46,20 +66,20 @@ def run_virustotal_test(file_path: str):
     print(f"[INFO] MD5: {md5}")
     print(f"[INFO] SHA256: {sha256}")
 
-    vt = VirusTotal()
+    vt = VirusToTalAPI()
     results = {}
 
-    # 2. ตรวจสอบกับ VirusTotal ด้วย Hash
     print("\n[VT] กำลังตรวจสอบ Report จาก Hash...")
     rp = vt.get_report_by_hash(sha256)
 
     if rp.get('success'):
         print("[VT] พบ Report จาก Hash เรียบร้อยแล้ว ไม่ต้องอัปโหลดใหม่")
         results["virustotal"] = rp.get("data")
+        # สกัดชนิดมัลแวร์
+        results["extracted_malware_types"] = extract_malware_types(results["virustotal"])
     else:
         print("[VT] ไม่พบ Report จาก Hash")
 
-        # 3. กรณีไม่มี report: วิเคราะห์ไฟล์ใหม่ (อัปโหลด)
         if total_size > VIRUSTOTAL_MAX_SIZE:
             print(f"[VT] ข้ามการอัปโหลดเนื่องจากไฟล์ใหญ่เกินไป ({total_size} bytes)")
             results["vt_skipped"] = True
@@ -70,8 +90,6 @@ def run_virustotal_test(file_path: str):
             
             if res.get("success"):
                 try:
-                    # ปกติ VirusTotal อาจจะใช้เวลาวิเคราะห์ไฟล์ใหม่สักพัก 
-                    # ผมปรับเวลาตั้งต้นเป็น 15 วินาที เพื่อให้โอกาสได้ Report สูงขึ้นครับ
                     print("[VT] อัปโหลดสำเร็จ รอ 15 วินาทีเพื่อให้ VT ประมวลผล...")
                     time.sleep(15) 
                     
@@ -82,6 +100,8 @@ def run_virustotal_test(file_path: str):
                     if new_rp.get('success'):
                         print("[VT] ได้รับผลการวิเคราะห์จากการอัปโหลดเรียบร้อย")
                         results["virustotal"] = new_rp.get("data")
+                        # สกัดชนิดมัลแวร์
+                        results["extracted_malware_types"] = extract_malware_types(results["virustotal"])
                     else:
                         print("[VT] ดึงผลลัพธ์ไม่ทัน (อาจต้องใช้เวลาประมวลผลนานกว่านี้)")
                         results["virustotal_upload_response"] = res.get('data')
@@ -91,20 +111,25 @@ def run_virustotal_test(file_path: str):
                 print("[VT] ไม่สามารถอัปโหลดไฟล์ได้")
                 results["vt_skipped"] = True
 
-    # บันทึกผลลัพธ์ลง JSON (ทั้งกรณีดึงจาก Hash ได้ หรือต้องอัปโหลดใหม่)
     os.makedirs("results", exist_ok=True)
     save_path = f"results/vt_{md5}.json"
     with open(save_path, 'w', encoding='utf-8') as f:
         json.dump(results, f, indent=4)
 
     print(f"\n--- จบการทำงาน บันทึกผลลัพธ์ไว้ที่: {save_path} ---")
+    
+    # แสดงผลชนิดของมัลแวร์ที่สกัดได้
+    if "extracted_malware_types" in results:
+        print("\n=== 🦠 ชนิดมัลแวร์ที่ตรวจพบ ===")
+        if results["extracted_malware_types"]:
+            for m_type in results["extracted_malware_types"]:
+                print(f"- {m_type}")
+        else:
+            print("✅ ไม่พบมัลแวร์ (ไฟล์สะอาด)")
+
     return {"success": True, "data": results}
 
-# ==========================================
-# บล็อกสำหรับรันทดสอบ
-# ==========================================
 if __name__ == "__main__":
-    # 1. เปลี่ยนชื่อไฟล์ตรงนี้ให้ตรงกับไฟล์ที่คุณมีในเครื่อง
+    # เปลี่ยนชื่อไฟล์ตรงนี้ให้ตรงกับไฟล์ที่คุณมีในเครื่อง
     TEST_FILE_PATH = "./AnyDesk.exe" 
-
     result = run_virustotal_test(file_path=TEST_FILE_PATH)

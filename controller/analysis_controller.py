@@ -100,118 +100,6 @@ async def generateToken_controller(token):
         }
     }
 
-async def scanFile_controller(
-    file: UploadFile,
-    uid: int,
-    privacy: bool
-):
-    async with SessionLocal() as session:
-        user = await session.get(User, uid)
-        if not user:
-            raise HTTPException(
-                status_code=401,
-                detail={
-                    "success": False,
-                    "code": "USER_NOT_FOUND",
-                    "message": "ไม่พบผู้ใช้งานในระบบ"
-                }
-            )
-        if user.status.lower() != "active":
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "success": False,
-                    "code": "USER_NOT_ACTIVE",
-                    "message": "ผู้ใช้งานไม่อยู๋ในสถานะ active กรุณาติดต่อผู้ดูแลระบบ"
-                }
-            )
-        # ========================= Read & Chunk file =========================
-        file_path = None
-        try:
-            original_filename = file.filename
-            chunks = []
-            total_size = 0
-            while chunk := await file.read(CHUNK_SIZE):
-                total_size += len(chunk)
-                if total_size > MAX_FILE_SIZE:
-                    raise HTTPException(
-                        status_code=413,
-                        detail="File size exceeds limit"
-                    )
-                chunks.append(chunk)
-            # ========================= Hash calculation =========================
-            hashes = calculate_hash_from_chunks(chunks)
-            existing_file = await get_file_by_hash(session, hashes['sha256'])
-            if existing_file:
-                file_path = Path(existing_file["file_path"])
-                if not file_path.exists():
-                    async with aiofiles.open(file_path, "wb") as f:
-                        for chunk in chunks:
-                            await f.write(chunk)
-                await insert_table_analy(
-                    session=session,
-                    uid=uid,
-                    rid=existing_file.get('rid'),
-                    file_name=original_filename,
-                    file_hash=existing_file.get('file_hash'),
-                    file_path=existing_file.get('file_path'),
-                    file_type=existing_file.get('file_type'),
-                    file_size=existing_file.get('file_size'),
-                    privacy=privacy,
-                    md5=existing_file.get('md5'),
-                    tools=existing_file.get('tools'),
-                    task_id=existing_file.get('task_id'),
-                    status=existing_file.get('status')
-                )
-                return {
-                    "success": True,
-                    "file_id": hashes,
-                    "filename": original_filename,
-                    "file_path": existing_file.get('file_path'),
-                    "task_id": existing_file.get('task_id'),
-                    "message": "File uploaded and task queued successfully"
-                }
-            else:
-                file_ext = os.path.splitext(original_filename)[1].lower()
-                file_path = UPLOAD_DIR / f"{hashes['sha256']}{file_ext}"
-                async with aiofiles.open(file_path, "wb") as f:
-                    for chunk in chunks:
-                        await f.write(chunk)
-                # ========================= Dispatch Celery task =========================
-                await insert_table_analy(
-                    session=session,
-                    uid=uid,
-                    file_name=original_filename,
-                    file_hash=hashes['sha256'],
-                    file_path=str(file_path),
-                    file_type=file_ext.lstrip("."),
-                    file_size=total_size,
-                    privacy=privacy,
-                    md5=hashes['md5']
-                )
-                task = analyze_malware_task.delay(
-                    str(file_path),
-                    hashes,
-                    int(total_size),
-                    analysis_tool='mobsf,cape'
-                )
-                return {
-                    "success": True,
-                    "file_id": hashes,
-                    "filename": original_filename,
-                    "file_path": str(file_path),
-                    "task_id": task.id,
-                    "message": "File uploaded and task queued successfully"
-                }
-        except HTTPException:
-            raise
-        except Exception as e:
-            print(f"Upload Error: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail="Internal Server Error"
-            )
-
 async def analysisReport_controller(uid: int, task_id: str):
     async with SessionLocal() as session:
         row = await get_analysis_with_report(session, task_id, uid=int(uid))
@@ -307,6 +195,7 @@ async def get_file_by_hash_controller(task_id: str,uid: int,tool: str):
         }
 
         return
+
 async def downloadReport_controller(file_name:str):
     match = FILENAME_REGEX.match(file_name)
     if not match:
@@ -346,4 +235,3 @@ async def history_controller(body: AnalysisHistoryParams):
             raise
         except Exception:
             raise HTTPException(status_code=500, detail="Internal server error")
-
