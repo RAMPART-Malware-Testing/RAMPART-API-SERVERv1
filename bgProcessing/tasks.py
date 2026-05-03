@@ -25,9 +25,9 @@ redis_client = redis.StrictRedis.from_url(REDIS_URL)
 def analyze_malware_task(
     self,
     file_path: str,
-    md5: str,           # <--- อัปเดตพารามิเตอร์ให้ตรงกับที่ Controller ส่งมา
-    sha256: str,        # <--- อัปเดตพารามิเตอร์ให้ตรงกับที่ Controller ส่งมา
-    total_size: int,    # <--- อัปเดตพารามิเตอร์ให้ตรงกับที่ Controller ส่งมา
+    md5: str,
+    sha256: str,
+    total_size: int,
     analysis_tool: str = '',
     virustotal=None,
     cape=None,
@@ -38,7 +38,6 @@ def analyze_malware_task(
     analy = None
     
     try:
-        # 1. เช็ค Database
         stmt = select(Analysis).where(Analysis.file_hash == sha256).limit(1)
         analy = db.execute(stmt).scalar_one_or_none()
 
