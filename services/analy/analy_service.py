@@ -3,7 +3,7 @@ from typing import Any, List, Optional
 from sqlalchemy import and_, asc, delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, joinedload, selectinload
-from cores.models_class import Analysis, User, Reports
+from cores.Schema.schema_class import Analysis, User, Reports
 from schemas.analy import AnalysisHistoryParams
 
 async def get_file_by_hash(

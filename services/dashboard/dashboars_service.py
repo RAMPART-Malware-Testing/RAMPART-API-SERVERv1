@@ -4,7 +4,7 @@ from sqlalchemy import select, func, case, and_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta, timezone
 
-from cores.models_class import Analysis, User, Reports
+from cores.Schema.schema_class import Analysis, User, Reports
 from schemas.dashboard import ReportsHistoryParams
 
 from datetime import datetime, timezone
@@ -12,7 +12,7 @@ from typing import Any, List, Optional
 from sqlalchemy import and_, asc, delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, joinedload, selectinload
-from cores.models_class import Analysis, User, Reports
+from cores.Schema.schema_class import Analysis, User, Reports
 from schemas.analy import AnalysisHistoryParams
 
 async def get_dashboard_summary(session: AsyncSession, uid: int, role: str) -> dict:

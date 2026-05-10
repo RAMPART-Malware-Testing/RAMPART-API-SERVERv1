@@ -13,7 +13,7 @@ import redis
 from dotenv import load_dotenv
 from celery.exceptions import Retry
 
-from cores.models_class import Analysis, Reports
+from cores.Schema.schema_class import Analysis, Reports
 from cores.sync_pg_db import SyncSessionLocal
 
 load_dotenv()

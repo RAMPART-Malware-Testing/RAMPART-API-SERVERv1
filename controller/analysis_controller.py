@@ -4,7 +4,7 @@ import aiofiles
 from fastapi import UploadFile, HTTPException
 from bgProcessing.tasks import analyze_malware_task
 from cores.async_pg_db import SessionLocal
-from cores.models_class import User
+from cores.Schema.schema_class import User
 from schemas.analy import AnalysisHistoryParams 
 from services.analy.analy_service import get_analysis_history, get_analysis_with_report, get_file_by_hash, insert_table_analy
 from services.token_service import TokenService

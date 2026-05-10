@@ -19,7 +19,7 @@ def verify_access_token(token: str) -> str:
 
 from sqlalchemy import select
 from cores.async_pg_db import SessionLocal
-from cores.models_class import User
+from cores.Schema.schema_class import User
 from utils.cypto.PasswordCreateAndVerify import get_password_hash, verify_password
 from utils.jwt import create_token, decode_token
 from services.otp_service import OTPService

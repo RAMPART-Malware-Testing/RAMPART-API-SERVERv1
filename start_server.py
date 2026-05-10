@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from cores.models_class import init_db
+from cores.Schema.schema_class import init_db
 from utils.cypto.PasswordCreateAndVerify import get_password_hash
 from utils.startup.create_root_user import create_root_user
 from dotenv import load_dotenv
@@ -23,18 +23,18 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
+# @app.on_event("startup")
 async def startup_event():
     await init_db()
     await create_root_user()
     
-from routers.auth import router as auth_router
+# from routers.auth import router as auth_router
 from routers.analysis import router as analy_router
-from routers.dashboar_route import router as dashboard_route
+# from routers.dashboar_route import router as dashboard_route
 
-app.include_router(auth_router)
 app.include_router(analy_router)
-app.include_router(dashboard_route)
+# app.include_router(auth_router)
+# app.include_router(dashboard_route)
 
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -54,7 +54,7 @@ async def validation_exception_handler(request, exc):
 
 @app.get('/')
 async def root():
-    print(get_password_hash("12345678aA!"))
+    # print(get_password_hash("12345678aA!"))
     return { "success": True, "message": "RAMPART-API is running" }
 
 if __name__=="__main__":

@@ -1,4 +1,6 @@
+# tasks.py
 import os
+import json
 import redis
 from dotenv import load_dotenv
 from sqlalchemy import select
@@ -6,22 +8,20 @@ from celery.exceptions import Retry
 
 from bgProcessing.celery_app import celery_app
 from cores.sync_pg_db import SyncSessionLocal
-from cores.models_class import Analysis, Reports
+from cores.Schema.schema_class import Analysis, Reports
 
-# นำเข้าฟังก์ชันจากไฟล์ย่อยที่เราแยกไว้
 from bgProcessing.task_utils import map_final_data_to_report, predict_rampart_ai
 from bgProcessing.task_handlers import handle_virustotal
 
 load_dotenv()
 
-# ตั้งค่า Redis
 REDIS_HOST = os.environ.get("REDIS_HOST", "127.0.0.1")
 REDIS_PORT = os.environ.get("REDIS_PORT", "6379")
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "")
 REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0" if REDIS_PASSWORD else f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
 redis_client = redis.StrictRedis.from_url(REDIS_URL)
 
-@celery_app.task(bind=True, max_retries=100)
+@celery_app.task(bind=True, max_retries=10)
 def analyze_malware_task(
     self,
     file_path: str,
@@ -29,10 +29,11 @@ def analyze_malware_task(
     sha256: str,
     total_size: int,
     analysis_tool: str = '',
-    virustotal=None,
-    cape=None,
-    mobsf=None,
+    virustotal: str = None,
+    cape: str = None,
+    mobsf: str = None,
     predict_retried: int = 0,
+    vt_retry_count: int = 0
 ):
     db = SyncSessionLocal()
     analy = None
@@ -44,39 +45,61 @@ def analyze_malware_task(
         if not analy:
             return {"success": False, "message": f"Analysis not found for hash={sha256}"}
 
-        print(f"#######################[ Celery Task ID: {self.request.id} ]#######################")
-        
-        # ==========================================================================
-        # พื้นที่สำหรับทดสอบ (คอมเมนต์ไว้เพื่อไม่ให้ทำงานจริง ทดสอบเปิดทีละส่วนได้เลยครับ)
-        # ==========================================================================
-        
-        # --- 1. ทดสอบ VirusTotal ---
-        # if cape_task_id is None and "virustotal" not in results and "vt_skipped" not in results:
-        #     results = handle_virustotal(file_path, md5, total_size, results)
+        # VirusTotal Phase
+        if not virustotal:
+            is_vt_retry = vt_retry_count > 0
+            results = handle_virustotal(file_path, md5, total_size, is_retry=is_vt_retry)
+            
+            if results.get("success"):
+                vt_data = results.get("data")
+                malicious_count = vt_data.get('virustotal', {}).get('scan_summary', {}).get('malicious_count', 0)
+                
+                # Halt pipeline if VT detects severe threat
+                if malicious_count >= 3:
+                    analy.is_malicious = True
+                    analy.blocked_by = 'virustotal'
+                    analy.status = 'success'
+                    db.commit()
+                    return {"success": True, "message": "Malware detected at VT phase. Pipeline stopped."}
 
-        # --- 2. ทดสอบ MobSF ---
-        # (รอใส่เงื่อนไขเรียกใช้ handle_mobsf)
+                os.makedirs("reports", exist_ok=True)
+                report_path = os.path.join("reports", f"vt-{md5}.json")
+                with open(report_path, 'w', encoding='utf-8') as f:
+                    json.dump(vt_data, f, indent=4)
+                    
+                virustotal = report_path
+                
+            elif results.get("skip"):
+                virustotal = "skipped"
+            else:
+                retry_delay = results.get('retry', 60)
+                raise self.retry(countdown=retry_delay, kwargs={
+                    'file_path': file_path,
+                    'md5': md5,
+                    'sha256': sha256,
+                    'total_size': total_size,
+                    'analysis_tool': analysis_tool,
+                    'virustotal': virustotal,
+                    'cape': cape,
+                    'mobsf': mobsf,
+                    'predict_retried': predict_retried,
+                    'vt_retry_count': vt_retry_count + 1
+                })
 
-        # --- 3. ทดสอบ CAPE ---
-        # (รอใส่เงื่อนไขเรียกใช้ handle_cape)
+        # MobSF Phase
+        # TODO: Implement MobSF handler
 
-        # --- 4. ทดสอบ Gemini AI ---
-        # (รอใส่เงื่อนไขเรียกใช้ API)
+        # CAPE Phase
+        # TODO: Implement CAPE handler
 
-        # --- 5. บันทึกผลลัพธ์ลง DB ---
-        # (รอใส่เงื่อนไขบันทึกลงตาราง Reports และ Analysis)
-        
-        # ==========================================================================
+        # Gemini AI Phase
+        # TODO: Implement AI aggregation and DB reporting updates
 
-        # ปล่อยให้ Task จบการทำงานไปก่อนระหว่างการทดสอบ
-        db.commit()
-        print(f"[DONE] Task reached the end (Test Mode): {self.request.id}")
         return {"success": True, "task_id": self.request.id}
 
     except Retry:
         raise
     except Exception as e:
-        print(f"[ERROR] Task failed: {e}")
         try:
             db.rollback()
             if analy:

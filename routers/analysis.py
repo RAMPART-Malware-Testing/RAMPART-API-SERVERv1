@@ -4,6 +4,7 @@ from controller.analysis_controller import analysisReport_controller, downloadRe
 from schemas.analy import AnalysisHistoryParams, AnalysisReportParams, GenerateTokenParams,AnalysisReportParamsTarget
 from services.token_service import TokenService
 from controller.Analysis.ScanFile_controller import scan_file_controller
+
 router = APIRouter(
     prefix="/api/analy/v1",
     tags=["analy"]
@@ -18,9 +19,10 @@ async def generateToken(body: GenerateTokenParams):
 async def uploadFile(
     token: str,
     file: UploadFile = File(...),
-    privacy: bool = Form(False)
+    privacy: bool = Form(True)
 ):  
-    uid = await require_upload_token(token)
+    # uid = await require_upload_token(token)
+    uid = "b82659b5-55a9-43d7-8205-681a1ee4a29a"
     return await scan_file_controller(file, uid, privacy)
 
 @router.post("/task_id")

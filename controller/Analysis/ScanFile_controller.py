@@ -6,7 +6,7 @@ from tempfile import NamedTemporaryFile
 from fastapi import UploadFile, HTTPException, status
 from bgProcessing.tasks import analyze_malware_task
 from cores.async_pg_db import SessionLocal
-from cores.models_class import User
+from cores.Schema.schema_class import User
 from services.analy.analy_service import get_file_by_hash, insert_table_analy
 from cores.redis import redis_client
 
@@ -17,9 +17,9 @@ RESULTS_DIR = Path("results")
 for directory in [UPLOAD_DIR, REPORTS_DIR, RESULTS_DIR]:
     directory.mkdir(parents=True, exist_ok=True)
 
-MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024 # 1GB
-CHUNK_SIZE = 1024 * 1024 # 1MB
-REDIS_CACHE_TTL = 300 # 5 นาที
+MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024 
+CHUNK_SIZE = 1024 * 1024 
+REDIS_CACHE_TTL = 300 
 
 async def scan_file_controller(
     file: UploadFile,
@@ -41,52 +41,65 @@ async def scan_file_controller(
                 detail={"success": False, "code": "USER_NOT_ACTIVE", "message": "User is not active."}
             )
 
-        # 1. สร้างตัวแปรสำหรับ Hash
         md5_hash = hashlib.md5()
         sha256_hash = hashlib.sha256()
         accumulated_size = 0
         original_filename = file.filename
         file_extension = os.path.splitext(original_filename)[1].lower()
 
-        # 2. สร้างไฟล์ชั่วคราว (Temp File) แบบปลอดภัย ป้องกันไฟล์ซ้ำซ้อนตอนอัปโหลด
-        # ไฟล์นี้จะถูกลบอัตโนมัติถ้าเกิด Error ก่อนทำสำเร็จ
         try:
             with NamedTemporaryFile(delete=False, dir=UPLOAD_DIR, prefix="upload_", suffix=".tmp") as temp_file:
                 temp_file_path = Path(temp_file.name)
 
-                # 3. สตรีมมิ่ง: อ่าน -> คำนวณ Hash -> เขียนลงไฟล์ (ไม่เก็บลง Memory List)
                 while chunk := await file.read(CHUNK_SIZE):
                     accumulated_size += len(chunk)
                     
                     if accumulated_size > MAX_FILE_SIZE:
-                        # ลบไฟล์ทิ้งทันทีถ้าขนาดเกินกำหนด
                         os.unlink(temp_file_path)
                         raise HTTPException(
                             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                             detail="File size exceeds the permitted limit."
                         )
                         
-                    # คำนวณ Hash เฉพาะก้อน (Chunk) ที่อ่านมา
                     md5_hash.update(chunk)
                     sha256_hash.update(chunk)
                     
-                    # เขียนก้อนข้อมูลลงไฟล์ดิสก์
                     temp_file.write(chunk)
 
-            # ได้ค่า Hash สุดท้ายของไฟล์
             final_md5 = md5_hash.hexdigest()
             final_sha256 = sha256_hash.hexdigest()
+            target_file_path = UPLOAD_DIR / f"{final_sha256}{file_extension}"
 
-            # 4. ตรวจสอบข้อมูลใน Database ก่อน
             existing_analysis_record = await get_file_by_hash(db_session, final_sha256)
 
             if existing_analysis_record:
-                # กรณีที่ 1: พบในฐานข้อมูล (วิเคราะห์เสร็จแล้ว)
                 
-                # ลบไฟล์ Temp ทิ้งทันที เพราะไม่จำเป็นต้องเก็บไฟล์ซ้ำ
                 os.unlink(temp_file_path) 
                 
-                # บันทึกประวัติการเรียกดูของผู้ใช้
+                task_id = existing_analysis_record.get('task_id')
+                
+                # Check for empty task_id and re-trigger analysis if necessary
+                if not task_id or task_id.strip() == "":
+                    # Ensure the file exists before re-queuing
+                    if not target_file_path.exists():
+                        raise HTTPException(
+                            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail="File associated with existing record not found. Cannot re-analyze."
+                        )
+
+                    analysis_task = analyze_malware_task.delay(
+                        str(target_file_path),
+                        str(final_md5),
+                        str(final_sha256),
+                        int(existing_analysis_record.get('file_size') or accumulated_size)
+                    )
+                    task_id = analysis_task.id
+                    
+                    # Optional: Update the status back to analyzing if it was failed
+                    status_val = "analyzing"
+                else:
+                    status_val = existing_analysis_record.get('status')
+                    
                 await insert_table_analy(
                     session=db_session,
                     uid=user_id,
@@ -99,8 +112,8 @@ async def scan_file_controller(
                     privacy=is_private,
                     md5=final_md5,
                     tools=existing_analysis_record.get('tools'),
-                    task_id=existing_analysis_record.get('task_id'),
-                    status=existing_analysis_record.get('status')
+                    task_id=task_id,
+                    status=status_val
                 )
                 
                 return {
@@ -108,14 +121,11 @@ async def scan_file_controller(
                     "md5": final_md5,
                     "sha256": final_sha256,
                     "filename": original_filename,
-                    "task_id": existing_analysis_record.get('task_id'),
-                    "message": "File processed successfully using existing analysis."
+                    "task_id": task_id,
+                    "message": "File processed successfully. Analysis re-queued or existing result returned."
                 }
 
-            # 5. กรณีไฟล์ใหม่ (ยังไม่มีใน Database): ตรวจสอบว่ากำลังวิเคราะห์อยู่หรือไม่ (Redis)
-            target_file_path = UPLOAD_DIR / f"{final_sha256}{file_extension}"
             
-            # ย้ายไฟล์ Temp ไปเป็นไฟล์จริง (ถ้าเคยมีไฟล์ค้างไว้จะถูกเขียนทับอย่างปลอดภัย)
             shutil.move(temp_file_path, target_file_path)
 
             redis_cache_key = f"analyzing_task:{final_sha256}"
@@ -127,7 +137,6 @@ async def scan_file_controller(
                 print(f"Redis cache retrieval error: {redis_error}")
 
             if cached_task_id:
-                # กรณีที่ 2: กำลังวิเคราะห์อยู่โดยผู้ใช้อื่น
                 await insert_table_analy(
                     session=db_session,
                     uid=user_id,
@@ -151,7 +160,6 @@ async def scan_file_controller(
                     "message": "File is already being analyzed. Attached to existing queue."
                 }
 
-            # 6. กรณีที่ 3: ไฟล์ใหม่เอี่ยมจริงๆ ต้องส่งเข้าคิววิเคราะห์
             await insert_table_analy(
                 session=db_session,
                 uid=user_id,
@@ -173,7 +181,6 @@ async def scan_file_controller(
             )
 
             try:
-                # บันทึกสถานะลง Redis ล็อคไว้ 5 นาที
                 redis_client.setex(redis_cache_key, REDIS_CACHE_TTL, analysis_task.id)
             except Exception as redis_error:
                 print(f"Redis cache setting error: {redis_error}")
@@ -188,12 +195,10 @@ async def scan_file_controller(
             }
 
         except HTTPException:
-            # ถ้าเป็น HTTP Error เช่น ไฟล์ใหญ่เกิน ให้ส่งต่อเลย และมั่นใจว่า Temp ไฟล์โดนลบในบล็อกแล้ว
             if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
                 os.unlink(temp_file_path)
             raise
         except Exception as execution_error:
-            # จัดการ Error อื่นๆ ที่ไม่ได้คาดคิด และลบไฟล์ Temp ทิ้งป้องกันขยะ
             print(f"Upload and processing error: {execution_error}")
             if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
                 os.unlink(temp_file_path)

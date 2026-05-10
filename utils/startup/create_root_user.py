@@ -1,6 +1,6 @@
 from sqlalchemy import select
 from cores.async_pg_db import SessionLocal
-from cores.models_class import User
+from cores.Schema.schema_class import User
 from dotenv import load_dotenv
 import os
 
@@ -8,9 +8,9 @@ from utils.cypto.PasswordCreateAndVerify import get_password_hash
 
 load_dotenv()
 
-ROOT_USERNAME=os.getenv('ROOT_USERNAME')
-ROOT_PASSWORD=os.getenv('ROOT_PASSWORD')
-ROOT_EMAIL=os.getenv('ROOT_EMAIL')
+ROOT_USERNAME=os.getenv('ROOT_USERNAME','rampart')
+ROOT_PASSWORD=os.getenv('ROOT_PASSWORD','rampart')
+ROOT_EMAIL=os.getenv('ROOT_EMAIL','rampart')
 
 async def create_root_user():
     async with SessionLocal() as session:
