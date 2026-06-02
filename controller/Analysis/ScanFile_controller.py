@@ -23,7 +23,7 @@ REDIS_CACHE_TTL = 300
 
 async def scan_file_controller(
     file: UploadFile,
-    user_id: int,
+    user_id: str,
     is_private: bool
 ):
     async with SessionLocal() as db_session:

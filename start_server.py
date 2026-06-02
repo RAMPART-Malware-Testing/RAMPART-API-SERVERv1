@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from cores.Schema.schema_class import init_db
 from utils.cypto.PasswordCreateAndVerify import get_password_hash
 from utils.startup.create_root_user import create_root_user
@@ -56,6 +57,10 @@ async def validation_exception_handler(request, exc):
 async def root():
     # print(get_password_hash("12345678aA!"))
     return { "success": True, "message": "RAMPART-API is running" }
+
+@app.get('/scan')
+async def scan_page():
+    return FileResponse('scan.html')
 
 if __name__=="__main__":
     uvicorn.run("start_server:app", host="0.0.0.0", port=8006, reload=True)

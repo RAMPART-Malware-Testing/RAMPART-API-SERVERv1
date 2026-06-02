@@ -8,6 +8,7 @@ import uuid
 from dotenv import load_dotenv
 
 from calling.VirusTotal import VirusTotal
+from cores.sync_pg_db import SyncSessionLocal
 # from calling.GeminiAPI import GeminiAPI
 # from calling.MobSF import MobSFCall
 # from calling.CAPE import CAPEAnalyzer

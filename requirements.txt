@@ -13,3 +13,4 @@ asyncpg
 argon2-cffi
 python-jose[cryptography]
 psycopg2-binary
+dotenv
