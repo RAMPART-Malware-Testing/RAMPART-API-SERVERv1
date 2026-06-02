@@ -24,10 +24,11 @@ app.add_middleware(
 )
 
 
-# @app.on_event("startup")
+@app.on_event("startup")
 async def startup_event():
     await init_db()
     await create_root_user()
+    pass
     
 # from routers.auth import router as auth_router
 from routers.analysis import router as analy_router

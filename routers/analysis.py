@@ -22,7 +22,7 @@ async def uploadFile(
     privacy: bool = Form(True)
 ):  
     # uid = await require_upload_token(token)
-    uid = "b82659b5-55a9-43d7-8205-681a1ee4a29a"
+    uid = "adae931d-7c76-40dd-b0a9-f04a390f91dd"
     return await scan_file_controller(file, uid, privacy)
 
 @router.post("/task_id")

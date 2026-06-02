@@ -11,7 +11,7 @@ from cores.sync_pg_db import SyncSessionLocal
 from cores.Schema.schema_class import Analysis, Reports
 
 from bgProcessing.task_utils import map_final_data_to_report, predict_rampart_ai
-from bgProcessing.task_handlers import handle_virustotal
+from bgProcessing.task_handlers import handle_virustotal, calculate_threat_scoreVT
 
 load_dotenv()
 
@@ -73,7 +73,7 @@ def analyze_malware_task(
                 virustotal = "skipped"
             else:
                 retry_delay = results.get('retry', 60)
-                raise self.retry(countdown=retry_delay, kwargs={
+                raise self.retry(countdown=retry_delay,args=[], kwargs={
                     'file_path': file_path,
                     'md5': md5,
                     'sha256': sha256,
@@ -85,6 +85,8 @@ def analyze_malware_task(
                     'predict_retried': predict_retried,
                     'vt_retry_count': vt_retry_count + 1
                 })
+        vt_score = calculate_threat_scoreVT(f'reports/vt-{md5}.json')
+        print("vt score : ", vt_score)
 
         # MobSF Phase
         # TODO: Implement MobSF handler
