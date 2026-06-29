@@ -47,5 +47,9 @@ async def resetpasswd(body: ResetPasswdParame):
 async def resetpasswd_confirm(body: ResetPasswdConfirmParame):
     return await resetPasswd_confirm_controller(body)
 
+@router.get('/refresh-token/{refresh_token}')
+async def refresh_token(refresh_token:str):
+    return { refresh_token }
+
 
 

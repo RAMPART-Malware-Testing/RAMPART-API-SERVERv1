@@ -29,5 +29,3 @@ class ResetPasswdConfirmParame(BaseModel):
     token: str
     otp: str
     newPasswd: str
-
-

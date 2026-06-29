@@ -81,7 +81,7 @@ class AuthService:
 
         ok, otp_err = OTPService.verify_otp("login", body.token, body.otp)
         if not ok:
-            return error(AuthStatus.OTP_INVALID, otp_err) # อาจจะต้องไปแปลเพิ่มใน OTPService หากมีการส่ง error ออกมาจากตรงนั้น
+            return error(AuthStatus.OTP_INVALID, otp_err)
 
         uid = int(payload["sub"])
 
@@ -113,12 +113,18 @@ class AuthService:
             expires_minutes=60 * 24 * 7
         )
 
+        refresh_token = create_token(
+            subject=str(uid),
+            token_type="refresh_token",
+            expires_minutes=60 * 24 * 7
+        )
+
         OTPService.clear_otp_session("login", body.token, str(uid))
 
         return success(
             AuthStatus.LOGIN_SUCCESS,
             "ยืนยันการเข้าสู่ระบบสำเร็จ",
-            {"access_token": access_token, "data":user, "deiveToken":deiveToken}
+            {"access_token": access_token, "data":user, "deiveToken":deiveToken, "refresh_token":refresh_token }
         )
 
 # ================= REGISTER =================
@@ -253,3 +259,11 @@ class AuthService:
             AuthStatus.PASSWORD_RESET_SUCCESS,
             "รีเซ็ตรหัสผ่านสำเร็จ"
         )
+    
+    @staticmethod
+    async def refresh_token(refresh_token:str):
+        payload, err = TokenService.verify_token(refresh_token, "refresh_token")
+        if err:
+            return err
+        print(payload)
+        return {}
