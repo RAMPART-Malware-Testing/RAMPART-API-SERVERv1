@@ -261,9 +261,45 @@ class AuthService:
         )
     
     @staticmethod
-    async def refresh_token(refresh_token:str):
+    async def refresh_token(refresh_token: str):
         payload, err = TokenService.verify_token(refresh_token, "refresh_token")
         if err:
             return err
-        print(payload)
-        return {}
+
+        uid = int(payload["sub"])
+
+        async with SessionLocal() as session:
+            result = await session.execute(
+                select(User.uid, User.status).where(User.uid == uid)
+            )
+            user = result.mappings().one_or_none()
+
+        if not user:
+            return error(AuthStatus.USER_NOT_FOUND, "ไม่พบผู้ใช้งานระบบ")
+
+        if user.status.lower() != "active":
+            return error(
+                AuthStatus.USER_NOT_FOUND,
+                "ผู้ใช้งานถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ"
+            )
+
+        new_access_token = create_token(
+            subject=str(uid),
+            token_type="access",
+            expires_minutes=60 * 24 * 7
+        )
+
+        new_refresh_token = create_token(
+            subject=str(uid),
+            token_type="refresh_token",
+            expires_minutes=60 * 24 * 7
+        )
+
+        return success(
+            AuthStatus.TOKEN_REFRESH_SUCCESS,
+            "รีเฟรชโทเค็นสำเร็จ",
+            {
+                "access_token": new_access_token,
+                "refresh_token": new_refresh_token,
+            }
+        )

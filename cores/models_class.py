@@ -19,6 +19,7 @@ class User(Base):
     password: Mapped[str] = mapped_column(Text, nullable=False)
     role: Mapped[str] = mapped_column(String(20), server_default=text("'user'"))
     status: Mapped[str] = mapped_column(String(50), server_default=text("'active'"))
+    fcm_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.uid"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

@@ -1,4 +1,9 @@
 # RAMPART-SERVER
+## Windows 
+```
+.venv\Scripts\Activate.ps1
+```
+
 
 # 1 Docker setup
 ```

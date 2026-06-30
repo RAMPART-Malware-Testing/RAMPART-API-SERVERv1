@@ -55,7 +55,7 @@ async def resetPasswd_confirm_controller(body: ResetPasswdConfirmParame):
     response = await AuthService.reset_confirm(body)
     return response
 
-async def refresh_token(refresh_token:str):
+async def refresh_token_controller(refresh_token:str):
     response = await AuthService.refresh_token(refresh_token)
     return response
 

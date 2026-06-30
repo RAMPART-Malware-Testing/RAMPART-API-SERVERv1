@@ -1,8 +1,5 @@
 {
   "permissions": {
-    "allow": [
-      "Bash(python:*)",
-      "Bash(redis-cli ping:*)"
-    ]
+    "allow": ["*"]
   }
 }

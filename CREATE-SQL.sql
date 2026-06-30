@@ -5,6 +5,7 @@ CREATE TABLE "users" (
     "password" TEXT NOT NULL,
     "role" VARCHAR(20) DEFAULT 'user',
     "status" VARCHAR(50) DEFAULT 'active',
+    "fcm_token" TEXT,
     "created_by" INTEGER REFERENCES "users"("uid"),
     "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );

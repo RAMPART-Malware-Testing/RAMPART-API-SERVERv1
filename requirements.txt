@@ -6,6 +6,8 @@ pydantic
 redis
 celery
 google-genai
+google-auth
+google-auth-httplib2
 requests
 python-dotenv
 sqlalchemy[asyncio]

@@ -1,8 +1,13 @@
 import re
 
-from fastapi import APIRouter, Request
-from controller.auth_controller import login_confirm_controller, login_controller, register_controller, register_confirm_controller, resetPasswd_confirm_controller, resetPasswd_controller
-from schemas.auth import LoginParame,  LoginConfirmParame, RegisterParame, RegisterConfirmParame, ResetPasswdParame, ResetPasswdConfirmParame
+from fastapi import APIRouter, Header, HTTPException, Request
+from pydantic import BaseModel
+from sqlalchemy import select
+from cores.async_pg_db import SessionLocal
+from cores.models_class import User
+from controller.auth_controller import login_confirm_controller, login_controller, refresh_token_controller, register_controller, register_confirm_controller, resetPasswd_confirm_controller, resetPasswd_controller
+from schemas.auth import LoginParame,  LoginConfirmParame, RefreshTokenParame, RegisterParame, RegisterConfirmParame, ResetPasswdParame, ResetPasswdConfirmParame
+from services.token_service import TokenService
 from utils.response import error
 
 router = APIRouter(
@@ -47,9 +52,32 @@ async def resetpasswd(body: ResetPasswdParame):
 async def resetpasswd_confirm(body: ResetPasswdConfirmParame):
     return await resetPasswd_confirm_controller(body)
 
-@router.get('/refresh-token/{refresh_token}')
-async def refresh_token(refresh_token:str):
-    return { refresh_token }
+@router.post("/refresh-token")
+async def refresh_token(body: RefreshTokenParame):
+    return await refresh_token_controller(body.refresh_token)
 
 
+class FCMRegisterRequest(BaseModel):
+    fcm_token: str
 
+
+@router.post("/fcm/register")
+async def register_fcm_token(
+    body: FCMRegisterRequest,
+    x_access_token: str = Header(...),
+):
+    payload, err = TokenService.verify_token(x_access_token, "access")
+    if err:
+        raise HTTPException(status_code=401, detail="Invalid access token")
+
+    uid = int(payload["sub"])
+    async with SessionLocal() as session:
+        result = await session.execute(select(User).where(User.uid == uid))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user.fcm_token = body.fcm_token
+        await session.commit()
+
+    return {"success": True, "message": "ลงทะเบียน FCM token สำเร็จ"}
