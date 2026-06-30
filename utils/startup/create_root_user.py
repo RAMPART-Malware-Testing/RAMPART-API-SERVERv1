@@ -20,7 +20,7 @@ async def create_root_user():
         root_user = result.scalar_one_or_none()
 
         if root_user:
-            print("✅ Root user already exists")
+            print("[OK] Root user already exists")
             return
 
         hashed_password = get_password_hash(ROOT_PASSWORD)
@@ -34,4 +34,4 @@ async def create_root_user():
 
         session.add(new_user)
         await session.commit()
-        print("🚀 Root user created successfully")
+        print("[OK] Root user created successfully")

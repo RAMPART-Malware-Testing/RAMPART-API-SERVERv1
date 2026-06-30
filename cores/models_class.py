@@ -106,4 +106,4 @@ from cores.async_pg_db import engine
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    print("✅ Database synced and tables created!")
+    print("[OK] Database synced and tables created!")
