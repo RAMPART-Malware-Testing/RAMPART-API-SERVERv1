@@ -30,13 +30,16 @@ async def startup_event():
     await create_root_user()
     pass
     
-# from routers.auth import router as auth_router
+from routers.auth import router as auth_router
 from routers.analysis import router as analy_router
-# from routers.dashboar_route import router as dashboard_route
+from routers.test_route import router as test_router
+from utils.test_mode import test_mode_enabled
+from routers.dashboar_route import router as dashboard_route
 
 app.include_router(analy_router)
-# app.include_router(auth_router)
-# app.include_router(dashboard_route)
+app.include_router(test_router, include_in_schema=test_mode_enabled())
+app.include_router(auth_router)
+app.include_router(dashboard_route)
 
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse

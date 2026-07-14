@@ -1,7 +1,5 @@
 import re
-from enum import Enum
-
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 ALLOWED_STATUSES    = {"pending", "processing", "success", "failed"}
 MAX_SEARCH_LENGTH   = 100
@@ -12,14 +10,10 @@ class AnalysisReportParams(BaseModel):
     token: str
 
 
-class ToolEnum(str, Enum):
-    mobsf = "mobsf"
-    virustotal = "virustotal"
-    capr = "cape"
-
 class AnalysisReportParamsTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     task_id: str
-    tool: ToolEnum
     token: str
 
 

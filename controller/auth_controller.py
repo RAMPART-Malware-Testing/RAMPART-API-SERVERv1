@@ -3,6 +3,7 @@ from schemas.auth import LoginParame, LoginConfirmParame, RegisterParame, Regist
 
 import random
 import hashlib
+from uuid import UUID
 
 from utils.jwt import create_token
 
@@ -14,7 +15,7 @@ def generate_device_hash(user_agent: str, ip: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 def generate_accesstoken(
-    uid: int,
+    uid: UUID | str,
     username: str,
     ACCESS_TOKEN_EXPIRE_MINUTES: int
 ):

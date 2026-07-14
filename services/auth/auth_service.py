@@ -23,6 +23,7 @@ from cores.Schema.schema_class import User
 from utils.cypto.PasswordCreateAndVerify import get_password_hash, verify_password
 from utils.jwt import create_token, decode_token
 from services.otp_service import OTPService
+from utils.uuid import parse_uuid
 
 
 class AuthService:
@@ -83,7 +84,10 @@ class AuthService:
         if not ok:
             return error(AuthStatus.OTP_INVALID, otp_err) # อาจจะต้องไปแปลเพิ่มใน OTPService หากมีการส่ง error ออกมาจากตรงนั้น
 
-        uid = int(payload["sub"])
+        try:
+            uid = parse_uuid(payload["sub"])
+        except (TypeError, ValueError):
+            return error(AuthStatus.TOKEN_INVALID, "ข้อมูลผู้ใช้ในโทเค็นไม่ถูกต้อง")
 
         async with SessionLocal() as session:
             result = await session.execute(
@@ -187,7 +191,10 @@ class AuthService:
             verifytoken = decode_token(body.token)
             if not verifytoken: return error(AuthStatus.TOKEN_INVALID, "โทเค็นไม่ถูกต้อง")
             if verifytoken.get("type") != 'access': return error(AuthStatus.TOKEN_WRONG_TYPE, "ประเภทโทเค็นไม่ถูกต้อง")
-            uid = int(verifytoken.get('sub'))
+            try:
+                uid = parse_uuid(verifytoken.get('sub'))
+            except (TypeError, ValueError):
+                return error(AuthStatus.TOKEN_INVALID, "ข้อมูลผู้ใช้ในโทเค็นไม่ถูกต้อง")
             async with SessionLocal() as session:
                 result = await session.execute(
                     select(User).where(User.uid == uid)
@@ -234,7 +241,10 @@ class AuthService:
         if not ok:
             return error(AuthStatus.OTP_INVALID, otp_err)
 
-        uid = int(payload["sub"])
+        try:
+            uid = parse_uuid(payload["sub"])
+        except (TypeError, ValueError):
+            return error(AuthStatus.TOKEN_INVALID, "ข้อมูลผู้ใช้ในโทเค็นไม่ถูกต้อง")
 
         async with SessionLocal() as session:
             result = await session.execute(

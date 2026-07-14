@@ -123,7 +123,7 @@ class MobSFCall:
         try:
             with open(file_path, 'rb') as file:
                 files = {'file': (filename, file, 'application/octet-stream')}
-                response = requests.post(url, headers=self._get_headers(), files=files)
+                response = requests.post(url, headers=self._get_headers(), files=files, timeout=30)
             if response.status_code == 200: return {"success": True, "data": response.json()}
             elif response.status_code == 401: return {"success": False, "error": "Unauthorized"}
             else: return {"success": False, "error": f"Error {response.status_code}: {response.text}"}
@@ -145,7 +145,7 @@ class MobSFCall:
         url = f"{self.base_url}/api/v1/report_json"
         data = {'hash': md5}
         try:
-            response = requests.post(url, headers=self._get_headers(), data=data)
+            response = requests.post(url, headers=self._get_headers(), data=data, timeout=30)
             if response.status_code == 200:
                 raw = response.json()
                 with open(f'reports/mobsf-{md5}.json', 'w', encoding='utf-8') as f: json.dump(raw, f)
@@ -161,7 +161,7 @@ class MobSFCall:
         data = {'hash': md5}
 
         try:
-            response = requests.post(url, headers=headers, data=data)
+            response = requests.post(url, headers=headers, data=data, timeout=30)
             if response.status_code == 200:
                 res = clean_mobsf_report(response.json())
                 return {"success": True, "data": res}

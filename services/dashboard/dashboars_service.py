@@ -14,8 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, joinedload, selectinload
 from cores.Schema.schema_class import Analysis, User, Reports
 from schemas.analy import AnalysisHistoryParams
+from uuid import UUID
 
-async def get_dashboard_summary(session: AsyncSession, uid: int, role: str) -> dict:
+async def get_dashboard_summary(session: AsyncSession, uid: UUID | str, role: str) -> dict:
     # ── 1. Total files (ทั้งระบบ) ──────────────────────────────────────
     total_q = await session.execute(
         select(
@@ -107,7 +108,7 @@ async def get_dashboard_summary(session: AsyncSession, uid: int, role: str) -> d
 
 async def get_recent_activities(
     session: AsyncSession,
-    uid: int,
+    uid: UUID | str,
     role: str,
     limit: int = 10
 ) -> list[dict]:
@@ -210,7 +211,7 @@ async def get_reports_history(
     analyses = (await session.execute(stmt)).scalars().unique().all()
     def serialize(a: Analysis) -> dict[str, Any]:
         item: dict[str, Any] = {
-            "aid":        a.aid,
+            "aid":        str(a.aid),
             "task_id":    a.task_id,
             "file_name":  a.file_name,
             "file_size":  a.file_size,

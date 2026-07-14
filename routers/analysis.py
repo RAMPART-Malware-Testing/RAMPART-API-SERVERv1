@@ -20,9 +20,8 @@ async def uploadFile(
     token: str,
     file: UploadFile = File(...),
     privacy: bool = Form(True)
-):  
-    # uid = await require_upload_token(token)
-    uid = "adae931d-7c76-40dd-b0a9-f04a390f91dd"
+):
+    uid = await require_upload_token(token)
     return await scan_file_controller(file, uid, privacy)
 
 @router.post("/task_id")
@@ -37,7 +36,7 @@ async def getAnalysisReport(body: AnalysisReportParamsTarget):
     payload, err = TokenService.verify_token(body.token, "access")
     if err: raise HTTPException(status_code=401, detail="Invalid upload token")
     uid = payload['sub']
-    return await get_file_by_hash_controller( body.task_id, uid,body.tool)
+    return await get_file_by_hash_controller(body.task_id, uid)
 
 
 @router.get("/download/report/{file_name}")

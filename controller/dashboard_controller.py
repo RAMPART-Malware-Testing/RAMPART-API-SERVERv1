@@ -4,6 +4,7 @@ from schemas.dashboard import ReportsHistoryParams
 from services.dashboard.dashboars_service import get_dashboard_summary, get_recent_activities, get_reports_history
 from services.token_service import TokenService
 from pydantic import BaseModel
+from utils.uuid import parse_uuid
 
 class DashboardParams(BaseModel):
     token: str
@@ -19,7 +20,7 @@ async def dashboard_summary_controller(body: DashboardParams):
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
     try:
-        uid = int(uid)
+        uid = parse_uuid(uid)
     except (ValueError, TypeError):
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
@@ -40,7 +41,7 @@ async def recent_activities_controller(body: DashboardParams):
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
     try:
-        uid = int(uid)
+        uid = parse_uuid(uid)
     except (ValueError, TypeError):
         raise HTTPException(status_code=401, detail="Invalid token payload")
 

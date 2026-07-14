@@ -1,5 +1,6 @@
 from fastapi import Header, HTTPException
 from services.auth.auth_service import verify_access_token
+from utils.uuid import parse_uuid
 
 async def require_access_token(
     x_access_token: str | None = Header(None)
@@ -14,7 +15,17 @@ async def require_access_token(
             }
         )
 
-    veri = verify_access_token(x_access_token)
+    try:
+        veri = verify_access_token(x_access_token)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "success": False,
+                "code": "ACCESS_TOKEN_INVALID",
+                "message": "Access token is invalid or expired"
+            }
+        )
     if not veri:
         raise HTTPException(
             status_code=401,
@@ -25,4 +36,14 @@ async def require_access_token(
             }
         )
 
-    return int(veri)
+    try:
+        return parse_uuid(veri)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "success": False,
+                "code": "ACCESS_TOKEN_INVALID",
+                "message": "Access token subject is invalid"
+            }
+        )

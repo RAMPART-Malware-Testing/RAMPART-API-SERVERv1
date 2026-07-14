@@ -1,10 +1,44 @@
 from datetime import datetime, timezone
 from typing import Any, List, Optional
-from sqlalchemy import and_, asc, delete, desc, func, or_, select
+from sqlalchemy import and_, asc, delete, desc, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, joinedload, selectinload
 from cores.Schema.schema_class import Analysis, User, Reports
 from schemas.analy import AnalysisHistoryParams
+from uuid import UUID
+
+
+async def acquire_analysis_hash_lock(session: AsyncSession, file_hash: str) -> None:
+    lock_key = int.from_bytes(bytes.fromhex(file_hash)[:8], byteorder="big", signed=True)
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_key)"),
+        {"lock_key": lock_key},
+    )
+
+
+async def acquire_analysis_task_lock(session: AsyncSession, task_id: str) -> None:
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:task_id, 0))"),
+        {"task_id": task_id},
+    )
+
+
+async def update_analysis_rows_by_task_id(
+    session: AsyncSession,
+    task_id: str,
+    *,
+    status: str,
+    rid: Any | None = None,
+    from_statuses: tuple[str, ...] | None = None,
+) -> int:
+    values = {"status": status}
+    if rid is not None:
+        values["rid"] = rid
+    stmt = update(Analysis).where(Analysis.task_id == task_id)
+    if from_statuses:
+        stmt = stmt.where(Analysis.status.in_(from_statuses))
+    result = await session.execute(stmt.values(**values))
+    return result.rowcount
 
 async def get_file_by_hash(
     session: AsyncSession,
@@ -23,7 +57,29 @@ async def get_file_by_hash(
             Analysis.task_id,
         ).where(
             Analysis.file_hash == file_hash,
-            Analysis.file_path.isnot(None)
+            Analysis.file_path.isnot(None),
+            Analysis.task_id.isnot(None),
+            Analysis.status.in_(("dispatching", "queued", "processing", "analyzing", "success")),
+        ).limit(1)
+    )
+    return result.mappings().one_or_none()
+
+
+async def get_file_by_task_id(session: AsyncSession, task_id: str):
+    result = await session.execute(
+        select(
+            Analysis.rid,
+            Analysis.status,
+            Analysis.file_path,
+            Analysis.file_type,
+            Analysis.file_size,
+            Analysis.file_hash,
+            Analysis.tools,
+            Analysis.md5,
+            Analysis.task_id,
+        ).where(
+            Analysis.task_id == task_id,
+            Analysis.status.in_(("dispatching", "queued", "processing", "analyzing", "success", "failed")),
         ).limit(1)
     )
     return result.mappings().one_or_none()
@@ -33,8 +89,8 @@ async def get_file_by_hash(
 async def insert_table_analy(
     session: AsyncSession,
     *,
-    uid: int,
-    rid: int | None = None,
+    uid: UUID | str,
+    rid: Any | None = None,
     task_id: str | None = None,
     tools: str | None = None,
     status: str | None = None,
@@ -58,36 +114,32 @@ async def insert_table_analy(
     if analy:
         analy.created_at = datetime.now(timezone.utc)
         analy.privacy = privacy
+        analy.rid = rid
+        analy.task_id = task_id
+        analy.tools = tools
+        analy.status = status
+        analy.file_path = file_path
+        analy.file_type = file_type
+        analy.file_size = file_size
+        analy.md5 = md5
         await session.commit()
         await session.refresh(analy)
         return analy
     
-    if rid:
-        analy = Analysis(
-            uid=uid,
-            rid=rid,
-            task_id=task_id,
-            tools=tools,
-            status=status,
-            file_name=file_name,
-            file_hash=file_hash,
-            file_path=file_path,
-            file_type=file_type,
-            file_size=file_size,
-            privacy=privacy,
-            md5=md5,
-        )
-    else:
-        analy = Analysis(
-            uid=uid,
-            file_name=file_name,
-            file_hash=file_hash,
-            file_path=file_path,
-            file_type=file_type,
-            file_size=file_size,
-            privacy=privacy,
-            md5=md5,
-        )
+    analy = Analysis(
+        uid=uid,
+        rid=rid,
+        task_id=task_id,
+        tools=tools,
+        status=status,
+        file_name=file_name,
+        file_hash=file_hash,
+        file_path=file_path,
+        file_type=file_type,
+        file_size=file_size,
+        privacy=privacy,
+        md5=md5,
+    )
     session.add(analy)
     await session.commit()
     await session.refresh(analy)
@@ -96,7 +148,7 @@ async def insert_table_analy(
 async def get_analysis_with_report(
     session: AsyncSession,
     task_id: str,
-    uid: int
+    uid: UUID | str
 ) -> tuple[Analysis, Reports | None] | None:
     result = await session.execute(
         select(Analysis, Reports)
@@ -112,7 +164,7 @@ async def get_analysis_with_report(
 
 async def get_analysis_history(
     session: AsyncSession,
-    uid: int,
+    uid: UUID | str,
     params: AnalysisHistoryParams
 ) -> dict[str, Any]:
 
@@ -208,7 +260,7 @@ async def get_analysis_history(
     # ======================
     def serialize(a: Analysis) -> dict[str, Any]:
         item: dict[str, Any] = {
-            "aid":        a.aid,
+            "aid":        str(a.aid),
             "task_id":    a.task_id,
             "file_name":  a.file_name,
             "file_size":  a.file_size,

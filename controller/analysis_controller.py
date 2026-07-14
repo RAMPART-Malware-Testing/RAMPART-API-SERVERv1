@@ -2,6 +2,7 @@ from pathlib import Path
 import re
 import aiofiles
 from fastapi import UploadFile, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from bgProcessing.tasks import analyze_malware_task
 from cores.async_pg_db import SessionLocal
 from cores.Schema.schema_class import User
@@ -13,6 +14,7 @@ from pathlib import Path
 from cores.redis import redis_client
 from utils.calculate_hash import calculate_hash_from_chunks
 from utils.jwt import create_token
+from utils.uuid import parse_uuid
 import json
 
 UPLOAD_DIR = Path("temps_files")
@@ -27,8 +29,7 @@ CHUNK_SIZE = 1024 * 1024
 VIRUSTOTAL_MAX_SIZE = 32 * 1024 * 1024
 
 BASE_REPORT_PATH = Path("reports").resolve()
-ALLOWED_PLATFORMS = {"cape", "virustotal", "mobsf"}
-FILENAME_REGEX = re.compile(r"^(cape|virustotal|mobsf)-([a-fA-F0-9]{32})$")
+FILENAME_REGEX = re.compile(r"^virustotal-([a-fA-F0-9]{32})\.json$")
 
 def decode_redis_data(data):
     if not data:
@@ -44,28 +45,35 @@ def get_file_info_from_redis(sha256_hash):
         print(f"Redis error when getting file info: {e}")
         return None
 
-async def require_upload_token(token: str):
+async def require_upload_token(token: str) -> str:
     payload, err = TokenService.verify_token(token, "upload")
     if err:
         raise HTTPException(status_code=401, detail="Invalid upload token")
 
-    uid = payload["sub"]
+    try:
+        uid = str(parse_uuid(payload.get("sub")))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid upload token subject")
     session_key = f"upload_session:{uid}"
 
-    stored_token = redis_client.get(session_key)
+    try:
+        stored_token = await run_in_threadpool(redis_client.get, session_key)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Upload session service is unavailable.")
     if not stored_token or stored_token != token:
         raise HTTPException(status_code=401, detail="Upload token is invalid or already used")
 
-    # redis_client.delete(session_key)
-
-    return int(uid)
+    return str(uid)
 
 async def generateToken_controller(token):
     payload, err = TokenService.verify_token(token, "access")
     if err: 
         return err
 
-    uid = payload["sub"]
+    try:
+        uid = str(parse_uuid(payload.get("sub")))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid access token subject")
     session_key = f"upload_session:{uid}"
 
     existing_token = redis_client.get(session_key)
@@ -100,9 +108,13 @@ async def generateToken_controller(token):
         }
     }
 
-async def analysisReport_controller(uid: int, task_id: str):
+async def analysisReport_controller(uid: str, task_id: str):
+    try:
+        uid = parse_uuid(uid)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token payload")
     async with SessionLocal() as session:
-        row = await get_analysis_with_report(session, task_id, uid=int(uid))
+        row = await get_analysis_with_report(session, task_id, uid=uid)
         
         if not row:
             return {
@@ -121,15 +133,24 @@ async def analysisReport_controller(uid: int, task_id: str):
                 "message": "Analysis is not completed yet"
             }
 
+        if report is None:
+            return {
+                "success": True,
+                "task_id": task_id,
+                "status": analysis.status,
+                "report": None,
+                "message": "Analysis completed without a report",
+            }
+
         return {
             "success": True,
             "task_id": task_id,
             "status": analysis.status,
             "report": {
-                "aid": analysis.aid,
-                "rid": report.rid,
+                "aid": str(analysis.aid),
+                "rid": str(report.rid),
                 "task_id": analysis.task_id,
-                "uid": analysis.uid,
+                "uid": str(analysis.uid),
                 "privacy": analysis.privacy,
                 "file_name": analysis.file_name,
                 "file_size": analysis.file_size,
@@ -140,23 +161,24 @@ async def analysisReport_controller(uid: int, task_id: str):
                 "md5": analysis.md5,
                 "status": analysis.status,
                 "deleted_at": analysis.deleted_at,
-                "deleted_by": analysis.deleted_by,
+                "deleted_by": str(analysis.deleted_by) if analysis.deleted_by else None,
                 "created_at": analysis.created_at,
-                # report fields
-                "rampart_score": float(report.rampart_score) if report.rampart_score else None,
-                "package": report.package,
-                "type": report.type,
-                "score": float(report.score) if report.score else None,
-                "risk_level": report.risk_level,
-                "recommendation": report.recommendation,
-                "analysis_summary": report.analysis_summary,
-                "risk_indicators": report.risk_indicators,
+                "report_file_type": report.file_type,
+                "virustotal_score": report.virustotal_score,
+                "mobsf_score": report.mobsf_score,
+                "cape_score": report.cape_score,
+                "malware_signatures": report.malware_signatures,
+                "report_created_at": report.created_at,
             }
         }
     
-async def get_file_by_hash_controller(task_id: str,uid: int,tool: str):
+async def get_file_by_hash_controller(task_id: str, uid: str):
+    try:
+        uid = parse_uuid(uid)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token payload")
     async with SessionLocal() as session:
-        row = await get_analysis_with_report(session, task_id, uid=int(uid))
+        row = await get_analysis_with_report(session, task_id, uid=uid)
         if not row:
             return {
                 "success": False,
@@ -174,10 +196,9 @@ async def get_file_by_hash_controller(task_id: str,uid: int,tool: str):
                 "message": "Analysis is not completed yet"
             }
         
-        path = f"./reports/{tool.value}-{analysis.md5}.json"
-        print(f"Looking for report at: {path}")
+        path = (BASE_REPORT_PATH / f"virustotal-{analysis.md5}.json").resolve()
         try:
-            if os.path.exists(path):
+            if path.parent == BASE_REPORT_PATH.resolve() and path.is_file():
                 async with aiofiles.open(path, "r") as f:
                     content = await f.read()
                     data = json.loads(content)
@@ -197,18 +218,12 @@ async def get_file_by_hash_controller(task_id: str,uid: int,tool: str):
         return
 
 async def downloadReport_controller(file_name:str):
-    match = FILENAME_REGEX.match(file_name)
-    if not match:
+    if not FILENAME_REGEX.fullmatch(file_name):
         raise HTTPException(status_code=400, detail="Invalid file name format")
 
-    platform, md5 = match.groups()
+    file_path = (BASE_REPORT_PATH / file_name).resolve()
 
-    if platform not in ALLOWED_PLATFORMS:
-        raise HTTPException(status_code=400, detail="Invalid platform")
-    
-    file_path = (BASE_REPORT_PATH / f"{platform}-{md5}.json").resolve()
-
-    if not str(file_path).startswith(str(BASE_REPORT_PATH)):
+    if file_path.parent != BASE_REPORT_PATH.resolve():
         raise HTTPException(status_code=403, detail="Access denied")
 
     if not file_path.is_file():
@@ -225,7 +240,7 @@ async def history_controller(body: AnalysisHistoryParams):
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
     try:
-        uid = int(uid)
+        uid = parse_uuid(uid)
     except (ValueError, TypeError):
         raise HTTPException(status_code=401, detail="Invalid token payload")
     async with SessionLocal() as session:

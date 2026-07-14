@@ -78,7 +78,7 @@ class VirusToTalAPI:
                 return response.json()
 
             except requests.exceptions.HTTPError as e:
-                status_code = e.response.status_code if e.response else None
+                status_code = e.response.status_code if e.response is not None else None
 
                 if status_code in [429, 403]:
                     if not self._switch_api_key():
@@ -104,10 +104,13 @@ class VirusToTalAPI:
             with open(file_path, "rb") as f:
                 files = {"file": (os.path.basename(file_path), f)}
                 data = self._make_request("POST", url, files=files)
-                return {"success":True, "data":data}
+                return {
+                    "state": "uploaded",
+                    "analysis_id": data.get("data", {}).get("id"),
+                }
 
         except Exception as e:
-            return {"success":False, "message":e}
+            return {"state": "error", "error": str(e)}
 
     def _clean_virustotal_report(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         if not raw_data:
@@ -201,17 +204,16 @@ class VirusToTalAPI:
         }
 
     def get_report_by_base64(self, base64_string: str) -> Dict[str, Any]:
-        md5_and_number = deCode_base64_string(base64_string)
-        md5 = md5_and_number.split(':')[0]
-        url = f"{self.BASE_URL}/files/{md5}"
-
         try:
+            md5_and_number = deCode_base64_string(base64_string)
+            md5 = md5_and_number.split(':')[0]
+            url = f"{self.BASE_URL}/files/{md5}"
             raw = self._make_request("GET", url)
             with open(f'reports/virustotal-{md5}.json', 'w', encoding='utf-8') as f: json.dump(raw, f)
             data = self._clean_virustotal_report(raw)
             return {"success":True, "data":data}
         except Exception as e:
-            return {"success":False, "message":e} 
+            return {"success":False, "message":str(e)}
 
 
     def get_report_by_hash(self, md5: str) -> Dict[str, Any]:
@@ -219,10 +221,11 @@ class VirusToTalAPI:
 
         try:
             raw = self._make_request("GET", url)
-            # with open(f'reports/virustotal-{md5}.json', 'w', encoding='utf-8') as f: json.dump(raw, f)
-            data =  self._clean_virustotal_report(raw)
-            return {"success":True, "data":data}
+            return {"state": "found", "data": raw}
         except Exception as e:
-            return {"success":False, "message":e} 
+            message = str(e)
+            if "HTTP Error 404" in message:
+                return {"state": "missing", "error": message}
+            return {"state": "error", "error": message}
 
 
