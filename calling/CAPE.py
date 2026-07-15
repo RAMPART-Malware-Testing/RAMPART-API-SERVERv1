@@ -223,14 +223,6 @@ class CAPEAnalyzer:
         except: pass
 
     def create_file_task(self, file_path: str, machine: Optional[str] = None, is_pcap: bool = False) -> Dict[str, Any]:
-        check_analy = self.cheack_analyer(file_path)
-        if check_analy and len(check_analy) > 0:
-            return {
-                "status": "exists",
-                "task_id": check_analy[0].get('id'),
-                "message": "File already analyzed."
-            }
-        
         url = f"{self.base_url}/apiv2/tasks/create/file/"
         files = {'file': open(file_path, 'rb')}
         data = {}
@@ -270,14 +262,7 @@ class CAPEAnalyzer:
             return {"status": "error", "error": str(e)}
 
     def get_report(self, task_id: int, md5 :str ):
-        report = self.get_task_report(task_id)
-        
-        with open(f'reports/cape-{md5}.json','w',encoding='utf-8') as wf:
-            wf.write(json.dumps(report, ensure_ascii=False, indent=4))
-
-        if report.get("status") != "success": return report
-        clean_data = CleanCapeReport(report)
-        return {"status": "success", "data": clean_data.clean_data()}
+        return self.get_task_report(task_id)
 
 # (ลบ Method MobSF ที่หลุดเข้ามา: scan_file, get_report_json)
 # (ลบ Test Code ท้ายไฟล์)

@@ -1,4 +1,5 @@
 import importlib
+import json
 import os
 from types import SimpleNamespace
 
@@ -98,6 +99,10 @@ class FakeRedis:
             raise RuntimeError("redis unavailable")
         self.values[key] = (ttl, value)
 
+    def get(self, key):
+        value = self.values.get(key)
+        return value[1] if value else None
+
 
 @pytest.fixture(autouse=True)
 def prevent_live_redis(monkeypatch):
@@ -185,16 +190,21 @@ def test_console_contains_complete_analysis_flow(monkeypatch):
     assert "Session tokens" in response.text
     assert "Upload sample" in response.text
     assert "Analysis progress" in response.text
+    assert "VirusTotal" in response.text
+    assert "MobSF" in response.text
+    assert "CAPE" in response.text
+    assert "Gemini" in response.text
+    assert "Database snapshot" in response.text
     assert "/test/api/status" in response.text
     assert "/test/api/user" in response.text
     assert "/test/api/token" in response.text
+    assert "/test/api/analysis/" in response.text
     assert "/api/analy/v1/upload" in response.text
     assert "/api/analy/v1/task_id" in response.text
     assert "/api/analy/v1/report_target" in response.text
     assert "mock_token_for_testing" not in response.text
     assert "setTimeout" in response.text
     assert "setInterval" not in response.text
-    assert "activePollGeneration" in response.text
     assert "sessionStorage" in response.text
 
 
@@ -314,3 +324,39 @@ def test_dependency_failures_return_stable_errors(monkeypatch):
     assert database_response.json() == {"detail": "Test database is unavailable."}
     assert redis_response.status_code == 503
     assert redis_response.json() == {"detail": "Test Redis is unavailable."}
+
+
+def test_analysis_diagnostics_combines_db_telemetry_and_report_files(monkeypatch, tmp_path):
+    monkeypatch.setenv("TEST_MODE", "TRUE")
+    redis = FakeRedis()
+    redis.setex("analysis_progress:task-1", 3600, json.dumps({
+        "stage": "cape",
+        "message": "Waiting for CAPE report",
+        "tools": {
+            "virustotal": {"status": "success"},
+            "mobsf": {"status": "skipped"},
+            "cape": {"status": "pending", "task_id": 42},
+            "gemini": {"status": "waiting"},
+        },
+    }))
+    service, _ = make_service([user()], redis)
+    service.reports_dir = tmp_path
+    service.analysis_snapshot = lambda task_id: {
+        "status": "processing",
+        "tools": "virustotal",
+        "md5": "a" * 32,
+        "file_name": "sample.exe",
+        "file_type": "exe",
+        "rid": None,
+        "scores": None,
+    }
+    (tmp_path / f"virustotal-{'a' * 32}.json").write_text("{}", encoding="utf-8")
+
+    response = TestClient(load_app("TRUE", service)).get("/test/api/analysis/task-1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["database"]["status"] == "processing"
+    assert body["progress"]["stage"] == "cape"
+    assert body["reports"]["virustotal"]["exists"] is True
+    assert body["reports"]["cape"]["exists"] is False

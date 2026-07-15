@@ -121,41 +121,7 @@ def calculate_threat_scoreVT(report: dict | str | Path) -> int:
 
     if get_malicious_virustotal_results(vt_data):
         return 100
-
-    attributes = get_virustotal_attributes(vt_data)
-    if attributes:
-        stats = attributes.get("last_analysis_stats", {})
-        malicious = stats.get("malicious", 0)
-        total = sum(value for value in stats.values() if isinstance(value, int))
-        reputation = attributes.get("reputation", 0)
-        sigma_rules = attributes.get("sigma_analysis_stats", {})
-    else:
-        scan_summary = vt_data.get("scan_summary", {})
-        malicious = scan_summary.get("malicious_count", 0)
-        total = scan_summary.get("total_scanners", 0)
-        reputation = scan_summary.get("reputation", 0)
-        sigma_rules = vt_data.get("security_analysis", {}).get("sigma_rules", {})
-
-    sigma_critical = sigma_rules.get('critical', 0)
-    sigma_high = sigma_rules.get('high', 0)
-
-    base_score = min(((malicious / total) * 5) * 70, 70) if total > 0 else 0
-
-    extra_score = 0
-    if sigma_critical > 0:
-        extra_score += 20
-    elif sigma_high > 0:
-        extra_score += 10
-        
-    if reputation < 0:
-        extra_score += min(abs(reputation) * 2, 10)
-
-    final_score = int(min(base_score + extra_score, 100))
-    
-    if malicious == 0 and sigma_critical == 0 and sigma_high == 0:
-        return 0
-        
-    return final_score
+    return 0
 
 
 def _clamp_score(value: float) -> float:
@@ -166,7 +132,9 @@ def _clamp_score(value: float) -> float:
 
 
 def calculate_mobsf_danger_score(report: dict) -> float | None:
-    security_score = report.get("security_score")
+    security_score = report.get("appsec", {}).get("security_score")
+    if security_score is None:
+        security_score = report.get("security_score")
     if security_score is None:
         return None
     try:
@@ -175,8 +143,16 @@ def calculate_mobsf_danger_score(report: dict) -> float | None:
         return None
 
 
-def calculate_cape_danger_score(report: dict) -> float | None:
-    malscore = report.get("score")
+def calculate_cape_danger_score(report: dict | str | Path) -> float | None:
+    if isinstance(report, dict):
+        data = report
+    else:
+        try:
+            with Path(report).open("r", encoding="utf-8") as file:
+                data = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            return None
+    malscore = data.get("malscore", data.get("score"))
     if malscore is None:
         return None
     try:
@@ -188,7 +164,8 @@ def calculate_cape_danger_score(report: dict) -> float | None:
 def _write_report(reports_dir: Path, name: str, report: dict) -> str:
     reports_dir.mkdir(parents=True, exist_ok=True)
     path = reports_dir / name
-    path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    with path.open("w", encoding="utf-8") as file:
+        json.dump(report, file, ensure_ascii=False)
     return str(path)
 
 
@@ -198,32 +175,60 @@ def handle_mobsf(
     *,
     submitted: bool = False,
     client: MobSFCall | None = None,
-    reports_dir: Path = Path("reports"),
+    report_path: str | Path | None = None,
 ) -> dict:
     client = client or MobSFCall()
+    report_path = Path(report_path or Path("reports") / f"mobsf-{md5}.json")
     report = client.generate_json_report(md5)
-    if report.get("success"):
-        data = report.get("data") or {}
+    if report.get("status") is True:
         return {
-            "state": "complete",
-            "report_path": _write_report(reports_dir, f"mobsf-{md5}.json", data),
+            "status": True,
+            "report_path": _write_report(report_path.parent, report_path.name, report.get("data") or {}),
+        }
+    if report.get("status") == "failed":
+        return {
+            "status": "failed",
+            "report_path": str(report_path),
+            "error": str(report.get("error", "MobSF report failed")),
         }
     if submitted:
-        return {"state": "pending", "submitted": True, "retry_in": 30}
+        return {
+            "status": "pending",
+            "report_path": str(report_path),
+            "submitted": True,
+            "retry_in": 30,
+        }
 
     upload = client.upload_file(file_path)
     if not upload.get("success"):
-        message = str(upload.get("error", "MobSF upload failed"))
-        if "not support" in message.lower() or "format" in message.lower():
-            return {"state": "skipped", "error": message}
-        return {"state": "error", "error": message}
+        error = str(upload.get("error", "MobSF upload failed"))
+        if "not supported" in error.lower() or "not support" in error.lower():
+            return {
+                "status": "skipped",
+                "report_path": str(report_path),
+                "error": error,
+            }
+        return {
+            "status": "failed",
+            "report_path": str(report_path),
+            "error": error,
+        }
 
     data = upload.get("data") or {}
     file_hash = data.get("hash") or md5
     scan = client.scan_uploaded_file(file_hash, timeout=10)
     if not scan.get("success"):
-        return {"state": "error", "error": str(scan.get("error", "MobSF scan failed"))}
-    return {"state": "pending", "submitted": True, "retry_in": 30}
+        return {
+            "status": "failed",
+            "report_path": str(report_path),
+            "error": str(scan.get("error", "MobSF scan failed")),
+        }
+    return {
+        "status": "pending",
+        "report_path": str(report_path),
+        "submitted": True,
+        "retry_in": 30,
+    }
 
 
 def handle_cape(
@@ -233,38 +238,86 @@ def handle_cape(
     task_id=None,
     client: CAPEAnalyzer | None = None,
     reports_dir: Path = Path("reports"),
+    report_path: str | Path | None = None,
 ) -> dict:
     client = client or CAPEAnalyzer()
+    report_path = Path(report_path or reports_dir / f"cape-{md5}.json")
     if task_id is None:
         existing = client.cheack_analyer(file_path)
         if isinstance(existing, dict) and existing.get("error"):
-            return {"state": "error", "error": str(existing["error"])}
+            return {
+                "status": "pending",
+                "report_path": str(report_path),
+                "error": str(existing["error"]),
+                "retry_in": 30,
+            }
         if existing:
             task_id = existing[0].get("id")
             retry_in = 30
         else:
             created = client.create_file_task(file_path, machine="win10")
             if created.get("status") == "error" or not created.get("task_id"):
-                return {"state": "error", "error": str(created.get("error", "CAPE submission failed"))}
+                error = str(created.get("error", "CAPE submission failed"))
+                if "not supported" in error.lower() or "not support" in error.lower():
+                    return {
+                        "status": "skipped",
+                        "report_path": str(report_path),
+                        "error": error,
+                    }
+                return {
+                    "status": "failed",
+                    "report_path": str(report_path),
+                    "error": error,
+                }
             task_id = created["task_id"]
             retry_in = 60
-        return {"state": "pending", "task_id": task_id, "retry_in": retry_in}
+        return {
+            "status": "pending",
+            "report_path": str(report_path),
+            "task_id": task_id,
+            "retry_in": retry_in,
+        }
 
     status = client.get_task_status(task_id)
+    if status.get("error"):
+        return {
+            "status": "pending",
+            "report_path": str(report_path),
+            "task_id": task_id,
+            "error": str(status["error"]),
+            "retry_in": 30,
+        }
     state = status.get("data")
     if isinstance(state, dict):
         state = state.get("status")
     if state in {"failed_analysis", "error", "failed"}:
-        return {"state": "error", "task_id": task_id, "error": f"CAPE analysis failed: {state}"}
+        error = f"CAPE analysis failed: {state}"
+        return {
+            "status": "failed",
+            "report_path": str(report_path),
+            "task_id": task_id,
+            "error": error,
+        }
     if state != "reported":
-        return {"state": "pending", "task_id": task_id, "retry_in": 30}
+        return {
+            "status": "pending",
+            "report_path": str(report_path),
+            "task_id": task_id,
+            "retry_in": 30,
+        }
 
     report = client.get_report(task_id, md5)
     if report.get("status") != "success":
-        return {"state": "error", "task_id": task_id, "error": str(report.get("error", "CAPE report failed"))}
+        return {
+            "status": "pending",
+            "report_path": str(report_path),
+            "task_id": task_id,
+            "error": str(report.get("error", "CAPE report failed")),
+            "retry_in": 30,
+        }
     data = report.get("data") or {}
     return {
-        "state": "complete",
-        "report_path": _write_report(reports_dir, f"cape-{md5}.json", data),
+        "status": True,
+        "report_path": _write_report(report_path.parent, report_path.name, data),
         "task_id": task_id,
     }

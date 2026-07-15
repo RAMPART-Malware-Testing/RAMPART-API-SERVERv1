@@ -48,3 +48,8 @@ async def create_user(response: Response, service: TestModeService = Depends(get
 @router.post("/api/token")
 async def create_token(service: TestModeService = Depends(get_test_mode_service)):
     return await service.issue_tokens()
+
+
+@router.get("/api/analysis/{task_id}")
+async def analysis_diagnostics(task_id: str, service: TestModeService = Depends(get_test_mode_service)):
+    return await service.analysis_diagnostics(task_id)

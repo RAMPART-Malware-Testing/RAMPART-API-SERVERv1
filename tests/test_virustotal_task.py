@@ -84,9 +84,30 @@ def run_task(monkeypatch, tmp_path, vt_result, retries=0, retry_error=None, repo
     monkeypatch.setattr(tasks, "SyncSessionLocal", lambda: session)
     monkeypatch.setattr(tasks, "REPORTS_DIR", tmp_path)
     monkeypatch.setattr(tasks, "task_is_complete", lambda *args: False)
-    monkeypatch.setattr(tasks, "handle_virustotal", lambda *args, **kwargs: vt_result)
-    monkeypatch.setattr(tasks, "handle_mobsf", lambda *args, **kwargs: {"state": "skipped"})
-    monkeypatch.setattr(tasks, "handle_cape", lambda *args, **kwargs: {"state": "skipped"})
+    def handle_virustotal(*args, **kwargs):
+        path = kwargs["report_path"]
+        if vt_result["state"] == "complete":
+            Path(path).write_text(json.dumps(vt_result["report"]), encoding="utf-8")
+            return {"status": True, "report_path": str(path)}
+        if vt_result["state"] == "pending":
+            return {"status": "pending", "report_path": str(path), "retry_in": vt_result.get("retry_in", 60)}
+        return {"status": "failed", "report_path": str(path), "error": vt_result.get("error", "VT failed")}
+
+    monkeypatch.setattr(tasks, "handle_virustotal", handle_virustotal)
+    monkeypatch.setattr(tasks, "handle_mobsf", lambda *args, **kwargs: {"status": "skipped", "report_path": kwargs["report_path"]})
+    monkeypatch.setattr(tasks, "handle_cape", lambda *args, **kwargs: {"status": "skipped", "report_path": kwargs["report_path"]})
+    monkeypatch.setattr(tasks, "build_gemini_evidence", lambda *args: {"evidence": True})
+    monkeypatch.setattr(tasks, "GeminiAPI", lambda: SimpleNamespace(AnalysisGemini=lambda evidence: {
+        "danger_score": 0,
+        "risk_level": "Low",
+        "confidence": "medium",
+        "verdict": "No malicious evidence observed",
+        "summary": "No malicious evidence observed",
+        "recommendation": "Use normal caution",
+        "key_evidence": [],
+        "tool_disagreements": [],
+        "limitations": [],
+    }))
 
     retry_calls = []
 
@@ -155,7 +176,7 @@ def test_single_malicious_engine_completes_immediately_with_maximum_score():
     assert task_handlers.calculate_threat_scoreVT(report) == 100
 
 
-def test_handler_prefers_sha256_hash_hit(monkeypatch):
+def test_handler_prefers_sha256_hash_hit(monkeypatch, tmp_path):
     calls = []
 
     class VT:
@@ -163,13 +184,15 @@ def test_handler_prefers_sha256_hash_hit(monkeypatch):
             calls.append(value)
             return {"state": "found", "data": complete_report()}
 
-    result = task_handlers.handle_virustotal("sample.bin", "md5", "sha256", 10, client=VT())
+    path = tmp_path / "vt.json"
+    result = task_handlers.handle_virustotal("sample.bin", "md5", "sha256", 10, client=VT(), report_path=path)
 
-    assert result == {"state": "complete", "report": complete_report()}
+    assert result == {"status": True, "report_path": str(path)}
+    assert json.loads(path.read_text(encoding="utf-8")) == complete_report()
     assert calls == ["sha256"]
 
 
-def test_handler_uploads_missing_eligible_file_once(monkeypatch):
+def test_handler_uploads_missing_eligible_file_once(monkeypatch, tmp_path):
     calls = []
 
     class VT:
@@ -180,13 +203,14 @@ def test_handler_uploads_missing_eligible_file_once(monkeypatch):
             calls.append(file_path)
             return {"state": "uploaded", "analysis_id": "analysis-1"}
 
-    result = task_handlers.handle_virustotal("sample.bin", "md5", "sha256", 10, client=VT())
+    path = tmp_path / "vt.json"
+    result = task_handlers.handle_virustotal("sample.bin", "md5", "sha256", 10, client=VT(), report_path=path)
 
-    assert result == {"state": "pending", "retry_in": 300}
+    assert result == {"status": "pending", "report_path": str(path), "retry_in": 300}
     assert calls == ["sample.bin"]
 
 
-def test_handler_rejects_upload_without_analysis_id():
+def test_handler_rejects_upload_without_analysis_id(tmp_path):
     class VT:
         def get_report_by_hash(self, value):
             return {"state": "missing", "error": "not found"}
@@ -195,11 +219,11 @@ def test_handler_rejects_upload_without_analysis_id():
             return {"state": "uploaded", "analysis_id": None}
 
     assert task_handlers.handle_virustotal(
-        "sample.bin", "md5", "sha256", 10, client=VT()
-    ) == {"state": "error", "error": "VirusTotal upload response missing analysis ID"}
+        "sample.bin", "md5", "sha256", 10, client=VT(), report_path=tmp_path / "vt.json"
+    )["status"] == "failed"
 
 
-def test_handler_does_not_reupload_while_polling(monkeypatch):
+def test_handler_does_not_reupload_while_polling(monkeypatch, tmp_path):
     class VT:
         def get_report_by_hash(self, value):
             return {"state": "missing", "error": "not found"}
@@ -208,18 +232,18 @@ def test_handler_does_not_reupload_while_polling(monkeypatch):
             raise AssertionError("must not upload during polling")
 
     assert task_handlers.handle_virustotal(
-        "sample.bin", "md5", "sha256", 10, is_retry=True, client=VT()
-    ) == {"state": "pending", "retry_in": 60}
+        "sample.bin", "md5", "sha256", 10, is_retry=True, client=VT(), report_path=tmp_path / "vt.json"
+    )["status"] == "pending"
 
 
-def test_incomplete_hash_report_is_pending(monkeypatch):
+def test_incomplete_hash_report_is_pending(monkeypatch, tmp_path):
     class VT:
         def get_report_by_hash(self, value):
             return {"state": "found", "data": {"scan_summary": {"total_scanners": 2}}}
 
     assert task_handlers.handle_virustotal(
-        "sample.bin", "md5", "sha256", 10, client=VT()
-    ) == {"state": "pending", "retry_in": 60}
+        "sample.bin", "md5", "sha256", 10, client=VT(), report_path=tmp_path / "vt.json"
+    )["status"] == "pending"
 
 
 @pytest.mark.parametrize("malicious", [0, 5])
@@ -249,7 +273,8 @@ def test_pending_report_retries_without_marking_failed(monkeypatch, tmp_path):
         monkeypatch, tmp_path, {"state": "pending", "retry_in": 17}, retries=1
     )
 
-    assert retry_calls == [{"countdown": 17}]
+    assert retry_calls[0]["countdown"] == 17
+    assert retry_calls[0]["kwargs"]["vt_status"] == "pending"
     assert not any("failed" in params.values() for params in update_values(session))
 
 

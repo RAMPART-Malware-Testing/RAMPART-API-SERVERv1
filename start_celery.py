@@ -2,6 +2,8 @@ import os
 import platform
 from dotenv import load_dotenv
 
+from bgProcessing.celery_app import celery_app
+
 load_dotenv()
 
 print(f"\n[RAMPART-AI] Celery Worker Starter")
@@ -16,7 +18,7 @@ else:
     pool_type = "prefork" 
     print(f"Mode: Linux/Unix -> Using 'prefork' pool (Default)")
 
-cmd = f"celery -A bgProcessing.celery_app worker --loglevel=info --pool={pool_type}"
-print(f"\nExecuting: {cmd}\n")
+worker_args = ["worker", "--loglevel=info", f"--pool={pool_type}"]
+print(f"\nExecuting: celery -A bgProcessing.celery_app {' '.join(worker_args)}\n")
 
-os.system(cmd)
+celery_app.worker_main(worker_args)

@@ -147,13 +147,14 @@ class MobSFCall:
         try:
             response = requests.post(url, headers=self._get_headers(), data=data, timeout=30)
             if response.status_code == 200:
-                raw = response.json()
-                with open(f'reports/mobsf-{md5}.json', 'w', encoding='utf-8') as f: json.dump(raw, f)
-                return {"success": True, "data": clean_mobsf_report(raw)}
-            else:
-                return {"success": False, "error": "Report not ready"}
+                return {"status": True, "data": response.json()}
+            if response.status_code == 401:
+                return {"status": "failed", "error": "Unauthorized"}
+            return {"status": "pending", "error": "Report not ready"}
+        except requests.exceptions.RequestException as e:
+            return {"status": "pending", "error": str(e)}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {"status": "failed", "error": str(e)}
 
     def delete_scan(self,md5):
         url = f"{self.base_url}/api/v1/delete_scan"

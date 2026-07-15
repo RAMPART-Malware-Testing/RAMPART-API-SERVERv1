@@ -1,10 +1,13 @@
 import json
 from pathlib import Path
+from datetime import datetime, timezone
 
 from celery.exceptions import MaxRetriesExceededError, Retry
 from sqlalchemy import select, text, update
 
 from bgProcessing.celery_app import celery_app
+from bgProcessing.report_evidence import build_gemini_evidence
+from bgProcessing.task_utils import apply_gemini_assessment
 from bgProcessing.task_handlers import (
     calculate_cape_danger_score,
     calculate_mobsf_danger_score,
@@ -17,16 +20,36 @@ from bgProcessing.task_handlers import (
 )
 from cores.Schema.schema_class import Analysis, Reports
 from cores.sync_pg_db import SyncSessionLocal
+from cores.redis import redis_client
+from calling.GeminiAPI import GeminiAPI
 
 
 REPORTS_DIR = Path("reports")
 ACTIVE_STATUSES = ("dispatching", "queued", "processing")
 FINALIZABLE_STATUSES = ("processing", "success")
 MAX_SANDBOX_POLLS = 10
+PROGRESS_TTL_SECONDS = 86400
 
 
 class TaskFinalizationError(RuntimeError):
     pass
+
+
+def publish_progress(task_id: str, stage: str, message: str, **values) -> None:
+    payload = {
+        "stage": stage,
+        "message": message,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        **values,
+    }
+    try:
+        redis_client.setex(
+            f"analysis_progress:{task_id}",
+            PROGRESS_TTL_SECONDS,
+            json.dumps(payload, ensure_ascii=False),
+        )
+    except Exception as error:
+        print(f"[Progress] Unable to publish task {task_id}: {error}")
 
 
 def update_task_rows(db, task_id: str, status: str, from_statuses: tuple[str, ...], **values) -> int:
@@ -38,8 +61,16 @@ def update_task_rows(db, task_id: str, status: str, from_statuses: tuple[str, ..
     return result.rowcount
 
 
-def fail_task(db, task_id: str, error) -> dict:
+def fail_task(db, task_id: str, error, *, report_paths=()) -> dict:
     message = str(error)
+    publish_progress(task_id, "failed", message, error=message)
+    for report_path in report_paths:
+        if not report_path:
+            continue
+        try:
+            Path(report_path).unlink(missing_ok=True)
+        except OSError as cleanup_error:
+            print(f"[Analysis] Failed to remove report {report_path}: {cleanup_error}")
     db.rollback()
     update_task_rows(db, task_id, "failed", ACTIVE_STATUSES)
     db.commit()
@@ -109,12 +140,14 @@ def finalize_analysis_report(
             raise TaskFinalizationError("Inconsistent report association")
 
         vt_report = read_report(vt_report_path)
+        virustotal_score = calculate_threat_scoreVT(vt_report)
+        signatures, malicious = virustotal_report_values(vt_report)
+        del vt_report
         scores = {
-            "virustotal_score": calculate_threat_scoreVT(vt_report),
+            "virustotal_score": virustotal_score,
             "mobsf_score": read_sandbox_score(mobsf_report_path, calculate_mobsf_danger_score),
             "cape_score": read_sandbox_score(cape_report_path, calculate_cape_danger_score),
         }
-        signatures, malicious = virustotal_report_values(vt_report)
         if report_ids:
             report = db.get(Reports, next(iter(report_ids)))
             if report is None:
@@ -179,17 +212,21 @@ def analyze_malware_task(
     total_size: int,
     vt_status=None,
     vt_report_path: str | None = None,
+    mobsf_status=None,
     mobsf_report_path: str | None = None,
     mobsf_submitted: bool = False,
     mobsf_poll_count: int = 0,
+    cape_status=None,
     cape_report_path: str | None = None,
     cape_task_id=None,
     cape_poll_count: int = 0,
+    gemini_status=None,
 ):
     db = SyncSessionLocal()
     task_id = self.request.id
 
     try:
+        publish_progress(task_id, "worker", "Celery worker accepted the task")
         started = update_task_rows(db, task_id, "processing", ("dispatching", "queued"))
         db.commit()
         if not started and (
@@ -206,6 +243,7 @@ def analyze_malware_task(
             return fail_task(db, task_id, "VirusTotal report file not found")
 
         if not report_ready:
+            publish_progress(task_id, "virustotal", "Checking VirusTotal report")
             vt_report_path = vt_report_path or str(REPORTS_DIR / f"virustotal-{md5}.json")
             result = handle_virustotal(
                 file_path,
@@ -218,6 +256,12 @@ def analyze_malware_task(
             vt_status = result.get("status")
             vt_report_path = result.get("report_path", vt_report_path)
             if vt_status == "pending":
+                publish_progress(
+                    task_id,
+                    "virustotal",
+                    "VirusTotal report is pending",
+                    tools={"virustotal": {"status": "pending"}},
+                )
                 try:
                     raise self.retry(
                         countdown=result.get("retry_in", 60),
@@ -234,16 +278,219 @@ def analyze_malware_task(
         if not Path(vt_report_path).is_file():
             return fail_task(db, task_id, "VirusTotal report file not found")
 
-        report, scores = finalize_analysis_report(
-            db, task_id, file_path, vt_report_path, tools="virustotal"
+        vt_score = calculate_threat_scoreVT(vt_report_path)
+        publish_progress(
+            task_id,
+            "virustotal",
+            "VirusTotal analysis completed",
+            tools={"virustotal": {"status": "success", "score": vt_score}},
         )
+        if vt_score == 100:
+            report, scores = finalize_analysis_report(
+                db, task_id, file_path, vt_report_path, tools="virustotal"
+            )
+            db.commit()
+            return {
+                "success": True,
+                "task_id": task_id,
+                **scores,
+                "virustotal_status": True,
+                "virustotal_report_path": vt_report_path,
+            }
+
+        mobsf_ready = bool(mobsf_report_path and Path(mobsf_report_path).is_file())
+        cape_ready = bool(cape_report_path and Path(cape_report_path).is_file())
+        mobsf_result = None
+        cape_result = None
+
+        if mobsf_status not in ("failed", "skipped") and not mobsf_ready:
+            publish_progress(task_id, "sandboxes", "Advancing MobSF and CAPE analysis")
+            mobsf_report_path = mobsf_report_path or str(REPORTS_DIR / f"mobsf-{md5}.json")
+            mobsf_result = handle_mobsf(
+                file_path,
+                md5,
+                submitted=mobsf_submitted,
+                report_path=mobsf_report_path,
+            )
+            mobsf_status = mobsf_result.get("status")
+            mobsf_report_path = mobsf_result.get("report_path", mobsf_report_path)
+            mobsf_submitted = bool(mobsf_result.get("submitted", mobsf_submitted))
+
+        if cape_status not in ("failed", "skipped") and not cape_ready:
+            cape_report_path = cape_report_path or str(REPORTS_DIR / f"cape-{md5}.json")
+            cape_result = handle_cape(
+                file_path,
+                md5,
+                task_id=cape_task_id,
+                report_path=cape_report_path,
+            )
+            cape_status = cape_result.get("status")
+            cape_report_path = cape_result.get("report_path", cape_report_path)
+            cape_task_id = cape_result.get("task_id", cape_task_id)
+
+        terminal_error = None
+        if mobsf_status == "failed":
+            terminal_error = (mobsf_result or {}).get("error", "MobSF analysis failed")
+            print(f"[MobSF] Analysis failed for {file_path}: {terminal_error}")
+        elif cape_status == "failed":
+            terminal_error = (cape_result or {}).get("error", "CAPE analysis failed")
+            print(f"[CAPE] Analysis failed for {file_path}: {terminal_error}")
+        if terminal_error:
+            return fail_task(
+                db,
+                task_id,
+                terminal_error,
+                report_paths=(mobsf_report_path, cape_report_path),
+            )
+
+        pending_results = [
+            result
+            for status, result in (
+                (mobsf_status, mobsf_result),
+                (cape_status, cape_result),
+            )
+            if status == "pending"
+        ]
+        if pending_results:
+            publish_progress(
+                task_id,
+                "sandboxes",
+                "Waiting for sandbox reports",
+                tools={
+                    "virustotal": {"status": "success", "score": vt_score},
+                    "mobsf": {"status": mobsf_status},
+                    "cape": {"status": cape_status, "task_id": cape_task_id},
+                    "gemini": {"status": "waiting"},
+                },
+            )
+            try:
+                raise self.retry(
+                    countdown=min(result.get("retry_in", 30) for result in pending_results if result),
+                    kwargs={
+                        "vt_status": True,
+                        "vt_report_path": vt_report_path,
+                        "mobsf_status": mobsf_status,
+                        "mobsf_report_path": mobsf_report_path,
+                        "mobsf_submitted": mobsf_submitted,
+                        "cape_status": cape_status,
+                        "cape_report_path": cape_report_path,
+                        "cape_task_id": cape_task_id,
+                    },
+                )
+            except MaxRetriesExceededError:
+                print(f"[Analysis] Sandbox polling exhausted for {file_path}")
+                return fail_task(
+                    db,
+                    task_id,
+                    "Sandbox polling exhausted",
+                    report_paths=(mobsf_report_path, cape_report_path),
+                )
+
+        mobsf_ready = mobsf_status == "skipped" or bool(
+            mobsf_status is True and Path(mobsf_report_path).is_file()
+        )
+        cape_ready = cape_status == "skipped" or bool(
+            cape_status is True and Path(cape_report_path).is_file()
+        )
+        if not mobsf_ready or not cape_ready:
+            missing_tool = "MobSF" if not mobsf_ready else "CAPE"
+            print(f"[{missing_tool}] Report file not found")
+            return fail_task(
+                db,
+                task_id,
+                f"{missing_tool} report file not found",
+                report_paths=(mobsf_report_path, cape_report_path),
+            )
+
+        # RAMPART AI handoff (intentionally not enabled yet): when MobSF produced a
+        # raw report, send that report file to the external Core API /predict endpoint.
+        # Retry state must carry only the report path and scalar status, never raw JSON.
+        # Persist the returned malware probability in Reports.rampart_score, while an
+        # unavailable/unsupported MobSF result leaves rampart_score NULL and must not
+        # block CAPE or Gemini. The owning team will implement this external call next.
+
+        successful_tools = ["virustotal"]
+        successful_mobsf_path = None
+        successful_cape_path = None
+        if mobsf_status is True:
+            successful_tools.append("mobsf")
+            successful_mobsf_path = mobsf_report_path
+        if cape_status is True:
+            successful_tools.append("cape")
+            successful_cape_path = cape_report_path
+
+        evidence = build_gemini_evidence(
+            vt_report_path,
+            successful_mobsf_path,
+            successful_cape_path,
+        )
+        publish_progress(
+            task_id,
+            "gemini",
+            "Gemini is synthesizing tool evidence",
+            tools={
+                "virustotal": {"status": "success", "score": vt_score},
+                "mobsf": {"status": mobsf_status},
+                "cape": {"status": cape_status, "task_id": cape_task_id},
+                "gemini": {"status": "processing"},
+            },
+        )
+        try:
+            assessment = GeminiAPI().AnalysisGemini(evidence)
+        except Exception as error:
+            print(f"[Gemini] Analysis failed for {file_path}: {error}")
+            try:
+                raise self.retry(
+                    countdown=60,
+                    kwargs={
+                        "vt_status": True,
+                        "vt_report_path": vt_report_path,
+                        "mobsf_status": mobsf_status,
+                        "mobsf_report_path": successful_mobsf_path,
+                        "mobsf_submitted": mobsf_submitted,
+                        "cape_status": cape_status,
+                        "cape_report_path": successful_cape_path,
+                        "cape_task_id": cape_task_id,
+                        "gemini_status": "pending",
+                    },
+                )
+            except MaxRetriesExceededError:
+                return fail_task(db, task_id, "Gemini analysis exhausted retries")
+        successful_tools.append("gemini")
+        report, scores = finalize_analysis_report(
+            db,
+            task_id,
+            file_path,
+            vt_report_path,
+            mobsf_report_path=successful_mobsf_path,
+            cape_report_path=successful_cape_path,
+            tools=",".join(successful_tools),
+        )
+        apply_gemini_assessment(report, assessment)
         db.commit()
+        publish_progress(
+            task_id,
+            "complete",
+            "Analysis and database commit completed",
+            tools={
+                "virustotal": {"status": "success", "score": scores["virustotal_score"]},
+                "mobsf": {"status": mobsf_status, "score": scores["mobsf_score"]},
+                "cape": {"status": cape_status, "score": scores["cape_score"], "task_id": cape_task_id},
+                "gemini": {"status": "success", "score": assessment["danger_score"]},
+            },
+        )
         return {
             "success": True,
             "task_id": task_id,
             **scores,
             "virustotal_status": True,
             "virustotal_report_path": vt_report_path,
+            "mobsf_status": mobsf_status,
+            "mobsf_report_path": successful_mobsf_path,
+            "cape_status": cape_status,
+            "cape_report_path": successful_cape_path,
+            "cape_task_id": cape_task_id,
+            "gemini_assessment": assessment,
         }
     except Retry:
         raise

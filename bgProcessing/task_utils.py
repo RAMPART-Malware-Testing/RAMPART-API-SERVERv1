@@ -2,6 +2,15 @@ import os
 import httpx
 import json
 
+
+def apply_gemini_assessment(report, assessment: dict) -> None:
+    report.score = assessment["danger_score"]
+    report.risk_level = assessment["risk_level"]
+    report.recommendation = assessment["recommendation"]
+    report.analysis_summary = assessment["summary"]
+    report.risk_indicators = assessment["key_evidence"]
+    report.gemini_recommendation = assessment["verdict"]
+
 def map_final_data_to_report(final_data: dict) -> dict:
     """
     จับคู่ข้อมูลจาก Gemini ให้ตรงกับคอลัมน์ใน Database
