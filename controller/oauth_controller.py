@@ -1,8 +1,11 @@
+from urllib.parse import urlencode
+
 from fastapi import HTTPException
 from fastapi.requests import Request
+from fastapi.responses import RedirectResponse
 
 from cores.async_pg_db import SessionLocal
-from cores.oauth import oauth, oauth_configured, redirect_uri_for
+from cores.oauth import FRONTEND_URL, oauth, oauth_configured, redirect_uri_for
 from services.oauth.oauth_service import (
     OAuthError,
     fetch_github_profile,
@@ -11,7 +14,6 @@ from services.oauth.oauth_service import (
     issue_access_token,
     user_public_dict,
 )
-from utils.response import error, success
 from utils.status_code import AuthStatus
 
 _PROFILE_FETCHERS = {
@@ -31,6 +33,14 @@ def _require_supported_provider(provider: str) -> None:
         )
 
 
+def _frontend_redirect(path: str, **params) -> RedirectResponse:
+    query = urlencode({k: v for k, v in params.items() if v is not None})
+    url = f"{FRONTEND_URL}{path}"
+    if query:
+        url = f"{url}?{query}"
+    return RedirectResponse(url, status_code=302)
+
+
 async def oauth_login_controller(request: Request, provider: str):
     _require_supported_provider(provider)
     client = oauth.create_client(provider)
@@ -39,31 +49,45 @@ async def oauth_login_controller(request: Request, provider: str):
 
 
 async def oauth_callback_controller(request: Request, provider: str):
+    """Finishes the OAuth dance and hands control back to the browser.
+
+    This is reached by the browser being redirected here by Google/GitHub,
+    so it can't just return JSON - the caller has no way to read a fetch
+    response. Instead it always ends in a 302 back to the Next.js app:
+      - success -> {FRONTEND_URL}/auth/callback?access_token=...&expires_in=...
+      - failure -> {FRONTEND_URL}/login?error=<code>&message=<text>
+    The frontend's /auth/callback route is what actually persists the
+    session (as its own httpOnly cookie) and fetches the profile.
+    """
     _require_supported_provider(provider)
     client = oauth.create_client(provider)
 
     try:
         token = await client.authorize_access_token(request)
     except Exception as exc:  # authlib raises provider-specific OAuthError subclasses
-        return error(AuthStatus.OAUTH_PROVIDER_ERROR, f"OAuth authorization failed: {exc}")
+        return _frontend_redirect(
+            "/login",
+            error=AuthStatus.OAUTH_PROVIDER_ERROR,
+            message=f"OAuth authorization failed: {exc}",
+        )
 
     try:
         profile = await _PROFILE_FETCHERS[provider](token)
     except OAuthError as exc:
-        return error(AuthStatus.OAUTH_EMAIL_MISSING, str(exc))
+        return _frontend_redirect(
+            "/login",
+            error=AuthStatus.OAUTH_EMAIL_MISSING,
+            message=str(exc),
+        )
 
     async with SessionLocal() as session:
         user = await find_or_create_user(session, profile)
 
     access_token = issue_access_token(user)
 
-    return success(
-        AuthStatus.LOGIN_SUCCESS,
-        "เข้าสู่ระบบด้วย OAuth สำเร็จ",
-        {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "expires_in": 60 * 60 * 24 * 7,
-            "data": user_public_dict(user),
-        },
+    return _frontend_redirect(
+        "/auth/callback",
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=60 * 60 * 24 * 7,
     )

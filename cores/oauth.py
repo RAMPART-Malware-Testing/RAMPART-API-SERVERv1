@@ -23,6 +23,10 @@ GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "")
 # registered with each provider (e.g. http://localhost:8006).
 OAUTH_REDIRECT_BASE_URL = os.getenv("OAUTH_REDIRECT_BASE_URL", "http://localhost:8006").rstrip("/")
 
+# The Next.js web app. The OAuth callback redirects the browser back here
+# (see controller/oauth_controller.py) instead of returning raw JSON.
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+
 oauth = OAuth()
 
 oauth.register(
