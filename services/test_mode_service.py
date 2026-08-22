@@ -1,4 +1,3 @@
-import secrets
 import inspect
 import json
 from pathlib import Path
@@ -9,7 +8,6 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from cores.Schema.schema_class import Analysis, Reports, User
-from utils.cypto.PasswordCreateAndVerify import get_password_hash
 from utils.jwt import create_token
 
 
@@ -64,7 +62,7 @@ class TestModeService:
                 user = User(
                     username=self.username,
                     email=self.email,
-                    password=get_password_hash(secrets.token_urlsafe(48)),
+                    avatar_url=None,
                     role="test",
                     status="active",
                 )

@@ -1,9 +1,10 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from starlette.middleware.sessions import SessionMiddleware
 from cores.Schema.schema_class import init_db
-from utils.cypto.PasswordCreateAndVerify import get_password_hash
-from utils.startup.create_root_user import create_root_user
 from dotenv import load_dotenv
 import uvicorn
 
@@ -23,14 +24,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Required by Authlib's OAuth client to stash the CSRF `state`/`nonce`
+# between the /login redirect and the /callback request.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("SESSION_SECRET", os.getenv("JWT_SECRET", "")),
+    same_site="lax",
+    https_only=os.getenv("SESSION_COOKIE_HTTPS_ONLY", "FALSE").upper() == "TRUE",
+)
+
 
 @app.on_event("startup")
 async def startup_event():
     await init_db()
-    await create_root_user()
-    pass
+    # No pre-seeded admin account anymore: whoever signs in via Google/GitHub
+    # with an e-mail matching ROOT_EMAIL (.env) is auto-promoted to admin on
+    # login - see services/oauth/oauth_service.find_or_create_user.
     
 from routers.auth import router as auth_router
+from routers.profile import router as profile_router
 from routers.analysis import router as analy_router
 from routers.test_route import router as test_router
 from utils.test_mode import test_mode_enabled
@@ -39,6 +51,7 @@ from routers.dashboar_route import router as dashboard_route
 app.include_router(analy_router)
 app.include_router(test_router, include_in_schema=test_mode_enabled())
 app.include_router(auth_router)
+app.include_router(profile_router)
 app.include_router(dashboard_route)
 
 from fastapi.exceptions import RequestValidationError
@@ -59,7 +72,6 @@ async def validation_exception_handler(request, exc):
 
 @app.get('/')
 async def root():
-    # print(get_password_hash("12345678aA!"))
     return { "success": True, "message": "RAMPART-API is running" }
 
 @app.get('/scan')

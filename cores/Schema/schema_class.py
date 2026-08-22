@@ -1,7 +1,7 @@
 from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, Text, text, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 class Base(DeclarativeBase):
@@ -13,7 +13,7 @@ class User(Base):
     uid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    password: Mapped[str] = mapped_column(Text, nullable=False)
+    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     role: Mapped[str] = mapped_column(String(20), server_default=text("'user'"))
     status: Mapped[str] = mapped_column(String(50), server_default=text("'active'"))
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.uid"), nullable=True)
@@ -23,10 +23,39 @@ class User(Base):
         server_default=text("CURRENT_TIMESTAMP"),
         nullable=False
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("CURRENT_TIMESTAMP"),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
 
+    oauth_accounts = relationship("OAuthAccount", back_populates="user", cascade="all, delete-orphan")
     analyses = relationship("Analysis", foreign_keys="[Analysis.uid]", back_populates="user", cascade="all, delete-orphan")
     audit_logs_as_actor = relationship("AuditLog", foreign_keys="AuditLog.actor_uid", back_populates="actor")
     audit_logs_as_target = relationship("AuditLog", foreign_keys="AuditLog.target_uid", back_populates="target")
+
+
+class OAuthAccount(Base):
+    """Links a user to one external OAuth identity (Google or GitHub).
+
+    A repeat login is resolved to the *same* uid by looking this table up
+    on (provider, provider_uid) - that pair is what the provider guarantees
+    is stable and unique for a given external account.
+    """
+    __tablename__ = "oauth_accounts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    uid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.uid", ondelete="CASCADE"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(20), nullable=False)
+    provider_uid: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    user = relationship("User", back_populates="oauth_accounts")
 
 class Analysis(Base):
     __tablename__ = "analysis"

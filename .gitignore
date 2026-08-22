@@ -20,6 +20,13 @@ temps_files/*
 # Ignore APK files in Files/files directory  
 Files/files/*.apk
 
+# User-uploaded profile pictures
+avatars/*
+!avatars/.gitkeep
+
+# Playwright MCP browser session artifacts (page snapshots, etc.)
+.playwright-mcp/
+
 # Optional: Ignore all files in these directories
 # Files/report/*
 # Files/files/*

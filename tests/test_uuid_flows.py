@@ -44,8 +44,10 @@ def test_server_mounts_auth_and_dashboard_routes():
     import start_server
 
     paths = start_server.app.openapi()["paths"]
-    assert "/api/login" in paths
-    assert "/api/reset-passwd" in paths
+    assert "/api/auth/{provider}/login" in paths
+    assert "/api/auth/{provider}/callback" in paths
+    assert "/api/profile" in paths
+    assert "/api/profile/avatar" in paths
     assert "/api/analy/v1/dashboard/summary" in paths
     assert "/api/analy/v1/dashboard/recent-activities" in paths
 
@@ -140,74 +142,81 @@ async def test_dashboard_controllers_pass_uuid(monkeypatch, controller_name, ser
 
 
 @pytest.mark.asyncio
-async def test_login_confirm_queries_with_uuid(monkeypatch):
-    from services.auth.auth_service import AuthService
-    import services.auth.auth_service as auth_service
+async def test_find_or_create_user_reuses_uid_on_repeat_login(monkeypatch):
+    """A second login from the same provider account must resolve to the
+    exact same `uid` as the first - never create a duplicate user."""
+    from services.oauth.oauth_service import OAuthProfile, find_or_create_user
+    import services.oauth.oauth_service as oauth_service
 
-    user_id = uuid.uuid4()
-    captured = {}
+    existing_uid = uuid.uuid4()
+    existing_user = SimpleNamespace(uid=existing_uid, email="dev@example.com", username="dev")
 
-    class Result:
-        def mappings(self):
-            return self
-
-        def one_or_none(self):
-            return SimpleNamespace(uid=user_id, email="test@example.com", role="user", username="test", status="active", created_at=None)
+    class LinkedAccountResult:
+        def scalar_one_or_none(self):
+            return SimpleNamespace(uid=existing_uid)
 
     class Session:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return False
-
         async def execute(self, statement):
-            captured["uid"] = statement.compile().params[next(key for key in statement.compile().params if key.startswith("uid_"))]
-            return Result()
+            return LinkedAccountResult()
 
-    monkeypatch.setattr(auth_service.TokenService, "verify_token", lambda token, kind: ({"sub": str(user_id)}, None))
-    monkeypatch.setattr(auth_service.OTPService, "verify_otp", lambda *args: (True, None))
-    monkeypatch.setattr(auth_service.OTPService, "clear_otp_session", lambda *args: None)
-    monkeypatch.setattr(auth_service, "SessionLocal", Session)
+        async def get(self, model, uid):
+            assert uid == existing_uid
+            return existing_user
 
-    result = await AuthService.login_confirm(SimpleNamespace(token="token", otp="123456"), "agent", "127.0.0.1")
-    assert result["success"] is True
-    assert captured["uid"] == user_id
+    profile = OAuthProfile(
+        provider="google",
+        provider_uid="google-123",
+        email="dev@example.com",
+        email_verified=True,
+        display_name="Dev",
+    )
+
+    user = await find_or_create_user(Session(), profile)
+    assert user is existing_user
+    assert user.uid == existing_uid
 
 
 @pytest.mark.asyncio
-async def test_reset_confirm_queries_with_uuid(monkeypatch):
-    from services.auth.auth_service import AuthService
-    import services.auth.auth_service as auth_service
+async def test_find_or_create_user_creates_new_account_on_first_login():
+    from services.oauth.oauth_service import OAuthProfile, find_or_create_user
 
-    user_id = uuid.uuid4()
-    captured = {}
-    user = SimpleNamespace(uid=user_id, password="old")
-
-    class Result:
+    class EmptyResult:
         def scalar_one_or_none(self):
-            return user
+            return None
 
     class Session:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return False
+        def __init__(self):
+            self.added = []
 
         async def execute(self, statement):
-            captured["uid"] = statement.compile().params[next(key for key in statement.compile().params if key.startswith("uid_"))]
-            return Result()
+            # No linked oauth_account, no existing user by e-mail, and every
+            # candidate username is free - all resolve to "not found".
+            return EmptyResult()
+
+        def add(self, obj):
+            self.added.append(obj)
+            if getattr(obj, "uid", None) is None:
+                obj.uid = uuid.uuid4()
+
+        async def flush(self):
+            return None
 
         async def commit(self):
             return None
 
-    monkeypatch.setattr(auth_service.TokenService, "verify_token", lambda token, kind: ({"sub": str(user_id)}, None))
-    monkeypatch.setattr(auth_service.OTPService, "verify_otp", lambda *args: (True, None))
-    monkeypatch.setattr(auth_service.OTPService, "clear_otp_session", lambda *args: None)
-    monkeypatch.setattr(auth_service, "get_password_hash", lambda value: "hashed")
-    monkeypatch.setattr(auth_service, "SessionLocal", Session)
+        async def refresh(self, obj):
+            return None
 
-    result = await AuthService.reset_confirm(SimpleNamespace(token="token", otp="123456", newPasswd="new"))
-    assert result["success"] is True
-    assert captured["uid"] == user_id
+    profile = OAuthProfile(
+        provider="github",
+        provider_uid="gh-456",
+        email="newuser@example.com",
+        email_verified=True,
+        display_name="New User",
+    )
+
+    session = Session()
+    user = await find_or_create_user(session, profile)
+    assert user.email == "newuser@example.com"
+    assert user.avatar_url is None
+    assert user.username.startswith("NewUser")

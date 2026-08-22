@@ -1,6 +1,20 @@
 from fastapi import Header, HTTPException
-from services.auth.auth_service import verify_access_token
+from utils.jwt import decode_token, get_token_subject, get_token_type
 from utils.uuid import parse_uuid
+
+
+def verify_access_token(token: str) -> str:
+    payload = decode_token(token)
+
+    if get_token_type(payload) != "access":
+        raise ValueError("ประเภทโทเค็นไม่ถูกต้อง")
+
+    uid = get_token_subject(payload)
+    if not uid:
+        raise ValueError("ข้อมูลเพย์โหลดของโทเค็นไม่ถูกต้อง")
+
+    return uid
+
 
 async def require_access_token(
     x_access_token: str | None = Header(None)
