@@ -1,8 +1,10 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from controller.analysis_controller import analysisReport_controller, downloadReport_controller, generateToken_controller,get_file_by_hash_controller, history_controller, require_upload_token, scanFile_controller
-from schemas.analy import AnalysisHistoryParams, AnalysisReportParams, GenerateTokenParams,AnalysisReportParamsTarget
+from controller.analysis_controller import analysisReport_controller, downloadReport_controller, generateToken_controller,get_file_by_hash_controller, history_controller, require_upload_token
+from schemas.analy import AnalysisHistoryParams, AnalysisReportParams, CheckHashParams, GenerateTokenParams,AnalysisReportParamsTarget
 from services.token_service import TokenService
+from controller.Analysis.ScanFile_controller import scan_file_controller
+from controller.Analysis.CheckHash_controller import check_hash_controller
 
 router = APIRouter(
     prefix="/api/analy/v1",
@@ -18,10 +20,22 @@ async def generateToken(body: GenerateTokenParams):
 async def uploadFile(
     token: str,
     file: UploadFile = File(...),
-    privacy: bool = Form(False)
-):  
+    privacy: bool = Form(True)
+):
     uid = await require_upload_token(token)
-    return await scanFile_controller(file, uid, privacy)
+    return await scan_file_controller(file, uid, privacy)
+
+@router.post("/check-hash")
+async def checkHash(body: CheckHashParams):
+    """Hash-only dedup pre-check: lets the client hash a file locally and
+    ask "has this content already been analyzed?" before uploading any
+    bytes. Uses an access token (not an upload token) since no file is
+    actually being sent here.
+    """
+    payload, err = TokenService.verify_token(body.token, "access")
+    if err: raise HTTPException(status_code=401, detail="Invalid access token")
+    uid = payload['sub']
+    return await check_hash_controller(uid, body.sha256, body.file_name, body.file_size, body.privacy)
 
 @router.post("/task_id")
 async def analyReport(body: AnalysisReportParams):
@@ -35,7 +49,7 @@ async def getAnalysisReport(body: AnalysisReportParamsTarget):
     payload, err = TokenService.verify_token(body.token, "access")
     if err: raise HTTPException(status_code=401, detail="Invalid upload token")
     uid = payload['sub']
-    return await get_file_by_hash_controller( body.task_id, uid,body.tool)
+    return await get_file_by_hash_controller(body.task_id, uid, body.tool)
 
 
 @router.get("/download/report/{file_name}")

@@ -20,5 +20,7 @@ DATABASE_URL = (
     f"@{POSTGRES_HOST}:5433/{POSTGRES_DB}"
 )
 
+print(DATABASE_URL)
+
 engine = create_async_engine(DATABASE_URL, echo=False)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)

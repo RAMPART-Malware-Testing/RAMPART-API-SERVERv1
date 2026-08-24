@@ -2,9 +2,10 @@ from pathlib import Path
 import re
 import aiofiles
 from fastapi import UploadFile, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from bgProcessing.tasks import analyze_malware_task
 from cores.async_pg_db import SessionLocal
-from cores.models_class import User
+from cores.Schema.schema_class import User
 from schemas.analy import AnalysisHistoryParams 
 from services.analy.analy_service import get_analysis_history, get_analysis_with_report, get_file_by_hash, insert_table_analy
 from services.token_service import TokenService
@@ -13,6 +14,7 @@ from pathlib import Path
 from cores.redis import redis_client
 from utils.calculate_hash import calculate_hash_from_chunks
 from utils.jwt import create_token
+from utils.uuid import parse_uuid
 import json
 
 UPLOAD_DIR = Path("temps_files")
@@ -27,13 +29,34 @@ CHUNK_SIZE = 1024 * 1024
 VIRUSTOTAL_MAX_SIZE = 32 * 1024 * 1024
 
 BASE_REPORT_PATH = Path("reports").resolve()
-ALLOWED_PLATFORMS = {"cape", "virustotal", "mobsf"}
-FILENAME_REGEX = re.compile(r"^(cape|virustotal|mobsf)-([a-fA-F0-9]{32})$")
+FILENAME_REGEX = re.compile(r"^(virustotal|mobsf|cape|rampartai)-([a-fA-F0-9]{32})\.json$")
+
+# Which report-file prefix each tool's raw JSON is stored under (see
+# bgProcessing/task_handlers.py - every handler writes reports/<prefix>-{md5}.json).
+TOOL_REPORT_PREFIX = {
+    "virustotal": "virustotal",
+    "mobsf": "mobsf",
+    "cape": "cape",
+    "rampartai": "rampartai",
+}
 
 def decode_redis_data(data):
     if not data:
         return None
     return {k.decode('utf-8'): v.decode('utf-8') for k, v in data.items()}
+
+
+def _parse_tool_notes(raw: str | None) -> dict | None:
+    """Best-effort decode of Analysis.tool_notes (JSON-encoded dict of
+    {tool_name: reason}, populated only when a tool was force-skipped
+    after exhausting its retry budget - see bgProcessing/tasks.py)."""
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
 
 def get_file_info_from_redis(sha256_hash):
     try:
@@ -44,28 +67,35 @@ def get_file_info_from_redis(sha256_hash):
         print(f"Redis error when getting file info: {e}")
         return None
 
-async def require_upload_token(token: str):
+async def require_upload_token(token: str) -> str:
     payload, err = TokenService.verify_token(token, "upload")
     if err:
         raise HTTPException(status_code=401, detail="Invalid upload token")
 
-    uid = payload["sub"]
+    try:
+        uid = str(parse_uuid(payload.get("sub")))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid upload token subject")
     session_key = f"upload_session:{uid}"
 
-    stored_token = redis_client.get(session_key)
+    try:
+        stored_token = await run_in_threadpool(redis_client.get, session_key)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Upload session service is unavailable.")
     if not stored_token or stored_token != token:
         raise HTTPException(status_code=401, detail="Upload token is invalid or already used")
 
-    # redis_client.delete(session_key)
-
-    return int(uid)
+    return str(uid)
 
 async def generateToken_controller(token):
     payload, err = TokenService.verify_token(token, "access")
     if err: 
         return err
 
-    uid = payload["sub"]
+    try:
+        uid = str(parse_uuid(payload.get("sub")))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid access token subject")
     session_key = f"upload_session:{uid}"
 
     existing_token = redis_client.get(session_key)
@@ -100,121 +130,34 @@ async def generateToken_controller(token):
         }
     }
 
-async def scanFile_controller(
-    file: UploadFile,
-    uid: int,
-    privacy: bool
-):
-    async with SessionLocal() as session:
-        user = await session.get(User, uid)
-        if not user:
-            raise HTTPException(
-                status_code=401,
-                detail={
-                    "success": False,
-                    "code": "USER_NOT_FOUND",
-                    "message": "ไม่พบผู้ใช้งานในระบบ"
-                }
-            )
-        if user.status.lower() != "active":
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "success": False,
-                    "code": "USER_NOT_ACTIVE",
-                    "message": "ผู้ใช้งานไม่อยู๋ในสถานะ active กรุณาติดต่อผู้ดูแลระบบ"
-                }
-            )
-        # ========================= Read & Chunk file =========================
-        file_path = None
-        try:
-            original_filename = file.filename
-            chunks = []
-            total_size = 0
-            while chunk := await file.read(CHUNK_SIZE):
-                total_size += len(chunk)
-                if total_size > MAX_FILE_SIZE:
-                    raise HTTPException(
-                        status_code=413,
-                        detail="File size exceeds limit"
-                    )
-                chunks.append(chunk)
-            # ========================= Hash calculation =========================
-            hashes = calculate_hash_from_chunks(chunks)
-            existing_file = await get_file_by_hash(session, hashes['sha256'])
-            if existing_file:
-                file_path = Path(existing_file["file_path"])
-                if not file_path.exists():
-                    async with aiofiles.open(file_path, "wb") as f:
-                        for chunk in chunks:
-                            await f.write(chunk)
-                await insert_table_analy(
-                    session=session,
-                    uid=uid,
-                    rid=existing_file.get('rid'),
-                    file_name=original_filename,
-                    file_hash=existing_file.get('file_hash'),
-                    file_path=existing_file.get('file_path'),
-                    file_type=existing_file.get('file_type'),
-                    file_size=existing_file.get('file_size'),
-                    privacy=privacy,
-                    md5=existing_file.get('md5'),
-                    tools=existing_file.get('tools'),
-                    task_id=existing_file.get('task_id'),
-                    status=existing_file.get('status')
-                )
-                return {
-                    "success": True,
-                    "file_id": hashes,
-                    "filename": original_filename,
-                    "file_path": existing_file.get('file_path'),
-                    "task_id": existing_file.get('task_id'),
-                    "message": "File uploaded and task queued successfully"
-                }
-            else:
-                file_ext = os.path.splitext(original_filename)[1].lower()
-                file_path = UPLOAD_DIR / f"{hashes['sha256']}{file_ext}"
-                async with aiofiles.open(file_path, "wb") as f:
-                    for chunk in chunks:
-                        await f.write(chunk)
-                # ========================= Dispatch Celery task =========================
-                await insert_table_analy(
-                    session=session,
-                    uid=uid,
-                    file_name=original_filename,
-                    file_hash=hashes['sha256'],
-                    file_path=str(file_path),
-                    file_type=file_ext.lstrip("."),
-                    file_size=total_size,
-                    privacy=privacy,
-                    md5=hashes['md5']
-                )
-                task = analyze_malware_task.delay(
-                    str(file_path),
-                    hashes,
-                    int(total_size),
-                    analysis_tool='mobsf,cape'
-                )
-                return {
-                    "success": True,
-                    "file_id": hashes,
-                    "filename": original_filename,
-                    "file_path": str(file_path),
-                    "task_id": task.id,
-                    "message": "File uploaded and task queued successfully"
-                }
-        except HTTPException:
-            raise
-        except Exception as e:
-            print(f"Upload Error: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail="Internal Server Error"
-            )
+def _read_task_progress(task_id: str) -> dict | None:
+    """Best-effort read of the live per-tool progress a running Celery task
+    publishes to Redis (see bgProcessing/tasks.py::publish_progress).
 
-async def analysisReport_controller(uid: int, task_id: str):
+    Returns None if unavailable (Redis down, key expired, or nothing
+    published yet) - callers must treat that as "no extra detail available"
+    rather than an error, since polling status must never hard-fail just
+    because the progress side-channel is empty.
+    """
+    try:
+        raw = redis_client.get(f"analysis_progress:{task_id}")
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+async def analysisReport_controller(uid: str, task_id: str):
+    try:
+        uid = parse_uuid(uid)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token payload")
     async with SessionLocal() as session:
-        row = await get_analysis_with_report(session, task_id, uid=int(uid))
+        row = await get_analysis_with_report(session, task_id, uid=uid)
         
         if not row:
             return {
@@ -226,11 +169,30 @@ async def analysisReport_controller(uid: int, task_id: str):
         analysis, report = row
 
         if analysis.status != "success":
-            return {
+            progress = _read_task_progress(task_id)
+            response = {
                 "success": True,
                 "task_id": task_id,
                 "status": analysis.status,
                 "message": "Analysis is not completed yet"
+                if analysis.status != "failed"
+                else "Analysis failed",
+                # Always included (even when None) so the frontend has a
+                # stable key to check while polling, not just once the
+                # analysis reaches "success".
+                "tool_notes": _parse_tool_notes(analysis.tool_notes),
+            }
+            if progress:
+                response["progress"] = progress
+            return response
+
+        if report is None:
+            return {
+                "success": True,
+                "task_id": task_id,
+                "status": analysis.status,
+                "report": None,
+                "message": "Analysis completed without a report",
             }
 
         return {
@@ -238,10 +200,10 @@ async def analysisReport_controller(uid: int, task_id: str):
             "task_id": task_id,
             "status": analysis.status,
             "report": {
-                "aid": analysis.aid,
-                "rid": report.rid,
+                "aid": str(analysis.aid),
+                "rid": str(report.rid),
                 "task_id": analysis.task_id,
-                "uid": analysis.uid,
+                "uid": str(analysis.uid),
                 "privacy": analysis.privacy,
                 "file_name": analysis.file_name,
                 "file_size": analysis.file_size,
@@ -249,26 +211,41 @@ async def analysisReport_controller(uid: int, task_id: str):
                 "file_path": analysis.file_path,
                 "file_type": analysis.file_type,
                 "tools": analysis.tools,
+                "tool_notes": _parse_tool_notes(analysis.tool_notes),
                 "md5": analysis.md5,
                 "status": analysis.status,
                 "deleted_at": analysis.deleted_at,
-                "deleted_by": analysis.deleted_by,
+                "deleted_by": str(analysis.deleted_by) if analysis.deleted_by else None,
                 "created_at": analysis.created_at,
-                # report fields
-                "rampart_score": float(report.rampart_score) if report.rampart_score else None,
-                "package": report.package,
-                "type": report.type,
-                "score": float(report.score) if report.score else None,
+                "report_file_type": report.file_type,
+                "virustotal_score": report.virustotal_score,
+                "mobsf_score": report.mobsf_score,
+                "cape_score": report.cape_score,
+                "rampart_ai_score": (
+                    float(report.rampart_ai_score) if report.rampart_ai_score is not None else None
+                ),
+                "score": float(report.score) if report.score is not None else None,
                 "risk_level": report.risk_level,
                 "recommendation": report.recommendation,
                 "analysis_summary": report.analysis_summary,
                 "risk_indicators": report.risk_indicators,
+                "gemini_recommendation": report.gemini_recommendation,
+                "malware_signatures": report.malware_signatures,
+                "report_created_at": report.created_at,
             }
         }
     
-async def get_file_by_hash_controller(task_id: str,uid: int,tool: str):
+async def get_file_by_hash_controller(task_id: str, uid: str, tool: str = "virustotal"):
+    try:
+        uid = parse_uuid(uid)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+
+    tool = (tool or "virustotal").strip().lower()
+    prefix = TOOL_REPORT_PREFIX.get(tool, "virustotal")
+
     async with SessionLocal() as session:
-        row = await get_analysis_with_report(session, task_id, uid=int(uid))
+        row = await get_analysis_with_report(session, task_id, uid=uid)
         if not row:
             return {
                 "success": False,
@@ -285,41 +262,41 @@ async def get_file_by_hash_controller(task_id: str,uid: int,tool: str):
                 "status": analysis.status,
                 "message": "Analysis is not completed yet"
             }
-        
-        path = f"./reports/{tool.value}-{analysis.md5}.json"
-        print(f"Looking for report at: {path}")
+
+        path = (BASE_REPORT_PATH / f"{prefix}-{analysis.md5}.json").resolve()
         try:
-            if os.path.exists(path):
-                async with aiofiles.open(path, "r") as f:
+            if path.parent == BASE_REPORT_PATH.resolve() and path.is_file():
+                # Reports are always written as UTF-8 (see
+                # write_raw_virustotal_report / _write_report in
+                # bgProcessing/task_handlers.py). Without an explicit
+                # encoding here, aiofiles falls back to the OS locale
+                # encoding (e.g. Windows cp1252), which raises
+                # UnicodeDecodeError on any non-ASCII byte a report
+                # legitimately contains (app names, MobSF findings, etc.).
+                async with aiofiles.open(path, "r", encoding="utf-8") as f:
                     content = await f.read()
                     data = json.loads(content)
             else:
-                data = {"error": "file not found"}
+                data = {"error": "file not found", "tool": tool}
         except Exception as e:
-            data = {"error": str(e)}
+            data = {"error": str(e), "tool": tool}
 
 
         return{
             "success": True,
             "task_id": task_id,
             "status": analysis.status,
+            "tool": tool,
             "report":data
         }
 
-        return
 async def downloadReport_controller(file_name:str):
-    match = FILENAME_REGEX.match(file_name)
-    if not match:
+    if not FILENAME_REGEX.fullmatch(file_name):
         raise HTTPException(status_code=400, detail="Invalid file name format")
 
-    platform, md5 = match.groups()
+    file_path = (BASE_REPORT_PATH / file_name).resolve()
 
-    if platform not in ALLOWED_PLATFORMS:
-        raise HTTPException(status_code=400, detail="Invalid platform")
-    
-    file_path = (BASE_REPORT_PATH / f"{platform}-{md5}.json").resolve()
-
-    if not str(file_path).startswith(str(BASE_REPORT_PATH)):
+    if file_path.parent != BASE_REPORT_PATH.resolve():
         raise HTTPException(status_code=403, detail="Access denied")
 
     if not file_path.is_file():
@@ -336,7 +313,7 @@ async def history_controller(body: AnalysisHistoryParams):
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
     try:
-        uid = int(uid)
+        uid = parse_uuid(uid)
     except (ValueError, TypeError):
         raise HTTPException(status_code=401, detail="Invalid token payload")
     async with SessionLocal() as session:
@@ -346,4 +323,3 @@ async def history_controller(body: AnalysisHistoryParams):
             raise
         except Exception:
             raise HTTPException(status_code=500, detail="Internal server error")
-

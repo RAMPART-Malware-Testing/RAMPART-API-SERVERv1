@@ -211,7 +211,7 @@ class CAPEAnalyzer:
         file_hash = self.calculate_hash(file_path, hash_type)
         url = f"{self.base_url}/apiv2/tasks/search/{hash_type}/{file_hash}/"
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=30)
             js = response.json()
             return js.get("data")
         except requests.exceptions.RequestException as e:
@@ -219,18 +219,10 @@ class CAPEAnalyzer:
 
     def delete_taskID(self, task_id):
         try:
-            requests.get(f"{self.base_url}/apiv2/tasks/delete/{task_id}")
+            requests.get(f"{self.base_url}/apiv2/tasks/delete/{task_id}", timeout=30)
         except: pass
 
     def create_file_task(self, file_path: str, machine: Optional[str] = None, is_pcap: bool = False) -> Dict[str, Any]:
-        check_analy = self.cheack_analyer(file_path)
-        if check_analy and len(check_analy) > 0:
-            return {
-                "status": "exists",
-                "task_id": check_analy[0].get('id'),
-                "message": "File already analyzed."
-            }
-        
         url = f"{self.base_url}/apiv2/tasks/create/file/"
         files = {'file': open(file_path, 'rb')}
         data = {}
@@ -238,7 +230,7 @@ class CAPEAnalyzer:
         if is_pcap: data['pcap'] = '1'
 
         try:
-            response = requests.post(url, files=files, data=data)
+            response = requests.post(url, files=files, data=data, timeout=30)
             response.raise_for_status()
             result = response.json()
             return {
@@ -254,7 +246,7 @@ class CAPEAnalyzer:
     def get_task_status(self, task_id: int) -> Dict[str, Any]:
         url = f"{self.base_url}/apiv2/tasks/status/{task_id}"
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=30)
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -263,21 +255,14 @@ class CAPEAnalyzer:
     def get_task_report(self, task_id: int, report_format: str = "json"):
         url = f"{self.base_url}/apiv2/tasks/get/report/{task_id}/{report_format}/"
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=30)
             response.raise_for_status()
             return {"status": "success", "data": response.json()}
         except Exception as e:
             return {"status": "error", "error": str(e)}
 
     def get_report(self, task_id: int, md5 :str ):
-        report = self.get_task_report(task_id)
-        
-        with open(f'reports/cape-{md5}.json','w',encoding='utf-8') as wf:
-            wf.write(json.dumps(report, ensure_ascii=False, indent=4))
-
-        if report.get("status") != "success": return report
-        clean_data = CleanCapeReport(report)
-        return {"status": "success", "data": clean_data.clean_data()}
+        return self.get_task_report(task_id)
 
 # (ลบ Method MobSF ที่หลุดเข้ามา: scan_file, get_report_json)
 # (ลบ Test Code ท้ายไฟล์)

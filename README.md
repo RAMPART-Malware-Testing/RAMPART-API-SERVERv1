@@ -26,6 +26,7 @@ docker run -itd \
 ```
 python start_server.py
 python start_celery.py
+watchfiles "python start_celery.py" bgProcessing calling
 ```
 
 # stop frose 

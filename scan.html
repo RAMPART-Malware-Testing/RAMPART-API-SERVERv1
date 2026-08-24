@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAMPART-API: Test File Scan</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 40px auto;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            white-space: pre-wrap; /* เพื่อให้แสดงผล JSON สวยงาม */
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>RAMPART-API File Scanner Test</h2>
+    
+    <form id="uploadForm">
+        <div class="form-group">
+            <label for="fileInput">เลือกไฟล์ที่ต้องการ Scan:</label>
+            <input type="file" id="fileInput" required>
+        </div>
+
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="privacyInput" checked> Privacy Mode (ไม่เปิดเผยไฟล์สู่สาธารณะ)
+            </label>
+        </div>
+
+        <button type="submit" id="submitBtn">ส่งไฟล์ไป Scan</button>
+    </form>
+
+    <h3>ผลลัพธ์จาก Server:</h3>
+    <div id="result">ยังไม่มีการส่งไฟล์...</div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault(); // ป้องกันไม่ให้หน้าเว็บรีเฟรช
+
+            const fileInput = document.getElementById('fileInput');
+            const privacyInput = document.getElementById('privacyInput');
+            const resultDiv = document.getElementById('result');
+            const submitBtn = document.getElementById('submitBtn');
+
+            if (fileInput.files.length === 0) {
+                alert('กรุณาเลือกไฟล์ก่อนครับ');
+                return;
+            }
+
+            // แสดงสถานะระหว่างกำลังอัปโหลด
+            submitBtn.disabled = true;
+            submitBtn.innerText = 'กำลังส่งไฟล์และประมวลผล...';
+            resultDiv.innerText = 'Uploading... Please wait.';
+
+            // เตรียมข้อมูลส่งในรูปแบบ Form Data ให้ตรงกับ API
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('privacy', privacyInput.checked); // ส่งค่า true/false
+
+            // เนื่องจาก API ตัวจริงรับ token ผ่าน Query Parameter หรือ URL string 
+            // ตัวอย่าง: /upload?token=your_token_here
+            const token = "mock_token_for_testing"; 
+            
+            try {
+                // เรียกใช้ API เส้น /upload (ใช้ Relative path เพราะรันบน Server เดียวกัน)
+                const response = await fetch(`/api/analy/v1/upload?token=${token}`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                
+                // แสดงผลลัพธ์แบบสวยงามบนหน้าเว็บ
+                resultDiv.innerText = JSON.stringify(data, null, 2);
+
+            } catch (error) {
+                console.error('Error:', error);
+                resultDiv.innerText = 'เกิดข้อผิดพลาดในการเชื่อมต่อกับ Server';
+            } finally {
+                // คืนค่าปุ่มให้กดใหม่ได้
+                submitBtn.disabled = false;
+                submitBtn.innerText = 'ส่งไฟล์ไป Scan';
+            }
+        });
+    </script>
+</body>
+</html>

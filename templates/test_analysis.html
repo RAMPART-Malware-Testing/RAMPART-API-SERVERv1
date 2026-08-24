@@ -1,0 +1,966 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RAMPART · Analysis Inspector</title>
+  <style>
+    :root {
+      --ink: #13231d; --muted: #60726a; --paper: #f3f0e8; --card: #fffdf7;
+      --line: #d7d7ca; --green: #0d7a53; --lime: #b7de76; --amber: #b66a08;
+      --red: #b72e3c; --blue: #1f6385; --shadow: 0 8px 28px rgba(25,45,36,.08);
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: linear-gradient(135deg, #eef5e9 0%, #f3f0e8 50%, #e9f1f3 100%);
+      color: var(--ink); font: 14px/1.55 Inter, "Segoe UI", system-ui, sans-serif;
+      min-height: 100vh;
+    }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+
+    /* ── Layout ── */
+    .shell { width: min(1440px, calc(100% - 32px)); margin: auto; padding: 24px 0 72px; }
+
+    /* ── Header ── */
+    .mast { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 24px; }
+    .kicker { font: 800 10px/1 ui-monospace, monospace; letter-spacing: .18em; color: var(--green); text-transform: uppercase; margin-bottom: 6px; }
+    .mast h1 { font-size: clamp(26px, 4vw, 46px); line-height: 1; margin: 0 0 6px; letter-spacing: -.04em; }
+    .mast p { color: var(--muted); margin: 0; max-width: 660px; font-size: 13px; }
+    .live-badge { display: flex; align-items: center; gap: 8px; padding: 7px 14px; border: 1px solid #9bc7ad; background: #eefaf2; border-radius: 999px; color: #075c3d; font-weight: 800; font-size: 12px; white-space: nowrap; }
+    .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px #c7ead640; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{ box-shadow: 0 0 0 4px #c7ead640; } 50%{ box-shadow: 0 0 0 8px #c7ead610; } }
+
+    /* ── Grid ── */
+    .layout { display: grid; grid-template-columns: 320px minmax(0,1fr); gap: 16px; align-items: start; }
+    .rail { display: flex; flex-direction: column; gap: 14px; }
+    .workspace { display: flex; flex-direction: column; gap: 14px; }
+
+    /* ── Card ── */
+    .card { background: rgba(255,253,247,.96); border: 1px solid var(--line); border-radius: 16px; padding: 18px; box-shadow: var(--shadow); }
+    .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
+    .card-head h2, .card-head h3 { margin: 0; font-size: 15px; }
+    .card-head p { margin: 3px 0 0; color: var(--muted); font-size: 11px; }
+    .card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    /* ── Badge ── */
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; font-size: 10px; font-weight: 850; text-transform: uppercase; letter-spacing: .04em; }
+    .b-neutral { background: #e8ece8; color: #53655d; }
+    .b-ok     { background: #d9f0e2; color: #096443; }
+    .b-wait   { background: #ffedc8; color: #8c5000; }
+    .b-bad    { background: #f8dfe1; color: #9a1f2e; }
+    .b-skip   { background: #e1e9ef; color: #435e70; }
+
+    /* ── Buttons ── */
+    .btn { border: 0; border-radius: 9px; padding: 9px 13px; background: var(--ink); color: #fff; font-weight: 700; font-size: 13px; transition: filter .15s; }
+    .btn:hover:not(:disabled) { filter: brightness(1.15); }
+    .btn:disabled { opacity: .38; cursor: not-allowed; }
+    .btn-secondary { background: #e7ece8; color: var(--ink); border: 1px solid #c9d0cb; }
+    .btn-danger    { background: #f7e2e3; color: #922532; }
+    .btn-sm { padding: 6px 10px; font-size: 12px; }
+    .btn-full { width: 100%; }
+    .btn-row { display: flex; gap: 7px; flex-wrap: wrap; }
+
+    /* ── Health grid ── */
+    .health { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; margin-bottom: 12px; }
+    .health-item { padding: 9px 6px; border: 1px solid var(--line); border-radius: 9px; text-align: center; font-size: 11px; }
+    .health-item strong { display: block; font-size: 13px; margin-top: 3px; }
+
+    /* ── Token row ── */
+    .token-row { display: grid; grid-template-columns: 1fr auto; gap: 6px; margin: 6px 0; }
+    .token-code { padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: #f2f4ef; font: 11px/1.4 ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .token-copy { border: 1px solid var(--line); border-radius: 8px; background: white; padding: 0 10px; font-size: 11px; font-weight: 700; }
+
+    /* ── Drop zone ── */
+    .drop { display: grid; place-items: center; min-height: 110px; border: 1.5px dashed #93a89e; border-radius: 12px; background: #f6f8f2; text-align: center; padding: 16px; cursor: pointer; transition: background .15s, border-color .15s; }
+    .drop.drag { background: #e8f5ea; border-color: var(--green); }
+    .drop input { display: none; }
+    .drop small { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
+    .file-meta { display: none; margin-top: 8px; padding: 8px 10px; background: #f0f5ef; border: 1px solid #c0d4c5; border-radius: 8px; font-size: 12px; }
+    .file-meta.show { display: block; }
+    .check-label { display: flex; align-items: center; gap: 6px; margin-top: 9px; font-size: 12px; }
+
+    /* ── Progress pipeline ── */
+    .pipeline-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .pipeline-header h2 { margin: 0; font-size: 15px; }
+    .pipeline-meta { display: flex; gap: 6px; align-items: center; }
+
+    /* ── Stage timeline ── */
+    .timeline { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0; list-style: none; margin: 0 0 14px; padding: 0; }
+    .stage { position: relative; padding: 11px 6px 9px; text-align: center; border-block: 1px solid var(--line); background: #fafaf5; transition: background .25s, color .25s; }
+    .stage:first-child { border-left: 1px solid var(--line); border-radius: 11px 0 0 11px; }
+    .stage:last-child  { border-right: 1px solid var(--line); border-radius: 0 11px 11px 0; }
+    .stage:not(:last-child)::after { content: ""; position: absolute; right: -5px; top: 19px; width: 8px; height: 8px; background: inherit; border-top: 1px solid var(--line); border-right: 1px solid var(--line); transform: rotate(45deg); z-index: 2; }
+    .stage .s-icon { display: grid; place-items: center; width: 22px; height: 22px; margin: 0 auto 4px; border-radius: 50%; background: #e4e9e4; font-weight: 900; font-size: 11px; }
+    .stage b { display: block; font-size: 10px; }
+    .stage small { display: block; color: var(--muted); font-size: 9px; margin-top: 2px; }
+    .stage.done    { background: #e5f4e9; color: #075c3d; }
+    .stage.active  { background: #fff0cf; color: #865000; }
+    .stage.failed  { background: #fae4e5; color: #9c2432; }
+    .stage.skipped { background: #e8edf0; color: #49606d; }
+    .stage.done .s-icon    { background: #b5e8c4; }
+    .stage.active .s-icon  { background: #ffd97a; }
+    .stage.failed .s-icon  { background: #f5b8bc; }
+    .stage.skipped .s-icon { background: #cdd8df; }
+
+    /* ── Stage detail bar ── */
+    .stage-detail { padding: 10px 14px; background: #f4f7f2; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 12px; font-size: 12px; display: flex; gap: 12px; align-items: center; }
+    .stage-detail strong { color: var(--ink); }
+    .stage-detail span { color: var(--muted); }
+    .stage-msg { flex: 1; }
+
+    /* ── Summary metrics ── */
+    .metrics { display: grid; grid-template-columns: 2fr repeat(4,1fr); gap: 8px; margin-bottom: 14px; }
+    .metric { border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; background: #fff; }
+    .metric label { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+    .metric strong { display: block; margin-top: 4px; font-size: 16px; overflow-wrap: anywhere; }
+    .metric.task-metric strong { font: 12px/1.45 ui-monospace, monospace; }
+
+    /* ── Tool cards ── */
+    .tools-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; }
+    .tool-card { border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: white; transition: box-shadow .2s; }
+    .tool-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.07); }
+    .tool-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 2px; }
+    .tool-name { margin: 0; font-size: 14px; }
+    .tool-score { font-size: 26px; font-weight: 900; letter-spacing: -.04em; margin: 10px 0 4px; }
+    .tool-desc { color: var(--muted); font-size: 11px; min-height: 30px; margin-bottom: 8px; }
+    .tool-file { padding-top: 8px; border-top: 1px solid var(--line); font: 10px/1.4 ui-monospace, monospace; color: #53655d; overflow-wrap: anywhere; }
+    /* Step log inside tool card */
+    .tool-steps { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+    .tool-step { display: flex; gap: 6px; align-items: flex-start; font-size: 10px; padding: 3px 0; border-bottom: 1px dashed #e8ece8; }
+    .tool-step:last-child { border-bottom: none; }
+    .tool-step-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 3px; flex-shrink: 0; }
+    .dot-ok { background: var(--green); }
+    .dot-wait { background: var(--amber); }
+    .dot-bad { background: var(--red); }
+    .dot-skip { background: #8ba4b0; }
+    .dot-idle { background: #ccc; }
+    .tool-step-time { color: var(--muted); white-space: nowrap; font-family: ui-monospace, monospace; }
+    .tool-step-msg { color: var(--ink); }
+
+    /* ── DB snapshot ── */
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .db-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 7px; }
+    .datum { padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: #fafaf6; }
+    .datum label { display: block; color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
+    .datum code { display: block; margin-top: 2px; font-size: 11px; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
+    .datum.highlight { border-color: #a5d4b0; background: #eefaf3; }
+
+    /* ── Reports DB ── */
+    .reports-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 7px; }
+
+    /* ── Assessment ── */
+    .assessment-card { border-left: 4px solid var(--blue); padding-left: 14px; }
+    .assessment-card h3 { margin: 0 0 6px; font-size: 14px; }
+    .assessment-card p { margin: 4px 0; color: #40534a; font-size: 12px; }
+    .assessment-card ul { margin: 8px 0 0; padding-left: 18px; color: #40534a; font-size: 11px; }
+
+    /* ── Activity log ── */
+    .act-log { max-height: 260px; overflow-y: auto; }
+    .act-event { display: grid; grid-template-columns: 70px auto 1fr; gap: 8px; padding: 7px 0; border-bottom: 1px solid #e0e2dc; font-size: 11px; align-items: baseline; }
+    .act-event:last-child { border-bottom: none; }
+    .act-time { color: var(--muted); font-family: ui-monospace, monospace; }
+    .act-tag { padding: 1px 6px; border-radius: 4px; font-size: 9px; font-weight: 800; text-transform: uppercase; background: #e8ece8; color: #53655d; white-space: nowrap; }
+    .act-tag.vt  { background: #dce7f5; color: #1a4e7a; }
+    .act-tag.msf { background: #f5e8dc; color: #7a3a0a; }
+    .act-tag.cpe { background: #f5dcee; color: #7a0a5e; }
+    .act-tag.gem { background: #dcf5ee; color: #0a7a5e; }
+    .act-tag.db  { background: #e8dcf5; color: #4a0a7a; }
+    .act-tag.sys { background: #e8ece8; color: #53655d; }
+    .act-msg { color: var(--ink); }
+
+    /* ── Redis panel ── */
+    .redis-raw { font: 11px/1.55 ui-monospace, monospace; background: #102019; color: #c6efd9; padding: 12px; border-radius: 10px; max-height: 200px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+    /* ── JSON viewer ── */
+    .json-view { font: 11px/1.55 ui-monospace, monospace; background: #102019; color: #c6efd9; padding: 14px; border-radius: 12px; max-height: 480px; min-height: 200px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+    /* ── Toast ── */
+    .toast { position: fixed; right: 16px; bottom: 16px; max-width: 360px; padding: 11px 15px; border-radius: 10px; background: var(--ink); color: #fff; transform: translateY(80px); opacity: 0; transition: .2s; z-index: 100; font-size: 13px; }
+    .toast.show { transform: none; opacity: 1; }
+    .toast.error { background: #8f2430; }
+
+    /* ── Responsive ── */
+    @media (max-width: 1100px) {
+      .layout { grid-template-columns: 1fr; }
+      .rail { display: grid; grid-template-columns: repeat(3,1fr); }
+      .metrics { grid-template-columns: repeat(3,1fr); }
+      .metric.task-metric { grid-column: span 3; }
+      .tools-grid { grid-template-columns: repeat(2,1fr); }
+      .timeline { grid-template-columns: repeat(4,1fr); }
+    }
+    @media (max-width: 700px) {
+      .rail { grid-template-columns: 1fr; }
+      .split, .db-grid, .reports-grid { grid-template-columns: 1fr; }
+      .metrics { grid-template-columns: 1fr 1fr; }
+      .metric.task-metric { grid-column: span 2; }
+      .tools-grid { grid-template-columns: 1fr; }
+      .timeline { grid-template-columns: 1fr; }
+      .stage:not(:last-child)::after { display: none; }
+      .stage, .stage:first-child, .stage:last-child { border: 1px solid var(--line); border-radius: 9px; text-align: left; padding-left: 44px; margin-bottom: 5px; }
+      .stage .s-icon { position: absolute; left: 10px; top: 10px; }
+    }
+  </style>
+</head>
+<body>
+<main class="shell">
+
+  <!-- ── Header ── -->
+  <header class="mast">
+    <div>
+      <div class="kicker">RAMPART · Full-system inspector</div>
+      <h1>Analysis Operations</h1>
+      <p>ตรวจสอบทุกขั้นตอนของ pipeline แบบ real-time — Celery stage, Redis progress, PostgreSQL snapshot และ report files ในหน้าเดียว</p>
+    </div>
+    <div class="live-badge"><span class="pulse"></span>TEST MODE ACTIVE</div>
+  </header>
+
+  <div class="layout">
+
+    <!-- ════════════════ LEFT RAIL ════════════════ -->
+    <aside class="rail">
+
+      <!-- 1. System readiness -->
+      <section class="card">
+        <div class="card-head">
+          <div><h2>1 · System readiness</h2><p>PostgreSQL, Redis และ test identity</p></div>
+          <span id="userBadge" class="badge b-neutral">checking</span>
+        </div>
+        <div class="health">
+          <div class="health-item">DB<strong id="dbHealth">—</strong></div>
+          <div class="health-item">Redis<strong id="redisHealth">—</strong></div>
+          <div class="health-item">User<strong id="userHealth">—</strong></div>
+        </div>
+        <button id="createUser" class="btn btn-full" disabled>สร้าง test account</button>
+      </section>
+
+      <!-- 2. Session tokens -->
+      <section class="card">
+        <div class="card-head"><div><h2>2 · Session tokens</h2><p>เก็บใน sessionStorage เท่านั้น</p></div></div>
+        <div class="token-row">
+          <code id="accessToken" class="token-code">No access token</code>
+          <button class="token-copy" data-copy="access">Copy</button>
+        </div>
+        <div class="token-row">
+          <code id="uploadToken" class="token-code">No upload token</code>
+          <button class="token-copy" data-copy="upload">Copy</button>
+        </div>
+        <button id="createTokens" class="btn btn-full" style="margin-top:8px" disabled>ออก token ใหม่</button>
+      </section>
+
+      <!-- 3. Upload -->
+      <section class="card">
+        <div class="card-head"><div><h2>3 · Upload sample</h2><p>APK, EXE และไฟล์ที่ pipeline รองรับ</p></div></div>
+        <label id="dropZone" class="drop" for="fileInput">
+          <input id="fileInput" type="file">
+          <span><strong>เลือกหรือลากไฟล์มาวาง</strong><small>สูงสุด 1 GB</small></span>
+        </label>
+        <div id="fileMeta" class="file-meta"></div>
+        <label class="check-label"><input id="privacy" type="checkbox" checked>Private analysis</label>
+        <button id="upload" class="btn btn-full" style="margin-top:10px" disabled>ส่งเข้าคิววิเคราะห์</button>
+      </section>
+
+    </aside>
+
+    <!-- ════════════════ WORKSPACE ════════════════ -->
+    <section class="workspace">
+
+      <!-- ── Pipeline progress ── -->
+      <section class="card">
+        <div class="pipeline-header">
+          <div>
+            <h2>Pipeline progress</h2>
+            <p id="stageMessage" role="status" aria-live="polite" style="color:var(--muted);font-size:12px;margin:3px 0 0">ยังไม่มี task ที่กำลังติดตาม</p>
+          </div>
+          <div class="pipeline-meta">
+            <span id="pollBadge" class="badge b-neutral">idle</span>
+            <span id="retryBadge" class="badge b-neutral" style="display:none"></span>
+          </div>
+        </div>
+
+        <!-- Metrics row -->
+        <div class="metrics">
+          <div class="metric task-metric">
+            <label>Task ID</label>
+            <strong id="taskId">—</strong>
+          </div>
+          <div class="metric">
+            <label>DB status</label>
+            <strong id="dbStatus">—</strong>
+          </div>
+          <div class="metric">
+            <label>Current stage</label>
+            <strong id="currentStage">—</strong>
+          </div>
+          <div class="metric">
+            <label>File type</label>
+            <strong id="fileType">—</strong>
+          </div>
+          <div class="metric">
+            <label>Updated</label>
+            <strong id="lastUpdate">—</strong>
+          </div>
+        </div>
+
+        <!-- Stage timeline -->
+        <ol class="timeline" aria-label="ขั้นตอน pipeline">
+          <li class="stage" data-stage="upload">  <span class="s-icon">1</span><b>Upload</b>  <small>API accepted</small></li>
+          <li class="stage" data-stage="queue">   <span class="s-icon">2</span><b>Queue/DB</b><small>dispatching→processing</small></li>
+          <li class="stage" data-stage="worker">  <span class="s-icon">3</span><b>Worker</b> <small>celery task accepted</small></li>
+          <li class="stage" data-stage="virustotal"><span class="s-icon">4</span><b>VirusTotal</b><small>hash / raw report</small></li>
+          <li class="stage" data-stage="mobsf">   <span class="s-icon">5</span><b>MobSF</b>   <small>static mobile</small></li>
+          <li class="stage" data-stage="cape">    <span class="s-icon">6</span><b>CAPE</b>    <small>dynamic sandbox</small></li>
+          <li class="stage" data-stage="gemini">  <span class="s-icon">7</span><b>Gemini</b>  <small>synthesis</small></li>
+        </ol>
+
+        <!-- Stage detail bar -->
+        <div id="stageDetailBar" class="stage-detail" style="display:none">
+          <span class="badge b-neutral" id="stageDetailBadge">—</span>
+          <span class="stage-msg" id="stageDetailMsg">—</span>
+          <span id="stageDetailTime" style="color:var(--muted);font-size:10px;white-space:nowrap"></span>
+        </div>
+
+        <!-- Action buttons -->
+        <div class="btn-row">
+          <button id="pollNow"    class="btn btn-secondary btn-sm" disabled>Refresh now</button>
+          <button id="togglePoll" class="btn btn-secondary btn-sm" disabled>Pause polling</button>
+          <button id="loadReport" class="btn btn-secondary btn-sm" disabled>Load API report</button>
+          <button id="forgetTask" class="btn btn-danger btn-sm"    disabled>Forget task</button>
+        </div>
+      </section>
+
+      <!-- ── Tool cards ── -->
+      <section class="tools-grid" aria-label="สถานะรายเครื่องมือ">
+
+        <article class="tool-card" data-tool="virustotal">
+          <div class="tool-top"><h3 class="tool-name">VirusTotal</h3><span class="badge b-neutral">waiting</span></div>
+          <div class="tool-score">—</div>
+          <div class="tool-desc">Static engines &amp; hash reputation</div>
+          <div class="tool-file">No report</div>
+          <div class="tool-steps" id="steps-virustotal"></div>
+        </article>
+
+        <article class="tool-card" data-tool="mobsf">
+          <div class="tool-top"><h3 class="tool-name">MobSF</h3><span class="badge b-neutral">waiting</span></div>
+          <div class="tool-score">—</div>
+          <div class="tool-desc">Mobile static analysis</div>
+          <div class="tool-file">No report</div>
+          <div class="tool-steps" id="steps-mobsf"></div>
+        </article>
+
+        <article class="tool-card" data-tool="cape">
+          <div class="tool-top"><h3 class="tool-name">CAPE</h3><span class="badge b-neutral">waiting</span></div>
+          <div class="tool-score">—</div>
+          <div class="tool-desc">Dynamic sandbox behavior</div>
+          <div class="tool-file">No report</div>
+          <div class="tool-steps" id="steps-cape"></div>
+        </article>
+
+        <article class="tool-card" data-tool="gemini">
+          <div class="tool-top"><h3 class="tool-name">Gemini AI</h3><span class="badge b-neutral">waiting</span></div>
+          <div class="tool-score">—</div>
+          <div class="tool-desc">Cross-tool danger synthesis</div>
+          <div class="tool-file">Stored in database</div>
+          <div class="tool-steps" id="steps-gemini"></div>
+        </article>
+
+      </section>
+
+      <!-- ── DB Snapshot ── -->
+      <div class="split">
+        <section class="card">
+          <div class="card-head"><div><h2>Database · Analysis row</h2><p>ข้อมูลใน table <code>analysis</code></p></div></div>
+          <div id="dbGrid" class="db-grid">
+            <div class="datum"><label>Status</label><code>—</code></div>
+          </div>
+        </section>
+        <section class="card">
+          <div class="card-head"><div><h2>Database · Reports row</h2><p>ข้อมูลใน table <code>reports</code></p></div></div>
+          <div id="reportsGrid" class="reports-grid">
+            <div class="datum"><label>RID</label><code>—</code></div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ── Gemini assessment ── -->
+      <section class="card">
+        <div class="card-head"><div><h2>Gemini assessment</h2><p>แสดงเมื่อ report ถูก commit เรียบร้อยแล้ว</p></div></div>
+        <div id="assessment" class="assessment-card">
+          <h3>No assessment</h3><p>รอ pipeline ทำงานครบ</p>
+        </div>
+      </section>
+
+      <!-- ── Redis progress raw ── -->
+      <section class="card">
+        <div class="card-head">
+          <div><h2>Redis · analysis_progress</h2><p>Raw payload จาก <code>analysis_progress:{task_id}</code></p></div>
+          <button id="copyRedis" class="btn btn-secondary btn-sm">Copy</button>
+        </div>
+        <pre id="redisRaw" class="redis-raw">ยังไม่มีข้อมูล Redis</pre>
+      </section>
+
+      <!-- ── Activity log + JSON ── -->
+      <div class="split">
+        <section class="card">
+          <div class="card-head"><div><h2>Activity log</h2><p>เหตุการณ์จาก browser session</p></div></div>
+          <div id="actLog" class="act-log"><p style="color:var(--muted);font-size:12px">ยังไม่มีกิจกรรม</p></div>
+        </section>
+        <section class="card">
+          <div class="card-head">
+            <div><h2>Diagnostics JSON</h2><p>Response ล่าสุด (debug)</p></div>
+            <div class="card-actions">
+              <button id="copyJson"  class="btn btn-secondary btn-sm">Copy</button>
+              <button id="clearJson" class="btn btn-danger btn-sm">Clear</button>
+            </div>
+          </div>
+          <pre id="jsonView" class="json-view">Waiting for diagnostics…</pre>
+        </section>
+      </div>
+
+    </section>
+  </div>
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ── State ── */
+const S = {
+  access:  sessionStorage.getItem('rampart_test_access')  || '',
+  upload:  sessionStorage.getItem('rampart_test_upload')  || '',
+  task:    sessionStorage.getItem('rampart_test_task')    || '',
+  file:    null,
+  user:    false,
+  polling: true,
+  timer:   null,
+  busy:    false,
+  last:    null,
+  /* per-tool step history [{ time, msg, status }] */
+  toolHistory: { virustotal: [], mobsf: [], cape: [], gemini: [] },
+  /* last known tool statuses to detect transitions */
+  toolStatus: { virustotal: null, mobsf: null, cape: null, gemini: null },
+};
+
+const $  = id => document.getElementById(id);
+const stages   = [...document.querySelectorAll('[data-stage]')];
+const toolCards = [...document.querySelectorAll('[data-tool]')];
+const fmtBytes = n => n == null ? '—' : n < 1024 ? `${n} B` : n < 1048576 ? `${(n/1024).toFixed(1)} KB` : `${(n/1048576).toFixed(1)} MB`;
+const fmtTime  = iso => iso ? new Date(iso).toLocaleTimeString('th-TH') : null;
+const nowTime  = ()  => new Date().toLocaleTimeString('th-TH');
+
+/* ── Toast ── */
+function toast(text, error = false) {
+  const e = $('toast');
+  e.textContent = text;
+  e.className = `toast show${error ? ' error' : ''}`;
+  clearTimeout(e._t);
+  e._t = setTimeout(() => e.className = 'toast', 3200);
+}
+
+/* ── Activity log ── */
+const TAG_MAP = {
+  virustotal: 'vt', mobsf: 'msf', cape: 'cpe', gemini: 'gem',
+  db: 'db', system: 'sys', upload: 'sys', poll: 'sys',
+};
+function logEvent(msg, tag = 'sys') {
+  const log = $('actLog');
+  if (log.querySelector('p')) log.innerHTML = '';
+  const row = document.createElement('div');
+  row.className = 'act-event';
+  const cls = TAG_MAP[tag] || 'sys';
+  row.innerHTML = `<span class="act-time">${nowTime()}</span><span class="act-tag ${cls}">${tag}</span><span class="act-msg"></span>`;
+  row.querySelector('.act-msg').textContent = msg;
+  log.prepend(row);
+}
+
+/* ── JSON viewer ── */
+function showJSON(data) {
+  S.last = data;
+  $('jsonView').textContent = JSON.stringify(data, null, 2);
+}
+
+/* ── Badge class ── */
+function badgeClass(status) {
+  if (status === true || ['success','complete','active','ready'].includes(String(status).toLowerCase())) return 'b-ok';
+  if (['failed','error','conflicting'].includes(String(status).toLowerCase())) return 'b-bad';
+  if (['pending','processing','queued','dispatching','waiting','sandboxes','worker'].includes(String(status).toLowerCase())) return 'b-wait';
+  if (['skipped','not_available'].includes(String(status).toLowerCase())) return 'b-skip';
+  return 'b-neutral';
+}
+
+/* ── Render tokens ── */
+function renderTokens() {
+  $('accessToken').textContent = S.access ? `${S.access.slice(0,18)}…${S.access.slice(-8)}` : 'No access token';
+  $('uploadToken').textContent = S.upload ? `${S.upload.slice(0,18)}…${S.upload.slice(-8)}` : 'No upload token';
+  $('createTokens').disabled = !S.user;
+  $('upload').disabled = !(S.upload && S.file);
+}
+
+/* ── Stage state ── */
+function stageState(stage, data) {
+  const db = data.database || {};
+  const p  = data.progress  || {};
+  const tools = p.tools || {};
+  const current = p.stage || db.status;
+
+  if (db.status === 'failed') return stage === 'upload' ? 'done' : 'failed';
+  if (stage === 'upload') return 'done';
+  if (stage === 'queue') {
+    if (['dispatching','queued'].includes(db.status)) return 'active';
+    if (db.status === 'processing' || db.status === 'success') return 'done';
+    return '';
+  }
+  if (stage === 'worker') {
+    if (current === 'worker') return 'active';
+    if (['processing','success'].includes(db.status) && current && current !== 'queue') return 'done';
+    return '';
+  }
+  if (stage === 'virustotal') {
+    const s = tools.virustotal?.status;
+    if (s === 'success' || db.tools?.includes('virustotal')) return 'done';
+    if (s === 'pending' || current === 'virustotal') return 'active';
+    return '';
+  }
+  if (stage === 'mobsf' || stage === 'cape' || stage === 'gemini') {
+    const s = tools[stage]?.status;
+    if (s === 'success' || s === true) return 'done';
+    if (s === 'skipped') return 'skipped';
+    if (s === 'failed') return 'failed';
+    if (s === 'pending' || s === 'processing' || current === stage || current === 'sandboxes') return 'active';
+    if (db.status === 'success' && !db.tools?.includes(stage)) return 'skipped';
+    return '';
+  }
+  return '';
+}
+
+/* ── Render timeline ── */
+function renderTimeline(data) {
+  const p = data.progress || {};
+  stages.forEach(el => {
+    const s = stageState(el.dataset.stage, data);
+    el.className = `stage ${s}`;
+    el.removeAttribute('aria-current');
+    if (s === 'active') el.setAttribute('aria-current', 'step');
+    const icon = el.querySelector('.s-icon');
+    icon.textContent = s === 'done' ? '✓' : s === 'failed' ? '✗' : s === 'skipped' ? '–' : stages.indexOf(el) + 1;
+  });
+
+  // Stage detail bar
+  const bar = $('stageDetailBar');
+  if (p.stage || p.message) {
+    bar.style.display = 'flex';
+    const badge = $('stageDetailBadge');
+    badge.textContent = p.stage || '—';
+    badge.className   = `badge ${badgeClass(p.stage)}`;
+    $('stageDetailMsg').textContent  = p.message || '—';
+    $('stageDetailTime').textContent = p.updated_at ? fmtTime(p.updated_at) : '';
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+/* ── Tool step history ── */
+function recordToolStep(tool, status, msg) {
+  if (S.toolStatus[tool] === status) return; // no change
+  S.toolStatus[tool] = status;
+  S.toolHistory[tool].push({ time: nowTime(), msg: msg || status, status });
+  // Keep max 8 entries
+  if (S.toolHistory[tool].length > 8) S.toolHistory[tool].shift();
+}
+
+function dotClass(status) {
+  if (['success','done',true].includes(status)) return 'dot-ok';
+  if (['pending','processing','waiting'].includes(status)) return 'dot-wait';
+  if (['failed','error'].includes(status)) return 'dot-bad';
+  if (['skipped'].includes(status)) return 'dot-skip';
+  return 'dot-idle';
+}
+
+function renderToolSteps(tool) {
+  const el = $(`steps-${tool}`);
+  if (!el) return;
+  const hist = S.toolHistory[tool];
+  if (!hist.length) { el.innerHTML = ''; return; }
+  el.innerHTML = hist.slice().reverse().map(h =>
+    `<div class="tool-step">
+      <span class="tool-step-dot ${dotClass(h.status)}"></span>
+      <span class="tool-step-time">${h.time}</span>
+      <span class="tool-step-msg">${h.msg}</span>
+    </div>`
+  ).join('');
+}
+
+/* ── Render tool cards ── */
+function renderTools(data) {
+  const progress = data.progress?.tools || {};
+  const scores   = data.database?.scores || {};
+  const reports  = data.reports || {};
+
+  toolCards.forEach(card => {
+    const name = card.dataset.tool;
+    const prog = progress[name] || {};
+    const rawStatus = prog.status ?? (data.database?.tools?.includes(name) ? 'success' : 'waiting');
+    const badge = card.querySelector('.badge');
+    badge.textContent = String(rawStatus);
+    badge.className   = `badge ${badgeClass(rawStatus)}`;
+
+    const score = scores[name] ?? prog.score;
+    card.querySelector('.tool-score').textContent = score == null ? '—' : `${score}/100`;
+
+    let desc = '';
+    if (name === 'cape' && prog.task_id) desc = `CAPE task ID: ${prog.task_id}`;
+    else if (name === 'mobsf' && prog.submitted) desc = 'Sample submitted — polling for report';
+    else if (name === 'virustotal') desc = 'Static engines &amp; hash reputation';
+    else if (name === 'mobsf')      desc = 'Mobile static analysis';
+    else if (name === 'cape')       desc = 'Dynamic sandbox behavior';
+    else if (name === 'gemini')     desc = 'Cross-tool danger synthesis';
+    card.querySelector('.tool-desc').innerHTML = desc;
+
+    const rpt = reports[name];
+    const fileEl = card.querySelector('.tool-file');
+    if (rpt) {
+      fileEl.textContent = rpt.exists
+        ? `✓ ${rpt.path} · ${fmtBytes(rpt.size)}`
+        : `✗ Not written · ${rpt.path || '—'}`;
+    } else if (name === 'gemini') {
+      fileEl.textContent = 'Stored in database (no file)';
+    } else {
+      fileEl.textContent = 'No report metadata';
+    }
+
+    // Record step
+    const stepMsg = prog.message || `Status: ${rawStatus}`;
+    recordToolStep(name, rawStatus, stepMsg);
+    renderToolSteps(name);
+  });
+}
+
+/* ── Render DB ── */
+function renderDb(db = {}, reports = {}) {
+  const analysisItems = [
+    ['Status',      db.status],
+    ['Tools',       db.tools],
+    ['RID',         db.rid],
+    ['MD5',         db.md5],
+    ['SHA-256',     db.file_hash],
+    ['File name',   db.file_name],
+    ['File size',   db.file_size != null ? fmtBytes(db.file_size) : null],
+    ['File type',   db.file_type],
+    ['Malicious',   db.is_malicious != null ? String(db.is_malicious) : null],
+    ['Blocked by',  db.blocked_by],
+    ['Created',     db.created_at ? fmtTime(db.created_at) : null],
+  ];
+  $('dbGrid').innerHTML = analysisItems.map(([k, v]) =>
+    `<div class="datum${k === 'Status' ? ' highlight' : ''}">
+      <label>${k}</label><code></code>
+    </div>`
+  ).join('');
+  [...$('dbGrid').querySelectorAll('code')].forEach((e, i) => {
+    e.textContent = analysisItems[i][1] ?? '—';
+  });
+
+  // Reports table
+  const sc = db.scores || {};
+  const as = db.assessment || {};
+  const reportsItems = [
+    ['RID',           db.rid],
+    ['VT score',      sc.virustotal != null ? `${sc.virustotal}/100` : null],
+    ['MobSF score',   sc.mobsf      != null ? `${sc.mobsf}/100` : null],
+    ['CAPE score',    sc.cape       != null ? `${sc.cape}/100` : null],
+    ['Gemini score',  sc.gemini     != null ? `${sc.gemini}/100` : null],
+    ['RAMPART score', sc.rampart_ai != null ? `${sc.rampart_ai}/100` : null],
+    ['Risk level',    as.risk_level],
+    ['Verdict',       as.verdict],
+  ];
+  $('reportsGrid').innerHTML = reportsItems.map(([k, v]) =>
+    `<div class="datum${k === 'Risk level' ? ' highlight' : ''}">
+      <label>${k}</label><code></code>
+    </div>`
+  ).join('');
+  [...$('reportsGrid').querySelectorAll('code')].forEach((e, i) => {
+    e.textContent = reportsItems[i][1] ?? '—';
+  });
+}
+
+/* ── Render assessment ── */
+function renderAssessment(a) {
+  const e = $('assessment');
+  if (!a || !a.risk_level) {
+    e.innerHTML = '<h3>No assessment</h3><p>รอ Gemini และ database commit</p>';
+    return;
+  }
+  e.innerHTML = '<h3></h3><p class="summary"></p><p class="rec"></p><ul class="indicators"></ul>';
+  e.querySelector('h3').textContent = `${a.risk_level || '—'} · ${a.verdict || '—'}`;
+  e.querySelector('.summary').textContent = a.summary || '—';
+  e.querySelector('.rec').textContent     = a.recommendation || '—';
+  const ul = e.querySelector('ul');
+  (a.indicators || []).forEach(x => {
+    const li = document.createElement('li'); li.textContent = x; ul.append(li);
+  });
+}
+
+/* ── Render Redis raw ── */
+function renderRedis(progress) {
+  $('redisRaw').textContent = progress
+    ? JSON.stringify(progress, null, 2)
+    : 'ไม่พบข้อมูลใน Redis (key อาจหมดอายุหรือยังไม่ถูกสร้าง)';
+}
+
+/* ── Full diagnostics render ── */
+function renderDiagnostics(data) {
+  const db = data.database || {};
+  const p  = data.progress  || {};
+
+  $('taskId').textContent      = data.task_id || '—';
+  $('dbStatus').textContent    = db.status || '—';
+  $('currentStage').textContent = p.stage || db.status || '—';
+  $('fileType').textContent    = db.file_type || '—';
+  $('lastUpdate').textContent  = p.updated_at ? fmtTime(p.updated_at) : '—';
+  $('stageMessage').textContent = p.message || `DB status: ${db.status || 'unknown'}`;
+  $('pollBadge').textContent   = S.polling ? 'live' : 'paused';
+  $('pollBadge').className     = `badge ${S.polling ? 'b-ok' : 'b-neutral'}`;
+
+  renderTimeline(data);
+  renderTools(data);
+  renderDb(db);
+  renderAssessment(db.assessment);
+  renderRedis(p && Object.keys(p).length ? p : null);
+
+  $('loadReport').disabled = db.status !== 'success';
+  showJSON(data);
+}
+
+/* ── API helper ── */
+async function api(url, options = {}) {
+  const r = await fetch(url, options);
+  let d;
+  try { d = await r.json(); } catch { d = { detail: `Invalid response (${r.status})` }; }
+  if (!r.ok) { const e = new Error(d?.detail || d?.message || `HTTP ${r.status}`); e.status = r.status; throw e; }
+  return d;
+}
+
+/* ── Readiness ── */
+async function readiness() {
+  try {
+    const d = await api('/test/api/status');
+    S.user = d.user === 'active';
+    $('dbHealth').textContent    = d.database ? 'Ready' : 'Down';
+    $('redisHealth').textContent = d.redis    ? 'Ready' : 'Down';
+    $('userHealth').textContent  = d.user;
+    $('userBadge').textContent   = d.user;
+    $('userBadge').className     = `badge ${badgeClass(d.user)}`;
+    $('createUser').disabled     = S.user || d.user === 'conflicting';
+    renderTokens();
+    logEvent(`System: DB=${d.database?'ok':'down'} Redis=${d.redis?'ok':'down'} User=${d.user}`, 'system');
+  } catch (e) {
+    toast(e.message, true);
+    logEvent(`Readiness failed: ${e.message}`, 'system');
+  }
+}
+
+/* ── Create user ── */
+async function createUser() {
+  try {
+    const d = await api('/test/api/user', { method: 'POST' });
+    logEvent(`Test account: ${d.state}`, 'system');
+    showJSON(d);
+    await readiness();
+    toast(`Account ${d.state}`);
+  } catch (e) { toast(e.message, true); }
+}
+
+/* ── Create tokens ── */
+async function createTokens() {
+  try {
+    const d = await api('/test/api/token', { method: 'POST' });
+    S.access = d.access_token;
+    S.upload = d.upload_token;
+    sessionStorage.setItem('rampart_test_access', S.access);
+    sessionStorage.setItem('rampart_test_upload', S.upload);
+    renderTokens();
+    logEvent('Session tokens issued', 'system');
+    showJSON({ ...d, access_token: '[stored]', upload_token: '[stored]' });
+    toast('Tokens issued');
+  } catch (e) { toast(e.message, true); }
+}
+
+/* ── File pick ── */
+function chooseFile(f) {
+  S.file = f || null;
+  const meta = $('fileMeta');
+  meta.classList.toggle('show', !!f);
+  meta.textContent = f ? `${f.name} · ${fmtBytes(f.size)}` : '';
+  renderTokens();
+}
+
+/* ── Forget task ── */
+function forget() {
+  clearTimeout(S.timer);
+  S.task = '';
+  sessionStorage.removeItem('rampart_test_task');
+  S.toolHistory = { virustotal: [], mobsf: [], cape: [], gemini: [] };
+  S.toolStatus  = { virustotal: null, mobsf: null, cape: null, gemini: null };
+  ['taskId','dbStatus','currentStage','fileType','lastUpdate'].forEach(id => $(id).textContent = '—');
+  $('stageMessage').textContent = 'ยังไม่มี task ที่กำลังติดตาม';
+  $('stageDetailBar').style.display = 'none';
+  ['pollNow','togglePoll','loadReport','forgetTask'].forEach(id => $(id).disabled = true);
+  $('redisRaw').textContent = 'ยังไม่มีข้อมูล Redis';
+  showJSON({ message: 'Task removed from browser session' });
+  renderTimeline({ database: {} });
+  toolCards.forEach(c => {
+    c.querySelector('.badge').textContent = 'waiting';
+    c.querySelector('.badge').className   = 'badge b-neutral';
+    c.querySelector('.tool-score').textContent = '—';
+  });
+  ['steps-virustotal','steps-mobsf','steps-cape','steps-gemini'].forEach(id => { const e = $(id); if (e) e.innerHTML = ''; });
+  logEvent('Task forgotten from session', 'system');
+}
+
+/* ── Upload ── */
+async function upload() {
+  if (!S.file) return;
+  forget();
+  const form = new FormData();
+  form.append('file', S.file);
+  form.append('privacy', $('privacy').checked);
+  try {
+    const d = await api(`/api/analy/v1/upload?token=${encodeURIComponent(S.upload)}`, { method: 'POST', body: form });
+    S.task = d.task_id;
+    sessionStorage.setItem('rampart_test_task', S.task);
+    $('taskId').textContent = S.task;
+    ['pollNow','togglePoll','forgetTask'].forEach(id => $(id).disabled = false);
+    logEvent(`${d.queue_state === 'reused' ? 'Reused' : 'Dispatched'} task ${S.task}`, 'upload');
+    showJSON(d);
+    S.polling = true;
+    schedule(0);
+    toast('File uploaded — polling started');
+  } catch (e) {
+    toast(e.message, true);
+    logEvent(`Upload failed: ${e.message}`, 'upload');
+  }
+}
+
+/* ── Poll ── */
+async function poll() {
+  if (!S.task || S.busy) return;
+  S.busy = true;
+  try {
+    const d = await api(`/test/api/analysis/${encodeURIComponent(S.task)}`);
+    renderDiagnostics(d);
+
+    // Log notable transitions
+    const db = d.database || {};
+    const p  = d.progress  || {};
+    if (p.message) logEvent(p.message, p.stage || 'poll');
+
+    if (db.status === 'success' || db.status === 'failed') {
+      stopPolling();
+      logEvent(`Analysis ${db.status}`, 'db');
+      toast(db.status === 'success' ? 'Analysis complete!' : 'Analysis failed', db.status !== 'success');
+    }
+  } catch (e) {
+    // 404 = task ไม่มีใน DB แล้ว — หยุด poll และล้าง sessionStorage ทันที
+    if (e.status === 404) {
+      stopPolling();
+      sessionStorage.removeItem('rampart_test_task');
+      S.task = '';
+      $('stageMessage').textContent = 'Task not found in database — session cleared';
+      $('stageDetailBar').style.display = 'none';
+      ['pollNow','togglePoll','loadReport','forgetTask'].forEach(id => $(id).disabled = true);
+      logEvent(`Task 404 — polling stopped and session cleared`, 'system');
+      toast('Task not found — polling stopped', true);
+      return; // ออกทันที ไม่ schedule ต่อ
+    }
+    $('stageMessage').textContent = `Diagnostics unavailable: ${e.message}`;
+    toast(e.message, true);
+    logEvent(`Poll error: ${e.message}`, 'system');
+  } finally {
+    S.busy = false;
+    if (S.polling && S.task) schedule(3500);
+  }
+}
+
+/* หยุด polling และอัพเดท UI */
+function stopPolling() {
+  S.polling = false;
+  clearTimeout(S.timer);
+  $('togglePoll').textContent = 'Resume polling';
+}
+
+function schedule(ms) {
+  clearTimeout(S.timer);
+  if (!S.task) return; // ไม่ schedule ถ้าไม่มี task
+  S.timer = setTimeout(poll, ms);
+}
+
+/* ── Load authenticated report ── */
+async function loadReport() {
+  if (!S.access || !S.task) return;
+  try {
+    const d = await api('/api/analy/v1/task_id', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_id: S.task, token: S.access }),
+    });
+    showJSON(d);
+    logEvent('Loaded authenticated API report', 'db');
+    toast('Report loaded');
+  } catch (e) { toast(e.message, true); }
+}
+
+/* ── Wire up events ── */
+$('createUser').onclick  = createUser;
+$('createTokens').onclick = createTokens;
+$('upload').onclick      = upload;
+$('pollNow').onclick     = poll;
+$('togglePoll').onclick  = () => {
+  if (S.polling) {
+    stopPolling();
+    logEvent('Polling paused manually', 'system');
+  } else {
+    if (!S.task) return;
+    S.polling = true;
+    $('togglePoll').textContent = 'Pause polling';
+    logEvent('Polling resumed', 'system');
+    schedule(0);
+  }
+};
+$('loadReport').onclick  = loadReport;
+$('forgetTask').onclick  = forget;
+$('fileInput').onchange  = e => chooseFile(e.target.files[0]);
+$('copyJson').onclick    = () => S.last && navigator.clipboard.writeText(JSON.stringify(S.last, null, 2)).then(() => toast('Copied'));
+$('clearJson').onclick   = () => { $('jsonView').textContent = 'Cleared'; S.last = null; };
+$('copyRedis').onclick   = () => navigator.clipboard.writeText($('redisRaw').textContent).then(() => toast('Copied'));
+
+/* ── Drop zone ── */
+const drop = $('dropZone');
+['dragenter','dragover'].forEach(n => drop.addEventListener(n, e => { e.preventDefault(); drop.classList.add('drag'); }));
+['dragleave','drop'].forEach(n => drop.addEventListener(n, e => { e.preventDefault(); drop.classList.remove('drag'); }));
+drop.addEventListener('drop', e => chooseFile(e.dataTransfer.files[0]));
+
+/* ── Token copy buttons ── */
+document.querySelectorAll('[data-copy]').forEach(b =>
+  b.onclick = () => navigator.clipboard.writeText(S[b.dataset.copy] || '').then(() => toast('Copied'))
+);
+
+/* ── Init ── */
+renderTokens();
+readiness();
+if (S.task) {
+  $('taskId').textContent = S.task;
+  ['pollNow','togglePoll','forgetTask'].forEach(id => $(id).disabled = false);
+  // ตรวจสอบก่อนว่า task ยังมีอยู่ใน DB ก่อน start polling
+  // poll() จะจัดการ 404 และล้าง sessionStorage เองถ้า task หายไปแล้ว
+  schedule(0);
+}
+
+// Cleanup: หยุด polling ทันทีเมื่อปิด/รีหน้าเว็บ
+window.addEventListener('beforeunload', () => {
+  clearTimeout(S.timer);
+  S.polling = false;
+});
+</script>
+</body>
+</html>

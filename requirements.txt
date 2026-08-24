@@ -12,6 +12,12 @@ requests
 python-dotenv
 sqlalchemy[asyncio]
 asyncpg
-argon2-cffi
 python-jose[cryptography]
 psycopg2-binary
+dotenv
+pytest
+pytest-asyncio
+authlib
+itsdangerous
+httpx
+Pillow
