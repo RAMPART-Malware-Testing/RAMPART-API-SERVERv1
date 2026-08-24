@@ -24,6 +24,9 @@ from schemas.admin import (
     AdminAuditLogParams,
     AdminBanUserParams,
     AdminChangeRoleParams,
+    AdminDeleteFileParams,
+    AdminListFilesParams,
+    AdminListReportsParams,
     AdminListUsersParams,
     AdminTargetUserParams,
     AdminTokenParams,
@@ -204,6 +207,59 @@ async def audit_logs_controller(body: AdminAuditLogParams):
                 limit=body.limit,
                 actor_uid=actor_uid,
                 action=body.action,
+            )
+        except AuthError as exc:
+            return _auth_error_response(exc)
+
+
+async def list_files_controller(body: AdminListFilesParams):
+    async with SessionLocal() as session:
+        try:
+            await _resolve_admin_actor(session, body.token)
+            return await admin_service.list_all_files(
+                session,
+                q=body.q,
+                status_filter=body.status,
+                file_type_filter=body.file_type,
+                privacy_filter=body.privacy,
+                page=body.page,
+                limit=body.limit,
+            )
+        except AuthError as exc:
+            return _auth_error_response(exc)
+
+
+async def delete_file_controller(body: AdminDeleteFileParams):
+    async with SessionLocal() as session:
+        try:
+            actor = await _resolve_admin_actor(session, body.token)
+            try:
+                aid = parse_uuid(body.aid)
+            except (TypeError, ValueError):
+                return error("INVALID_ROLE_TARGET", "aid ไม่ถูกต้อง")
+            target = await admin_service.soft_delete_file(
+                session, actor=actor, aid=aid, reason=body.reason
+            )
+            return success(
+                "DELETE_FILE_SUCCESS",
+                "ลบไฟล์สำเร็จ",
+                {"aid": str(target.aid), "deleted_at": target.deleted_at.isoformat() if target.deleted_at else None},
+            )
+        except AuthError as exc:
+            return _auth_error_response(exc)
+
+
+async def list_reports_controller(body: AdminListReportsParams):
+    async with SessionLocal() as session:
+        try:
+            await _resolve_admin_actor(session, body.token)
+            return await admin_service.list_reports(
+                session,
+                q=body.q,
+                risk_level_filter=body.risk_level,
+                file_type_filter=body.file_type,
+                page=body.page,
+                limit=body.limit,
             )
         except AuthError as exc:
             return _auth_error_response(exc)

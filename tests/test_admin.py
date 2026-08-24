@@ -448,3 +448,238 @@ async def test_master_cannot_change_own_or_another_masters_role(monkeypatch):
     )
     assert response["success"] is False
     assert response["status"] == "MASTER_PROTECTED"
+
+
+# ---------------------------------------------------------------------------
+# list_users role_filter accepting a list (for /admin/admins)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_users_role_filter_accepts_list_of_roles(monkeypatch):
+    """AdminListUsersParams.role now also accepts a list, so /admin/admins
+    can request role IN ('admin', 'master') in one call."""
+    from sqlalchemy import select
+
+    captured_conditions = []
+
+    class FakeResult:
+        def __init__(self, value):
+            self._value = value
+
+        def scalar_one(self):
+            return self._value
+
+        def scalars(self):
+            return self
+
+        def all(self):
+            return []
+
+    class FakeSession:
+        async def execute(self, stmt):
+            captured_conditions.append(str(stmt))
+            return FakeResult(0)
+
+    await admin_service.list_users(
+        FakeSession(),
+        q=None,
+        role_filter=["admin", "master"],
+        banned_filter=None,
+        page=1,
+        limit=20,
+    )
+    # The generated SQL should use an IN clause, not a plain equality,
+    # when role_filter is a list.
+    assert any("IN" in c for c in captured_conditions)
+
+
+def test_admin_list_users_schema_accepts_role_list():
+    from schemas.admin import AdminListUsersParams
+
+    params = AdminListUsersParams(token="t", role=["admin", "master"])
+    assert params.role == ["admin", "master"]
+
+
+def test_admin_list_users_schema_rejects_invalid_role_in_list():
+    from pydantic import ValidationError
+    from schemas.admin import AdminListUsersParams
+
+    with pytest.raises(ValidationError):
+        AdminListUsersParams(token="t", role=["admin", "superuser"])
+
+
+# ---------------------------------------------------------------------------
+# File management: list_all_files / list_reports / soft_delete_file
+# ---------------------------------------------------------------------------
+
+
+def make_analysis(aid=None, uid=None, owner=None, deleted_at=None, file_name="f.apk"):
+    return SimpleNamespace(
+        aid=aid or uuid.uuid4(),
+        uid=uid or (owner.uid if owner else uuid.uuid4()),
+        user=owner,
+        report=None,
+        task_id="task-1",
+        file_name=file_name,
+        file_size=100,
+        file_type="apk",
+        file_hash="a" * 64,
+        md5="deadbeef",
+        tools="virustotal",
+        status="success",
+        privacy=True,
+        is_malicious=False,
+        created_at=None,
+        deleted_at=deleted_at,
+        deleted_by=None,
+    )
+
+
+class _FileDeleteSession:
+    """Minimal session stand-in for soft_delete_file: only `.get()`,
+    `.add()`, and `.commit()`/`.refresh()` are exercised."""
+
+    def __init__(self, analysis):
+        self._analysis = analysis
+        self.added = []
+        self.commits = 0
+
+    async def get(self, model, ident, options=None):
+        return self._analysis
+
+    def add(self, value):
+        self.added.append(value)
+
+    async def commit(self):
+        self.commits += 1
+
+    async def refresh(self, value):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_admin_can_soft_delete_plain_users_file():
+    owner = make_user(role="user")
+    analysis = make_analysis(owner=owner)
+    session = _FileDeleteSession(analysis)
+    actor = make_user(role="admin")
+
+    result = await admin_service.soft_delete_file(session, actor=actor, aid=analysis.aid, reason="ผิดกฎ")
+
+    assert result.deleted_at is not None
+    assert result.deleted_by == actor.uid
+    assert len(session.added) == 1
+    assert session.added[0].action == "delete_file"
+    assert "reason=ผิดกฎ" in session.added[0].detail
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_soft_delete_another_admins_file():
+    owner = make_user(role="admin")
+    analysis = make_analysis(owner=owner)
+    session = _FileDeleteSession(analysis)
+    actor = make_user(role="admin")
+
+    with pytest.raises(AuthError) as exc:
+        await admin_service.soft_delete_file(session, actor=actor, aid=analysis.aid, reason="test")
+
+    assert exc.value.code == "ADMIN_TARGET_FORBIDDEN"
+    assert analysis.deleted_at is None
+    assert session.added == []
+
+
+@pytest.mark.asyncio
+async def test_nobody_can_soft_delete_masters_file():
+    owner = make_user(role="master")
+    analysis = make_analysis(owner=owner)
+    session = _FileDeleteSession(analysis)
+    actor = make_user(role="master")
+
+    with pytest.raises(AuthError) as exc:
+        await admin_service.soft_delete_file(session, actor=actor, aid=analysis.aid, reason="test")
+
+    assert exc.value.code == "MASTER_PROTECTED"
+    assert analysis.deleted_at is None
+
+
+@pytest.mark.asyncio
+async def test_master_can_soft_delete_admins_file():
+    owner = make_user(role="admin")
+    analysis = make_analysis(owner=owner)
+    session = _FileDeleteSession(analysis)
+    actor = make_user(role="master")
+
+    result = await admin_service.soft_delete_file(session, actor=actor, aid=analysis.aid, reason="test")
+    assert result.deleted_at is not None
+
+
+@pytest.mark.asyncio
+async def test_soft_delete_rejects_already_deleted_file():
+    from datetime import datetime, timezone
+
+    owner = make_user(role="user")
+    analysis = make_analysis(owner=owner, deleted_at=datetime.now(timezone.utc))
+    session = _FileDeleteSession(analysis)
+    actor = make_user(role="admin")
+
+    with pytest.raises(AuthError) as exc:
+        await admin_service.soft_delete_file(session, actor=actor, aid=analysis.aid, reason="test")
+
+    assert exc.value.code == "ALREADY_DELETED"
+
+
+@pytest.mark.asyncio
+async def test_soft_delete_rejects_missing_file():
+    session = _FileDeleteSession(None)
+    actor = make_user(role="admin")
+
+    with pytest.raises(AuthError) as exc:
+        await admin_service.soft_delete_file(session, actor=actor, aid=uuid.uuid4(), reason="test")
+
+    assert exc.value.code == "TARGET_NOT_FOUND"
+
+
+# ---------------------------------------------------------------------------
+# Controller-level: file delete endpoint enforces the same rules
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_file_controller_rejects_plain_user(monkeypatch):
+    from schemas.admin import AdminDeleteFileParams
+
+    session = _FakeSession(None)
+    monkeypatch.setattr(admin_controller, "SessionLocal", lambda: _SessionCtx(session))
+    _patch_current_user(monkeypatch, make_user(role="user"))
+
+    response = await admin_controller.delete_file_controller(
+        AdminDeleteFileParams(token="t", aid=str(uuid.uuid4()), reason="test")
+    )
+    assert response["success"] is False
+    assert response["status"] == "INSUFFICIENT_ROLE"
+
+
+@pytest.mark.asyncio
+async def test_delete_file_controller_admin_deletes_plain_users_file(monkeypatch):
+    from schemas.admin import AdminDeleteFileParams
+
+    owner = make_user(role="user")
+    analysis = make_analysis(owner=owner)
+    session = _FileDeleteSession(analysis)
+    monkeypatch.setattr(admin_controller, "SessionLocal", lambda: _SessionCtx(session))
+    _patch_current_user(monkeypatch, make_user(role="admin"))
+
+    response = await admin_controller.delete_file_controller(
+        AdminDeleteFileParams(token="t", aid=str(analysis.aid), reason="malware")
+    )
+    assert response["success"] is True
+    assert analysis.deleted_at is not None
+
+
+def test_delete_file_reason_required():
+    from pydantic import ValidationError
+    from schemas.admin import AdminDeleteFileParams
+
+    with pytest.raises(ValidationError):
+        AdminDeleteFileParams(token="t", aid=str(uuid.uuid4()), reason="   ")

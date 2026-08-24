@@ -141,7 +141,7 @@ async def list_users(
     session: AsyncSession,
     *,
     q: str | None,
-    role_filter: str | None,
+    role_filter: str | list[str] | None,
     banned_filter: bool | None,
     page: int,
     limit: int,
@@ -153,7 +153,10 @@ async def list_users(
             or_(User.username.ilike(search_term), User.email.ilike(search_term))
         )
     if role_filter:
-        conditions.append(User.role == role_filter)
+        if isinstance(role_filter, str):
+            conditions.append(User.role == role_filter)
+        else:
+            conditions.append(User.role.in_(role_filter))
     if banned_filter is not None:
         conditions.append(User.is_banned == banned_filter)
 
@@ -311,6 +314,217 @@ async def get_user_analysis_history_admin(
             "has_prev": params.page > 1,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# System-wide file management (all users) and reports (completed only)
+# ---------------------------------------------------------------------------
+
+
+def _serialize_file_row(analysis: Analysis, owner: User | None, report: Reports | None) -> dict[str, Any]:
+    item: dict[str, Any] = {
+        "aid": str(analysis.aid),
+        "task_id": analysis.task_id,
+        "file_name": analysis.file_name,
+        "file_size": analysis.file_size,
+        "file_type": analysis.file_type,
+        "file_hash": analysis.file_hash,
+        "md5": analysis.md5,
+        "tools": analysis.tools,
+        "status": analysis.status,
+        "privacy": analysis.privacy,
+        "is_malicious": analysis.is_malicious,
+        "created_at": analysis.created_at.isoformat() if analysis.created_at else None,
+        "owner_uid": str(owner.uid) if owner else None,
+        "owner_username": owner.username if owner else None,
+        "report": None,
+    }
+    if report:
+        item["report"] = {
+            "score": float(report.score) if report.score is not None else None,
+            "risk_level": report.risk_level,
+            "virustotal_score": report.virustotal_score,
+            "mobsf_score": float(report.mobsf_score) if report.mobsf_score is not None else None,
+            "cape_score": float(report.cape_score) if report.cape_score is not None else None,
+        }
+    return item
+
+
+async def list_all_files(
+    session: AsyncSession,
+    *,
+    q: str | None,
+    status_filter: str | None,
+    file_type_filter: str | None,
+    privacy_filter: bool | None,
+    page: int,
+    limit: int,
+) -> dict[str, Any]:
+    """System-wide file listing across every user, unlike
+    get_user_analysis_history_admin (which is scoped to one target uid).
+    Always excludes soft-deleted rows."""
+    conditions = [Analysis.deleted_at.is_(None)]
+    if status_filter:
+        conditions.append(Analysis.status == status_filter)
+    if file_type_filter:
+        conditions.append(Analysis.file_type.ilike(file_type_filter.strip()))
+    if privacy_filter is not None:
+        conditions.append(Analysis.privacy == privacy_filter)
+    if q:
+        search_term = f"%{q}%"
+        conditions.append(
+            or_(
+                Analysis.file_name.ilike(search_term),
+                Analysis.md5.ilike(search_term),
+                Analysis.file_hash.ilike(search_term),
+            )
+        )
+
+    where_clause = and_(*conditions)
+
+    total = (
+        await session.execute(select(func.count()).select_from(Analysis).where(where_clause))
+    ).scalar_one()
+
+    stmt = (
+        select(Analysis)
+        .options(joinedload(Analysis.user), joinedload(Analysis.report))
+        .where(where_clause)
+        .order_by(desc(Analysis.created_at))
+        .offset((page - 1) * limit)
+        .limit(limit)
+    )
+    analyses = (await session.execute(stmt)).scalars().unique().all()
+
+    total_pages = max(1, -(-total // limit))
+    return {
+        "success": True,
+        "data": [_serialize_file_row(a, a.user, a.report) for a in analyses],
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "total_pages": total_pages,
+            "has_next": page < total_pages,
+            "has_prev": page > 1,
+        },
+    }
+
+
+async def list_reports(
+    session: AsyncSession,
+    *,
+    q: str | None,
+    risk_level_filter: str | None,
+    file_type_filter: str | None,
+    page: int,
+    limit: int,
+) -> dict[str, Any]:
+    """Same shape as list_all_files, hard-filtered to completed analyses
+    that actually have a report attached (status == 'success' and rid is
+    set) - "จัดการ Report" only ever shows finished results, unlike
+    "จัดการไฟล์" which shows every file regardless of analysis state."""
+    conditions = [
+        Analysis.deleted_at.is_(None),
+        Analysis.status == "success",
+        Analysis.rid.isnot(None),
+    ]
+    if file_type_filter:
+        conditions.append(Analysis.file_type.ilike(file_type_filter.strip()))
+    if q:
+        search_term = f"%{q}%"
+        conditions.append(
+            or_(
+                Analysis.file_name.ilike(search_term),
+                Analysis.md5.ilike(search_term),
+                Analysis.file_hash.ilike(search_term),
+            )
+        )
+    if risk_level_filter:
+        conditions.append(Reports.risk_level == risk_level_filter)
+
+    where_clause = and_(*conditions)
+
+    count_stmt = (
+        select(func.count())
+        .select_from(Analysis)
+        .join(Reports, Analysis.rid == Reports.rid)
+        .where(where_clause)
+    )
+    total = (await session.execute(count_stmt)).scalar_one()
+
+    stmt = (
+        select(Analysis)
+        .join(Reports, Analysis.rid == Reports.rid)
+        .options(contains_eager(Analysis.report), joinedload(Analysis.user))
+        .where(where_clause)
+        .order_by(desc(Analysis.created_at))
+        .offset((page - 1) * limit)
+        .limit(limit)
+    )
+    analyses = (await session.execute(stmt)).scalars().unique().all()
+
+    total_pages = max(1, -(-total // limit))
+    return {
+        "success": True,
+        "data": [_serialize_file_row(a, a.user, a.report) for a in analyses],
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "total_pages": total_pages,
+            "has_next": page < total_pages,
+            "has_prev": page > 1,
+        },
+    }
+
+
+async def soft_delete_file(
+    session: AsyncSession,
+    *,
+    actor: User,
+    aid: uuid.UUID,
+    reason: str,
+) -> Analysis:
+    """Soft-deletes one Analysis row (sets deleted_at/deleted_by). Every
+    existing query that reads Analysis already filters
+    `deleted_at IS NULL` (get_analysis_history, get_reports_history,
+    get_user_analysis_history_admin, list_all_files/list_reports above,
+    and the admin dashboard's total_analyses count) - so a deleted file
+    disappears from the owner's history, the public feed, and every stat
+    automatically, with no other query needing to change.
+
+    Follows the exact same actor/target permission rule as ban/unban:
+    admin can delete a plain user's file, but not another admin's or
+    master's file; master can delete anyone's file except another
+    master's."""
+    analysis = await session.get(Analysis, aid, options=[joinedload(Analysis.user)])
+    if analysis is None:
+        raise AuthError(404, "TARGET_NOT_FOUND", "ไม่พบไฟล์เป้าหมาย")
+    if analysis.deleted_at is not None:
+        raise AuthError(409, "ALREADY_DELETED", "ไฟล์นี้ถูกลบไปแล้ว")
+
+    owner = analysis.user
+    if owner is None:
+        # Should not happen (uid is NOT NULL / FK), but fail closed rather
+        # than allow a delete with no ownership check.
+        raise AuthError(404, "TARGET_NOT_FOUND", "ไม่พบเจ้าของไฟล์")
+
+    ensure_can_manage_target(actor, owner)
+
+    analysis.deleted_at = datetime.now(timezone.utc)
+    analysis.deleted_by = actor.uid
+
+    await write_audit_log(
+        session,
+        actor_uid=actor.uid,
+        target_uid=owner.uid,
+        action="delete_file",
+        detail=f"{analysis.file_name} | reason={reason}",
+    )
+    await session.commit()
+    await session.refresh(analysis)
+    return analysis
 
 
 # ---------------------------------------------------------------------------

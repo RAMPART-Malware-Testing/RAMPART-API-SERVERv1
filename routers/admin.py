@@ -5,8 +5,11 @@ from controller.admin_controller import (
     audit_logs_controller,
     ban_user_controller,
     change_role_controller,
+    delete_file_controller,
     get_user_detail_controller,
     get_user_history_controller,
+    list_files_controller,
+    list_reports_controller,
     list_users_controller,
     unban_user_controller,
 )
@@ -14,6 +17,9 @@ from schemas.admin import (
     AdminAuditLogParams,
     AdminBanUserParams,
     AdminChangeRoleParams,
+    AdminDeleteFileParams,
+    AdminListFilesParams,
+    AdminListReportsParams,
     AdminListUsersParams,
     AdminTargetUserParams,
     AdminTokenParams,
@@ -62,3 +68,18 @@ async def admin_dashboard_summary(body: AdminTokenParams):
 @router.post("/audit-logs")
 async def audit_logs(body: AdminAuditLogParams):
     return await audit_logs_controller(body)
+
+
+@router.post("/files")
+async def list_files(body: AdminListFilesParams):
+    return await list_files_controller(body)
+
+
+@router.post("/files/delete")
+async def delete_file(body: AdminDeleteFileParams):
+    return await delete_file_controller(body)
+
+
+@router.post("/reports")
+async def list_reports(body: AdminListReportsParams):
+    return await list_reports_controller(body)

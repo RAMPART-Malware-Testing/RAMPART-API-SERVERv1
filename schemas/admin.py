@@ -44,7 +44,7 @@ class AdminListUsersParams(AdminTokenParams):
     page: int = 1
     limit: int = 20
     q: str | None = None
-    role: str | None = None
+    role: str | list[str] | None = None
     banned: bool | None = None
 
     @field_validator("page")
@@ -72,13 +72,20 @@ class AdminListUsersParams(AdminTokenParams):
 
     @field_validator("role")
     @classmethod
-    def validate_role(cls, v: str | None) -> str | None:
+    def validate_role(cls, v: str | list[str] | None) -> str | list[str] | None:
         if v is None:
             return None
-        v = v.strip().lower()
-        if v not in {"user", "admin", "master"}:
-            raise ValueError("role must be one of: user, admin, master")
-        return v
+        allowed = {"user", "admin", "master"}
+        if isinstance(v, str):
+            v = v.strip().lower()
+            if v not in allowed:
+                raise ValueError("role must be one of: user, admin, master")
+            return v
+        cleaned = [r.strip().lower() for r in v]
+        for r in cleaned:
+            if r not in allowed:
+                raise ValueError("role must be one of: user, admin, master")
+        return cleaned
 
 
 class AdminTargetUserParams(AdminTokenParams):
@@ -207,3 +214,125 @@ class AdminAuditLogParams(AdminTokenParams):
     @classmethod
     def validate_action(cls, v: str | None) -> str | None:
         return _validate_search_text(v)
+
+
+ALLOWED_ANALYSIS_STATUSES = {"pending", "processing", "success", "failed"}
+ALLOWED_RISK_LEVELS = {"Low", "Caution", "High", "Critical"}
+
+
+class AdminListFilesParams(AdminTokenParams):
+    page: int = 1
+    limit: int = 20
+    q: str | None = None
+    status: str | None = None
+    file_type: str | None = None
+    privacy: bool | None = None
+
+    @field_validator("page")
+    @classmethod
+    def validate_page(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("Page must be >= 1")
+        if v > 10_000:
+            raise ValueError("Page too large")
+        return v
+
+    @field_validator("limit")
+    @classmethod
+    def validate_limit(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("Limit must be >= 1")
+        if v > MAX_LIMIT:
+            raise ValueError(f"Limit must be <= {MAX_LIMIT}")
+        return v
+
+    @field_validator("q")
+    @classmethod
+    def validate_q(cls, v: str | None) -> str | None:
+        return _validate_search_text(v)
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().lower()
+        if v not in ALLOWED_ANALYSIS_STATUSES:
+            raise ValueError(f"status must be one of: {', '.join(ALLOWED_ANALYSIS_STATUSES)}")
+        return v
+
+    @field_validator("file_type")
+    @classmethod
+    def validate_file_type(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().lower()
+        if not re.fullmatch(r"[a-z0-9]{1,10}", v):
+            raise ValueError("Invalid file_type format")
+        return v
+
+
+class AdminDeleteFileParams(AdminTokenParams):
+    aid: str
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("A deletion reason is required")
+        if len(v) > MAX_REASON_LENGTH:
+            raise ValueError(f"Reason too long (max {MAX_REASON_LENGTH})")
+        return v
+
+
+class AdminListReportsParams(AdminTokenParams):
+    page: int = 1
+    limit: int = 20
+    q: str | None = None
+    risk_level: str | None = None
+    file_type: str | None = None
+
+    @field_validator("page")
+    @classmethod
+    def validate_page(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("Page must be >= 1")
+        if v > 10_000:
+            raise ValueError("Page too large")
+        return v
+
+    @field_validator("limit")
+    @classmethod
+    def validate_limit(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("Limit must be >= 1")
+        if v > MAX_LIMIT:
+            raise ValueError(f"Limit must be <= {MAX_LIMIT}")
+        return v
+
+    @field_validator("q")
+    @classmethod
+    def validate_q(cls, v: str | None) -> str | None:
+        return _validate_search_text(v)
+
+    @field_validator("risk_level")
+    @classmethod
+    def validate_risk_level(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if v not in ALLOWED_RISK_LEVELS:
+            raise ValueError(f"risk_level must be one of: {', '.join(sorted(ALLOWED_RISK_LEVELS))}")
+        return v
+
+    @field_validator("file_type")
+    @classmethod
+    def validate_file_type(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().lower()
+        if not re.fullmatch(r"[a-z0-9]{1,10}", v):
+            raise ValueError("Invalid file_type format")
+        return v
