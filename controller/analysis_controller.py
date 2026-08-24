@@ -29,12 +29,34 @@ CHUNK_SIZE = 1024 * 1024
 VIRUSTOTAL_MAX_SIZE = 32 * 1024 * 1024
 
 BASE_REPORT_PATH = Path("reports").resolve()
-FILENAME_REGEX = re.compile(r"^virustotal-([a-fA-F0-9]{32})\.json$")
+FILENAME_REGEX = re.compile(r"^(virustotal|mobsf|cape|rampartai)-([a-fA-F0-9]{32})\.json$")
+
+# Which report-file prefix each tool's raw JSON is stored under (see
+# bgProcessing/task_handlers.py - every handler writes reports/<prefix>-{md5}.json).
+TOOL_REPORT_PREFIX = {
+    "virustotal": "virustotal",
+    "mobsf": "mobsf",
+    "cape": "cape",
+    "rampartai": "rampartai",
+}
 
 def decode_redis_data(data):
     if not data:
         return None
     return {k.decode('utf-8'): v.decode('utf-8') for k, v in data.items()}
+
+
+def _parse_tool_notes(raw: str | None) -> dict | None:
+    """Best-effort decode of Analysis.tool_notes (JSON-encoded dict of
+    {tool_name: reason}, populated only when a tool was force-skipped
+    after exhausting its retry budget - see bgProcessing/tasks.py)."""
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
 
 def get_file_info_from_redis(sha256_hash):
     try:
@@ -108,6 +130,27 @@ async def generateToken_controller(token):
         }
     }
 
+def _read_task_progress(task_id: str) -> dict | None:
+    """Best-effort read of the live per-tool progress a running Celery task
+    publishes to Redis (see bgProcessing/tasks.py::publish_progress).
+
+    Returns None if unavailable (Redis down, key expired, or nothing
+    published yet) - callers must treat that as "no extra detail available"
+    rather than an error, since polling status must never hard-fail just
+    because the progress side-channel is empty.
+    """
+    try:
+        raw = redis_client.get(f"analysis_progress:{task_id}")
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
 async def analysisReport_controller(uid: str, task_id: str):
     try:
         uid = parse_uuid(uid)
@@ -126,12 +169,22 @@ async def analysisReport_controller(uid: str, task_id: str):
         analysis, report = row
 
         if analysis.status != "success":
-            return {
+            progress = _read_task_progress(task_id)
+            response = {
                 "success": True,
                 "task_id": task_id,
                 "status": analysis.status,
                 "message": "Analysis is not completed yet"
+                if analysis.status != "failed"
+                else "Analysis failed",
+                # Always included (even when None) so the frontend has a
+                # stable key to check while polling, not just once the
+                # analysis reaches "success".
+                "tool_notes": _parse_tool_notes(analysis.tool_notes),
             }
+            if progress:
+                response["progress"] = progress
+            return response
 
         if report is None:
             return {
@@ -158,6 +211,7 @@ async def analysisReport_controller(uid: str, task_id: str):
                 "file_path": analysis.file_path,
                 "file_type": analysis.file_type,
                 "tools": analysis.tools,
+                "tool_notes": _parse_tool_notes(analysis.tool_notes),
                 "md5": analysis.md5,
                 "status": analysis.status,
                 "deleted_at": analysis.deleted_at,
@@ -167,16 +221,29 @@ async def analysisReport_controller(uid: str, task_id: str):
                 "virustotal_score": report.virustotal_score,
                 "mobsf_score": report.mobsf_score,
                 "cape_score": report.cape_score,
+                "rampart_ai_score": (
+                    float(report.rampart_ai_score) if report.rampart_ai_score is not None else None
+                ),
+                "score": float(report.score) if report.score is not None else None,
+                "risk_level": report.risk_level,
+                "recommendation": report.recommendation,
+                "analysis_summary": report.analysis_summary,
+                "risk_indicators": report.risk_indicators,
+                "gemini_recommendation": report.gemini_recommendation,
                 "malware_signatures": report.malware_signatures,
                 "report_created_at": report.created_at,
             }
         }
     
-async def get_file_by_hash_controller(task_id: str, uid: str):
+async def get_file_by_hash_controller(task_id: str, uid: str, tool: str = "virustotal"):
     try:
         uid = parse_uuid(uid)
     except (TypeError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid token payload")
+
+    tool = (tool or "virustotal").strip().lower()
+    prefix = TOOL_REPORT_PREFIX.get(tool, "virustotal")
+
     async with SessionLocal() as session:
         row = await get_analysis_with_report(session, task_id, uid=uid)
         if not row:
@@ -195,27 +262,33 @@ async def get_file_by_hash_controller(task_id: str, uid: str):
                 "status": analysis.status,
                 "message": "Analysis is not completed yet"
             }
-        
-        path = (BASE_REPORT_PATH / f"virustotal-{analysis.md5}.json").resolve()
+
+        path = (BASE_REPORT_PATH / f"{prefix}-{analysis.md5}.json").resolve()
         try:
             if path.parent == BASE_REPORT_PATH.resolve() and path.is_file():
-                async with aiofiles.open(path, "r") as f:
+                # Reports are always written as UTF-8 (see
+                # write_raw_virustotal_report / _write_report in
+                # bgProcessing/task_handlers.py). Without an explicit
+                # encoding here, aiofiles falls back to the OS locale
+                # encoding (e.g. Windows cp1252), which raises
+                # UnicodeDecodeError on any non-ASCII byte a report
+                # legitimately contains (app names, MobSF findings, etc.).
+                async with aiofiles.open(path, "r", encoding="utf-8") as f:
                     content = await f.read()
                     data = json.loads(content)
             else:
-                data = {"error": "file not found"}
+                data = {"error": "file not found", "tool": tool}
         except Exception as e:
-            data = {"error": str(e)}
+            data = {"error": str(e), "tool": tool}
 
 
         return{
             "success": True,
             "task_id": task_id,
             "status": analysis.status,
+            "tool": tool,
             "report":data
         }
-
-        return
 
 async def downloadReport_controller(file_name:str):
     if not FILENAME_REGEX.fullmatch(file_name):

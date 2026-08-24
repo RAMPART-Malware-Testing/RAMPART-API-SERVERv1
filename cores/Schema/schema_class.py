@@ -71,6 +71,13 @@ class Analysis(Base):
     file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     tools: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # JSON-encoded dict of {tool_name: reason} for any tool that was force-
+    # skipped after exhausting its error/rate-limit retry budget (see
+    # bgProcessing/tasks.py). NULL when every attempted tool either
+    # succeeded outright or was skipped because the file type is simply
+    # unsupported by that tool - this column is never populated for that
+    # case, only for the retry-exhausted case.
+    tool_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str | None] = mapped_column(Text, server_default=text("'pending'"))
     blocked_by: Mapped[str | None] = mapped_column(String(50), nullable=True)
     is_malicious: Mapped[bool | None] = mapped_column(Boolean, server_default=text("FALSE"))
@@ -100,6 +107,10 @@ class Reports(Base):
     virustotal_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mobsf_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     cape_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    # RampartAI's own classifier score (malware_probability * 100), derived
+    # purely from a MobSF report - NULL when MobSF was skipped/unsupported
+    # or RampartAI itself is unavailable.
+    rampart_ai_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     rampart_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     gemini_recommendation: Mapped[str | None] = mapped_column(Text, nullable=True)
     malware_signatures: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)

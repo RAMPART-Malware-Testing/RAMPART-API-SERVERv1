@@ -50,6 +50,23 @@ def test_skipped_report_is_explicitly_represented(tmp_path):
     assert evidence["cape"] == {"status": "not_available"}
 
 
+def test_gemini_evidence_never_includes_rampart_ai(tmp_path):
+    """RampartAI is RAMPART's own in-house model, not a third-party
+    signal - its output must never be exposed to or referenced by the
+    external Gemini LLM, even implicitly via a stray dict key."""
+    vt_path = tmp_path / "vt.json"
+    mobsf_path = tmp_path / "mobsf.json"
+    cape_path = tmp_path / "cape.json"
+    vt_path.write_text('{"data":{"attributes":{"last_analysis_stats":{}}}}', encoding="utf-8")
+    mobsf_path.write_text('{"app_name": "Sample", "appsec": {}}', encoding="utf-8")
+    cape_path.write_text('{"malscore": 0}', encoding="utf-8")
+
+    evidence = build_gemini_evidence(vt_path, mobsf_path, cape_path)
+
+    assert "rampart_ai" not in evidence
+    assert "rampart_ai" not in json.dumps(evidence)
+
+
 def test_gemini_assessment_maps_to_report_columns():
     class Report:
         pass

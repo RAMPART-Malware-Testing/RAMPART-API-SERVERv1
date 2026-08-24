@@ -18,3 +18,4 @@ pytest-asyncio
 authlib
 itsdangerous
 httpx
+Pillow

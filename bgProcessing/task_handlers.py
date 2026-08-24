@@ -5,6 +5,7 @@ from pathlib import Path
 
 from calling.CAPE import CAPEAnalyzer
 from calling.MobSF import MobSFCall
+from calling.RampartAI import RampartAICall
 from calling.VirusTotal import VirusToTalAPI
 
 VIRUSTOTAL_MAX_SIZE = 32 * 1024 * 1024
@@ -82,8 +83,11 @@ def handle_virustotal(
         }
 
     if total_size > VIRUSTOTAL_MAX_SIZE:
+        # Permanent, non-retryable condition (file will never shrink) -
+        # skip immediately rather than burning retry attempts that can
+        # never succeed.
         return {
-            "status": "failed",
+            "status": "skipped",
             "report_path": str(report_path),
             "error": "File exceeds VirusTotal size limit",
         }
@@ -231,6 +235,51 @@ def handle_mobsf(
     }
 
 
+def calculate_rampart_ai_score(report: dict) -> float | None:
+    """0-100 danger score derived from RampartAI's malware_probability (0-1)."""
+    probability = report.get("malware_probability")
+    if probability is None:
+        return None
+    try:
+        return _clamp_score(float(probability) * 100)
+    except (TypeError, ValueError):
+        return None
+
+
+def handle_rampart_ai(
+    mobsf_report_path: str,
+    md5: str,
+    *,
+    client: RampartAICall | None = None,
+    report_path: str | Path | None = None,
+) -> dict:
+    """Classifies an already-produced MobSF report with the RampartAI model.
+
+    RampartAI only ever consumes a MobSF report file - never the raw
+    uploaded binary and never called on its own. If MobSF was skipped
+    (unsupported file type) or failed, this handler is simply never
+    invoked by the caller, and `rampart_ai_score` stays NULL - this
+    mirrors how the other optional tools degrade gracefully.
+    """
+    client = client or RampartAICall()
+    report_path = Path(report_path or Path("reports") / f"rampartai-{md5}.json")
+    result = client.predict(mobsf_report_path)
+    if not result.get("success"):
+        # A missing/misconfigured RampartAI service should never block the
+        # rest of the pipeline (Gemini synthesis still runs without it) -
+        # treat any failure as "skipped", not "failed".
+        return {
+            "status": "skipped",
+            "report_path": str(report_path),
+            "error": str(result.get("error", "RampartAI prediction unavailable")),
+        }
+    data = result.get("data") or {}
+    return {
+        "status": True,
+        "report_path": _write_report(report_path.parent, report_path.name, data),
+    }
+
+
 def handle_cape(
     file_path: str,
     md5: str,
@@ -290,7 +339,7 @@ def handle_cape(
     state = status.get("data")
     if isinstance(state, dict):
         state = state.get("status")
-    if state in {"failed_analysis", "error", "failed"}:
+    if state in {"failed_analysis", "error", "failed", "failed_reporting", "failed_processing"}:
         error = f"CAPE analysis failed: {state}"
         return {
             "status": "failed",

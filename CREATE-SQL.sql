@@ -47,6 +47,7 @@ CREATE TABLE "reports" (
     "virustotal_score" INTEGER,
     "mobsf_score" NUMERIC(5, 2),
     "cape_score" NUMERIC(5, 2),
+    "rampart_ai_score" NUMERIC(5, 2),
     "gemini_recommendation" TEXT,
     "malware_signatures" TEXT[],
     "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -73,6 +74,7 @@ CREATE TABLE "analysis" (
     "file_path" TEXT,
     "file_type" TEXT,
     "tools" TEXT,
+    "tool_notes" TEXT,
     "status" TEXT DEFAULT 'pending',
     "blocked_by" VARCHAR(50),
     "is_malicious" BOOLEAN DEFAULT FALSE,

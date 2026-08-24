@@ -10,11 +10,23 @@ class AnalysisReportParams(BaseModel):
     token: str
 
 
+ALLOWED_REPORT_TOOLS = {"virustotal", "mobsf", "cape", "rampartai"}
+
+
 class AnalysisReportParamsTarget(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     task_id: str
     token: str
+    tool: str = "virustotal"
+
+    @field_validator("tool")
+    @classmethod
+    def validate_tool(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        if v not in ALLOWED_REPORT_TOOLS:
+            raise ValueError(f"tool must be one of: {', '.join(sorted(ALLOWED_REPORT_TOOLS))}")
+        return v
 
 
 class AnalysisHistoryParams(BaseModel):
@@ -102,4 +114,27 @@ class AnalysisHistoryParams(BaseModel):
 
 class GenerateTokenParams(BaseModel):
     token: str
+
+
+class CheckHashParams(BaseModel):
+    token: str
+    sha256: str
+    file_name: str
+    file_size: int
+    privacy: bool = True
+
+    @field_validator("sha256")
+    @classmethod
+    def validate_sha256(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not re.fullmatch(r"[a-f0-9]{64}", v):
+            raise ValueError("sha256 must be a 64-character hex string")
+        return v
+
+    @field_validator("file_size")
+    @classmethod
+    def validate_file_size(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("file_size must be >= 0")
+        return v
 

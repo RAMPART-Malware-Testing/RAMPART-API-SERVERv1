@@ -15,6 +15,7 @@ from cores.async_pg_db import SessionLocal
 from services.analy.analy_service import (
     acquire_analysis_hash_lock,
     acquire_analysis_task_lock,
+    attempt_gap_fill_redispatch,
     get_file_by_hash,
     get_file_by_task_id,
     insert_table_analy,
@@ -93,6 +94,40 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
 
             final_md5 = md5_hash.hexdigest()
             final_sha256 = sha256_hash.hexdigest()
+
+            # Gap-fill takes precedence over plain reuse: if the most
+            # recent analysis for this hash finished "success" but had
+            # one or more tools force-skipped after exhausting their
+            # retry budget (non-null tool_notes), re-dispatch a fresh
+            # task that only retries the gap instead of silently
+            # returning the same permanently-incomplete result forever.
+            # Naturally falls through to "none" for a "dispatching" row
+            # (still in-flight - the dispatching-conflict check below
+            # still applies) or a "success" row with no tool_notes
+            # (nothing to gap-fill), leaving the reusable-attach logic
+            # below unchanged for those cases. The freshly-uploaded temp
+            # file is unused here (gap-fill reuses the OLD analysis's
+            # already-stored file_path) and is cleaned up by the
+            # `finally` block below since temp_file_path is left set.
+            gap_outcome, gap_analysis = await attempt_gap_fill_redispatch(
+                db_session,
+                uid=user_id,
+                file_hash=final_sha256,
+                file_name=original_filename,
+                file_size=accumulated_size,
+                privacy=is_private,
+            )
+            if gap_outcome == "gap_filled" and gap_analysis is not None:
+                return upload_response(
+                    original_filename,
+                    final_md5,
+                    final_sha256,
+                    gap_analysis.task_id,
+                    gap_analysis.status,
+                    False,
+                    "gap_filled",
+                )
+
             await acquire_analysis_hash_lock(db_session, final_sha256)
             existing = await get_file_by_hash(db_session, final_sha256)
             existing_status = existing.get("status") if existing else None

@@ -79,7 +79,7 @@ def update_values(session):
     return [statement.compile().params for statement in session.statements if str(statement).lstrip().startswith("UPDATE")]
 
 
-def run_task(monkeypatch, tmp_path, vt_result, retries=0, retry_error=None, report=None):
+def run_task(monkeypatch, tmp_path, vt_result, retries=0, retry_error=None, report=None, **extra_kwargs):
     session = FakeSession(report)
     monkeypatch.setattr(tasks, "SyncSessionLocal", lambda: session)
     monkeypatch.setattr(tasks, "REPORTS_DIR", tmp_path)
@@ -120,12 +120,23 @@ def run_task(monkeypatch, tmp_path, vt_result, retries=0, retry_error=None, repo
     monkeypatch.setattr(tasks.analyze_malware_task, "retry", retry)
     tasks.analyze_malware_task.push_request(id="task-1", retries=retries)
     try:
-        if vt_result["state"] == "pending" and retry_error is None:
+        # A single "failed"/"error" VT result no longer terminally fails
+        # the task on its own - it's counted against the per-tool retry
+        # budget (MAX_TOOL_ERROR_RETRIES=3) and retried like any other
+        # transient error, so it raises Retry() unless the caller is
+        # simulating retry-budget exhaustion (via retry_error) or has
+        # pre-seeded vt_attempts high enough that THIS attempt is the one
+        # that force-skips VT instead of retrying again.
+        about_to_exhaust = vt_result["state"] == "error" and extra_kwargs.get("vt_attempts", 0) + 1 >= 3
+        expect_retry = retry_error is None and not about_to_exhaust and (
+            vt_result["state"] == "pending" or vt_result["state"] == "error"
+        )
+        if expect_retry:
             with pytest.raises(Retry):
-                tasks.analyze_malware_task.run("sample.bin", "md5", "sha256", 10)
+                tasks.analyze_malware_task.run("sample.bin", "md5", "sha256", 10, **extra_kwargs)
             result = None
         else:
-            result = tasks.analyze_malware_task.run("sample.bin", "md5", "sha256", 10)
+            result = tasks.analyze_malware_task.run("sample.bin", "md5", "sha256", 10, **extra_kwargs)
     finally:
         tasks.analyze_malware_task.pop_request()
     return result, session, retry_calls
@@ -291,13 +302,38 @@ def test_retry_exhaustion_marks_all_rows_failed(monkeypatch, tmp_path):
     assert any("failed" in params.values() for params in update_values(session))
 
 
-def test_terminal_vt_error_marks_all_rows_failed_with_json_safe_error(monkeypatch, tmp_path):
-    result, session, _ = run_task(
+def test_single_vt_error_retries_instead_of_failing_immediately(monkeypatch, tmp_path):
+    """A lone VirusTotal error (rate limit, transient API failure, etc.)
+    must not abort the whole pipeline anymore - it's counted against a
+    3-attempt retry budget and retried like a pending poll."""
+    result, session, retry_calls = run_task(
         monkeypatch, tmp_path, {"state": "error", "error": RuntimeError("VT unavailable")}
     )
 
-    assert result == {"success": False, "task_id": "task-1", "error": "VT unavailable"}
-    assert any("failed" in params.values() for params in update_values(session))
+    assert result is None  # task raised Retry(), did not return yet
+    assert retry_calls[0]["kwargs"]["vt_status"] == "pending"
+    assert retry_calls[0]["kwargs"]["vt_attempts"] == 1
+    assert not any("failed" in params.values() for params in update_values(session))
+
+
+def test_vt_error_force_skips_after_exhausting_retry_budget_without_failing_task(monkeypatch, tmp_path):
+    """After MAX_TOOL_ERROR_RETRIES (3) consecutive VirusTotal errors,
+    VT is force-skipped (not the whole task failed) - the pipeline still
+    finishes successfully via Gemini synthesis without a VT signal, and
+    the skip reason is recorded in tool_notes."""
+    result, session, retry_calls = run_task(
+        monkeypatch,
+        tmp_path,
+        {"state": "error", "error": RuntimeError("VT unavailable")},
+        vt_status="pending",
+        vt_submitted=True,
+        vt_attempts=2,
+    )
+
+    assert result["success"] is True
+    assert result["tool_notes"]["virustotal"].startswith("VirusTotal skipped after 3 failed attempts")
+    assert result["virustotal_score"] is None
+    assert not any("failed" in params.values() for params in update_values(session))
 
 
 def test_vt_client_returns_string_errors(monkeypatch, tmp_path):
@@ -367,12 +403,14 @@ async def test_status_uses_string_uid_and_current_report_schema(monkeypatch):
     analysis = SimpleNamespace(
         aid="analysis-id", task_id="task-1", uid="00000000-0000-4000-8000-000000000001", privacy=True,
         file_name="sample.bin", file_size=10, file_hash="sha256", file_path="sample.bin",
-        file_type="bin", tools="virustotal", md5="md5", status="success", deleted_at=None,
+        file_type="bin", tools="virustotal", tool_notes=None, md5="md5", status="success", deleted_at=None,
         deleted_by=None, created_at=None,
     )
     report = SimpleNamespace(
         rid="report-id", file_type="bin", virustotal_score=42, mobsf_score=20,
-        cape_score=70, malware_signatures=["Trojan"], created_at=None
+        cape_score=70, rampart_ai_score=55, score=60, risk_level="High",
+        recommendation="Isolate", analysis_summary="summary", risk_indicators=["a"],
+        gemini_recommendation="verdict", malware_signatures=["Trojan"], created_at=None
     )
     captured = {}
 
@@ -396,6 +434,7 @@ async def test_status_uses_string_uid_and_current_report_schema(monkeypatch):
     assert response["report"]["virustotal_score"] == 42
     assert response["report"]["mobsf_score"] == 20
     assert response["report"]["cape_score"] == 70
+    assert response["report"]["rampart_ai_score"] == 55
     assert response["report"]["malware_signatures"] == ["Trojan"]
 
 
@@ -492,18 +531,38 @@ async def test_download_accepts_exact_persisted_virustotal_basename(monkeypatch,
 @pytest.mark.parametrize("name", [
     f"cape-{'a' * 32}.json",
     f"mobsf-{'a' * 32}.json",
+    f"rampartai-{'a' * 32}.json",
+])
+async def test_download_accepts_all_known_tool_basenames(name, monkeypatch, tmp_path):
+    """Users need to be able to download the full VT+MobSF+CAPE+RampartAI
+    raw report set for research purposes - not just VirusTotal."""
+    expected = tmp_path / name
+    expected.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(analysis_controller, "BASE_REPORT_PATH", tmp_path)
+
+    assert await analysis_controller.downloadReport_controller(name) == expected.resolve()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", [
     f"virustotal-{'a' * 32}",
+    f"unknown-tool-{'a' * 32}.json",
     "../virustotal-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json",
 ])
-async def test_download_rejects_non_virustotal_or_non_basename(name):
+async def test_download_rejects_malformed_or_unknown_tool_names(name):
     with pytest.raises(HTTPException) as raised:
         await analysis_controller.downloadReport_controller(name)
     assert raised.value.status_code == 400
 
 
-def test_raw_report_request_rejects_legacy_tool_selector():
+def test_raw_report_request_accepts_known_tool_selector():
+    params = AnalysisReportParamsTarget(task_id="task-1", token="token", tool="cape")
+    assert params.tool == "cape"
+
+
+def test_raw_report_request_rejects_unknown_tool_selector():
     with pytest.raises(ValidationError):
-        AnalysisReportParamsTarget(task_id="task-1", token="token", tool="cape")
+        AnalysisReportParamsTarget(task_id="task-1", token="token", tool="not-a-real-tool")
 
 
 class FinalizeScalars:

@@ -141,7 +141,7 @@ def active_user(status="active"):
     return SimpleNamespace(status=status)
 
 
-async def run_upload(monkeypatch, controller, tmp_path, content=b"payload", filename="sample.bin", user=None, existing=None, refreshed=None, task=None, events=None):
+async def run_upload(monkeypatch, controller, tmp_path, content=b"payload", filename="sample.bin", user=None, existing=None, refreshed=None, task=None, events=None, gap_fill=("none", None)):
     session = FakeSession(user if user is not None else active_user(), events)
     if task:
         task.session = session
@@ -184,8 +184,14 @@ async def run_upload(monkeypatch, controller, tmp_path, content=b"payload", file
                 setattr(record, key, value)
         return len(matching)
 
+    async def gap_fill_redispatch(db, **kwargs):
+        if events is not None:
+            events.append("gap-fill-check")
+        return gap_fill
+
     monkeypatch.setattr(controller, "UPLOAD_DIR", tmp_path)
     monkeypatch.setattr(controller, "SessionLocal", lambda: SessionContext(session))
+    monkeypatch.setattr(controller, "attempt_gap_fill_redispatch", gap_fill_redispatch, raising=False)
     monkeypatch.setattr(controller, "get_file_by_hash", find_existing)
     monkeypatch.setattr(controller, "get_file_by_task_id", find_task, raising=False)
     monkeypatch.setattr(controller, "insert_table_analy", insert)
@@ -212,6 +218,7 @@ async def test_upload_locks_hash_before_lookup_insert_and_dispatch(monkeypatch, 
     )
 
     assert events == [
+        "gap-fill-check",
         "lock",
         "lookup",
         "insert",
@@ -343,7 +350,7 @@ async def test_reusable_attachment_lock_order_is_hash_then_task_then_refresh_the
 
     await run_upload(monkeypatch, controller, tmp_path, existing=existing, events=events)
 
-    assert events[:6] == ["lock", "lookup", "task-lock", "refresh", "insert", "commit"]
+    assert events[:7] == ["gap-fill-check", "lock", "lookup", "task-lock", "refresh", "insert", "commit"]
 
 
 @pytest.mark.asyncio
@@ -449,6 +456,7 @@ async def test_broker_failure_marks_persisted_analysis_failed_and_returns_503(mo
     assert task.session.commits == 2
     assert task.status_at_dispatch == "dispatching"
     assert events == [
+        "gap-fill-check",
         "lock",
         "lookup",
         "insert",
