@@ -13,7 +13,7 @@ skips that call.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta as _timedelta, timezone
 from typing import Any
 
 from sqlalchemy import and_, asc, desc, func, or_, select
@@ -418,7 +418,14 @@ async def change_user_role(
 # ---------------------------------------------------------------------------
 
 
-async def get_admin_dashboard_summary(session: AsyncSession) -> dict[str, Any]:
+async def get_admin_dashboard_summary(session: AsyncSession, *, trend_days: int = 14) -> dict[str, Any]:
+    """Aggregate stats for the admin/master backend dashboard: user/role
+    counts, ban count, analysis totals, malicious count, a daily upload
+    trend for the last `trend_days` days, breakdowns by risk level /
+    analysis status / file type, per-tool usage counts, and the most
+    recent privileged admin actions. All queries are read-only aggregates
+    over the whole system - no per-user scoping (this endpoint is already
+    gated to admin/master by the controller)."""
     total_users = (
         await session.execute(select(func.count()).select_from(User))
     ).scalar_one()
@@ -446,11 +453,66 @@ async def get_admin_dashboard_summary(session: AsyncSession) -> dict[str, Any]:
         )
     ).scalar_one()
 
+    # --- Daily upload trend (last `trend_days` days, oldest first) ---
+    trend_rows = (
+        await session.execute(
+            select(func.date(Analysis.created_at).label("day"), func.count())
+            .where(Analysis.created_at >= datetime.now(timezone.utc) - _timedelta(days=trend_days))
+            .group_by("day")
+        )
+    ).all()
+    trend_map = {str(day): count for day, count in trend_rows}
+    today = datetime.now(timezone.utc).date()
+    upload_trend = []
+    for offset in range(trend_days - 1, -1, -1):
+        day = today - _timedelta(days=offset)
+        upload_trend.append({"date": day.isoformat(), "count": trend_map.get(day.isoformat(), 0)})
+
+    # --- Analysis status breakdown (pending/processing/success/failed/...) ---
+    status_rows = (
+        await session.execute(select(Analysis.status, func.count()).group_by(Analysis.status))
+    ).all()
+    status_breakdown = [{"status": s or "unknown", "count": c} for s, c in status_rows]
+
+    # --- Risk level breakdown (from Reports; Low/Caution/High/Critical) ---
+    risk_rows = (
+        await session.execute(select(Reports.risk_level, func.count()).group_by(Reports.risk_level))
+    ).all()
+    risk_level_breakdown = [{"risk_level": r or "N/A", "count": c} for r, c in risk_rows]
+
+    # --- File type breakdown (top 8, rest bucketed as "other") ---
+    file_type_rows = (
+        await session.execute(
+            select(Analysis.file_type, func.count())
+            .group_by(Analysis.file_type)
+            .order_by(desc(func.count()))
+        )
+    ).all()
+    file_type_breakdown = [
+        {"file_type": (ft or "unknown").lower(), "count": c} for ft, c in file_type_rows[:8]
+    ]
+    other_count = sum(c for _, c in file_type_rows[8:])
+    if other_count:
+        file_type_breakdown.append({"file_type": "other", "count": other_count})
+
+    # --- Per-tool usage (tools column is a comma-separated string, e.g.
+    #     "virustotal,mobsf,cape,rampart_ai,gemini") ---
+    tools_rows = (
+        await session.execute(select(Analysis.tools).where(Analysis.tools.isnot(None)))
+    ).scalars().all()
+    tool_usage_counter: dict[str, int] = {}
+    for tools_str in tools_rows:
+        for tool in {t.strip() for t in tools_str.split(",") if t.strip()}:
+            tool_usage_counter[tool] = tool_usage_counter.get(tool, 0) + 1
+    tool_usage = [
+        {"tool": tool, "count": count}
+        for tool, count in sorted(tool_usage_counter.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+
     recent_bans_rows = (
         await session.execute(
             select(AuditLog)
             .options(joinedload(AuditLog.actor), joinedload(AuditLog.target))
-            .where(AuditLog.action.in_(("ban_user", "unban_user", "role_change")))
             .order_by(desc(AuditLog.created_at))
             .limit(10)
         )
@@ -480,6 +542,11 @@ async def get_admin_dashboard_summary(session: AsyncSession) -> dict[str, Any]:
             "banned_count": banned_count,
             "total_analyses": total_analyses,
             "malicious_count": malicious_count,
+            "upload_trend": upload_trend,
+            "status_breakdown": status_breakdown,
+            "risk_level_breakdown": risk_level_breakdown,
+            "file_type_breakdown": file_type_breakdown,
+            "tool_usage": tool_usage,
             "recent_actions": recent_actions,
         },
     }
