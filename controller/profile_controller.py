@@ -4,6 +4,7 @@ from fastapi import HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from cores.async_pg_db import SessionLocal
+from services.admin.authz import AuthError, ensure_not_banned
 from services.oauth.oauth_service import user_public_dict
 from services.profile.profile_service import (
     AVATAR_DIR,
@@ -59,6 +60,10 @@ async def get_profile_controller(token: str):
 
     async with SessionLocal() as session:
         user = await get_user_or_404(session, uid)
+        try:
+            ensure_not_banned(user)
+        except AuthError as exc:
+            return error(exc.code, exc.message)
         return success(AuthStatus.LOGIN_SUCCESS, "ดึงข้อมูลโปรไฟล์สำเร็จ", user_public_dict(user))
 
 
@@ -68,6 +73,13 @@ async def update_username_controller(token: str, username: str | None):
         return err
     if not username:
         return error(AuthStatus.USERNAME_TAKEN, "กรุณาระบุชื่อผู้ใช้ใหม่")
+
+    async with SessionLocal() as session:
+        user = await get_user_or_404(session, uid)
+        try:
+            ensure_not_banned(user)
+        except AuthError as exc:
+            return error(exc.code, exc.message)
 
     if is_rate_limited("profile:username", str(uid), _USERNAME_UPDATE_LIMIT, _USERNAME_UPDATE_WINDOW_SECONDS):
         return error(AuthStatus.RATE_LIMITED, "คุณเปลี่ยนชื่อผู้ใช้บ่อยเกินไป กรุณาลองใหม่ภายหลัง")
@@ -81,6 +93,13 @@ async def update_avatar_controller(token: str, file: UploadFile):
     uid, err = _resolve_uid_or_error(token)
     if err:
         return err
+
+    async with SessionLocal() as session:
+        user = await get_user_or_404(session, uid)
+        try:
+            ensure_not_banned(user)
+        except AuthError as exc:
+            return error(exc.code, exc.message)
 
     if is_rate_limited("profile:avatar", str(uid), _AVATAR_UPLOAD_LIMIT, _AVATAR_UPLOAD_WINDOW_SECONDS):
         return error(AuthStatus.RATE_LIMITED, "คุณอัปโหลดรูปโปรไฟล์บ่อยเกินไป กรุณาลองใหม่ภายหลัง")

@@ -62,7 +62,13 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={"success": False, "code": "USER_NOT_FOUND", "message": "User not found."},
             )
-        if user_record.status.lower() != "active":
+        # Source of truth for the ban check is `is_banned`, not the legacy
+        # `status` string - re-checked fresh from the DB on every upload so
+        # a user banned mid-session can never sneak one more file through
+        # (OWASP A01/A07). Error shape kept identical to before this
+        # change (USER_NOT_ACTIVE) so the frontend's existing handling of
+        # this specific endpoint doesn't need to change.
+        if user_record.is_banned:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={"success": False, "code": "USER_NOT_ACTIVE", "message": "User is not active."},

@@ -413,13 +413,17 @@ async def test_status_uses_string_uid_and_current_report_schema(monkeypatch):
         gemini_recommendation="verdict", malware_signatures=["Trojan"], created_at=None
     )
     captured = {}
+    fake_user = SimpleNamespace(is_banned=False)
 
     class Context:
         async def __aenter__(self):
-            return object()
+            return self
 
         async def __aexit__(self, *args):
             return False
+
+        async def get(self, model, uid):
+            return fake_user
 
     async def lookup(session, task_id, uid):
         captured["uid"] = uid
@@ -441,13 +445,17 @@ async def test_status_uses_string_uid_and_current_report_schema(monkeypatch):
 @pytest.mark.asyncio
 async def test_success_without_report_is_defensive(monkeypatch):
     analysis = SimpleNamespace(status="success")
+    fake_user = SimpleNamespace(is_banned=False)
 
     class Context:
         async def __aenter__(self):
-            return object()
+            return self
 
         async def __aexit__(self, *args):
             return False
+
+        async def get(self, model, uid):
+            return fake_user
 
     async def lookup(session, task_id, uid):
         return analysis, None
@@ -470,13 +478,17 @@ async def test_success_without_report_is_defensive(monkeypatch):
 async def test_raw_report_status_uses_string_uid(monkeypatch):
     captured = {}
     analysis = SimpleNamespace(status="processing")
+    fake_user = SimpleNamespace(is_banned=False)
 
     class Context:
         async def __aenter__(self):
-            return object()
+            return self
 
         async def __aexit__(self, *args):
             return False
+
+        async def get(self, model, uid):
+            return fake_user
 
     async def lookup(session, task_id, uid):
         captured["uid"] = uid
@@ -497,13 +509,17 @@ async def test_raw_report_reads_persisted_virustotal_name(monkeypatch, tmp_path)
     report = {"scan_summary": {"total_scanners": 20}}
     (tmp_path / f"virustotal-{md5}.json").write_text(json.dumps(report), encoding="utf-8")
     analysis = SimpleNamespace(status="success", md5=md5)
+    fake_user = SimpleNamespace(is_banned=False)
 
     class Context:
         async def __aenter__(self):
-            return object()
+            return self
 
         async def __aexit__(self, *args):
             return False
+
+        async def get(self, model, uid):
+            return fake_user
 
     async def lookup(session, task_id, uid):
         return analysis, SimpleNamespace()
