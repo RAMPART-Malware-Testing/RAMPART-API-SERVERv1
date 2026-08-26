@@ -1,6 +1,6 @@
 import re
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 # Allowlist rather than a denylist (OWASP A03 - Injection / stored-XSS
 # defense in depth): usernames are rendered as-is in the frontend (Navbar,
@@ -24,6 +24,7 @@ class DownloadRecordParams(BaseModel):
 
 
 class UpdateProfileParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     token: str
     username: str | None = None
 
