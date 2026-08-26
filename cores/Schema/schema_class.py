@@ -13,6 +13,7 @@ class User(Base):
     uid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    password: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     role: Mapped[str] = mapped_column(String(20), server_default=text("'user'"))
     status: Mapped[str] = mapped_column(String(50), server_default=text("'active'"))

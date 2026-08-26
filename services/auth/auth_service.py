@@ -19,9 +19,9 @@ def verify_access_token(token: str) -> str:
 
 from sqlalchemy import select
 from cores.async_pg_db import SessionLocal
-from cores.models_class import User
+from cores.Schema.schema_class import User
 from utils.cypto.PasswordCreateAndVerify import get_password_hash, verify_password
-from utils.jwt import create_token, decode_token
+from utils.jwt import create_token
 from services.otp_service import OTPService
 
 
@@ -38,10 +38,10 @@ class AuthService:
         if not user:
             return error(AuthStatus.USER_NOT_FOUND, "ไม่พบผู้ใช้งานระบบ")
 
-        if not verify_password(user.password, body.password):
+        if not user.password or not verify_password(user.password, body.password):
             return error(AuthStatus.INVALID_CREDENTIALS, "ข้อมูลการเข้าสู่ระบบไม่ถูกต้อง")
 
-        if deviceToken: 
+        if deviceToken:
             payload, err = TokenService.verify_token(deviceToken, "device")
             if not err:
                 access_token = create_token(
@@ -49,16 +49,16 @@ class AuthService:
                     token_type="access",
                     expires_minutes=60 * 24 * 7
                 )
-
                 user_dict = user.__dict__.copy()
                 user_dict.pop("password", None)
-                user = user_dict 
+                # remove SQLAlchemy internal state before returning
+                user_dict.pop("_sa_instance_state", None)
                 return success(
                     AuthStatus.LOGIN_SUCCESS,
                     "เข้าสู่ระบบสำเร็จ",
-                    { "access_token": access_token, "data":user, "bypass_otp":True }
+                    {"access_token": access_token, "data": user_dict, "bypass_otp": True}
                 )
-            
+
         token = create_token(
             subject=str(user.uid),
             token_type="login",
@@ -74,7 +74,6 @@ class AuthService:
 
     @staticmethod
     async def login_confirm(body, user_agent, ip):
-
         payload, err = TokenService.verify_token(body.token, "login")
         if err:
             return err
@@ -83,7 +82,11 @@ class AuthService:
         if not ok:
             return error(AuthStatus.OTP_INVALID, otp_err)
 
-        uid = int(payload["sub"])
+        from utils.uuid import parse_uuid
+        try:
+            uid = parse_uuid(payload["sub"])
+        except (TypeError, ValueError):
+            return error(AuthStatus.TOKEN_INVALID, "ข้อมูลผู้ใช้ในโทเค็นไม่ถูกต้อง")
 
         async with SessionLocal() as session:
             result = await session.execute(
@@ -104,41 +107,40 @@ class AuthService:
         deiveToken = create_token(
             subject=str(user.uid),
             token_type="device",
-            expires_minutes=60*24*7
+            expires_minutes=60 * 24 * 7
         )
 
         access_token = create_token(
-            subject=str(uid),
+            subject=str(user.uid),
             token_type="access",
             expires_minutes=60 * 24 * 7
         )
 
         refresh_token = create_token(
-            subject=str(uid),
+            subject=str(user.uid),
             token_type="refresh_token",
             expires_minutes=60 * 24 * 7
         )
 
-        OTPService.clear_otp_session("login", body.token, str(uid))
+        OTPService.clear_otp_session("login", body.token, str(user.uid))
 
         return success(
             AuthStatus.LOGIN_SUCCESS,
             "ยืนยันการเข้าสู่ระบบสำเร็จ",
-            {"access_token": access_token, "data":user, "deiveToken":deiveToken, "refresh_token":refresh_token }
+            {"access_token": access_token, "data": {k: user[k] for k in user.keys()}, "deiveToken": deiveToken, "refresh_token": refresh_token}
         )
 
 # ================= REGISTER =================
 
     @staticmethod
-    async def register(body:RegisterParame):
-
+    async def register(body: RegisterParame):
         async with SessionLocal() as session:
             result = await session.execute(
                 select(User).where(User.email == body.email)
             )
             if result.scalar_one_or_none():
                 return error(
-                    AuthStatus.INVALID_CREDENTIALS,
+                    AuthStatus.USER_NOT_FOUND,
                     "มีอีเมลผู้ใช้งานนี้ในระบบแล้ว"
                 )
 
@@ -146,7 +148,7 @@ class AuthService:
             subject=body.email,
             token_type="register",
             expires_minutes=5,
-            extra_payload={"password": body.password}
+            extra_payload={"password": body.password, "username": body.username}
         )
 
         return await OTPService.create_otp_session(
@@ -157,8 +159,7 @@ class AuthService:
         )
 
     @staticmethod
-    async def register_confirm(body:RegisterConfirmParame):
-
+    async def register_confirm(body: RegisterConfirmParame):
         payload, err = TokenService.verify_token(body.token, "register")
         if err:
             return err
@@ -169,7 +170,7 @@ class AuthService:
 
         async with SessionLocal() as session:
             new_user = User(
-                username=payload["sub"],
+                username=payload.get("username") or body.username or payload["sub"],
                 email=payload["sub"],
                 password=get_password_hash(payload["password"]),
                 role="user",
@@ -188,12 +189,18 @@ class AuthService:
 # ================= RESET =================
 
     @staticmethod
-    async def reset(body:ResetPasswdParame):
+    async def reset(body: ResetPasswdParame):
         if body.token and body.newPasswd:
             verifytoken = decode_token(body.token)
-            if not verifytoken: return error(AuthStatus.TOKEN_INVALID, "โทเค็นไม่ถูกต้อง")
-            if verifytoken.get("type") != 'access': return error(AuthStatus.TOKEN_WRONG_TYPE, "ประเภทโทเค็นไม่ถูกต้อง")
-            uid = int(verifytoken.get('sub'))
+            if not verifytoken:
+                return error(AuthStatus.TOKEN_INVALID, "โทเค็นไม่ถูกต้อง")
+            if verifytoken.get("type") != 'access':
+                return error(AuthStatus.TOKEN_WRONG_TYPE, "ประเภทโทเค็นไม่ถูกต้อง")
+            from utils.uuid import parse_uuid
+            try:
+                uid = parse_uuid(verifytoken.get('sub'))
+            except (TypeError, ValueError):
+                return error(AuthStatus.TOKEN_INVALID, "ข้อมูลผู้ใช้ในโทเค็นไม่ถูกต้อง")
             async with SessionLocal() as session:
                 result = await session.execute(
                     select(User).where(User.uid == uid)
@@ -201,7 +208,6 @@ class AuthService:
                 user = result.scalar_one_or_none()
                 if not user:
                     return error(AuthStatus.USER_NOT_FOUND, "ไม่พบผู้ใช้งานระบบ")
-
                 user.password = get_password_hash(body.newPasswd)
                 await session.commit()
             return success(
@@ -211,12 +217,12 @@ class AuthService:
         else:
             async with SessionLocal() as session:
                 result = await session.execute(
-                    select(User.uid,User.email).where(User.email == body.email)
+                    select(User.uid, User.email).where(User.email == body.email)
                 )
                 user = result.mappings().one_or_none()
             if not user:
                 return error(AuthStatus.USER_NOT_FOUND, "ไม่พบผู้ใช้งานระบบ")
-            
+
             token = create_token(
                 subject=str(user.uid),
                 token_type="reset-passwd",
@@ -240,7 +246,11 @@ class AuthService:
         if not ok:
             return error(AuthStatus.OTP_INVALID, otp_err)
 
-        uid = int(payload["sub"])
+        from utils.uuid import parse_uuid
+        try:
+            uid = parse_uuid(payload["sub"])
+        except (TypeError, ValueError):
+            return error(AuthStatus.TOKEN_INVALID, "ข้อมูลผู้ใช้ในโทเค็นไม่ถูกต้อง")
 
         async with SessionLocal() as session:
             result = await session.execute(
@@ -259,14 +269,18 @@ class AuthService:
             AuthStatus.PASSWORD_RESET_SUCCESS,
             "รีเซ็ตรหัสผ่านสำเร็จ"
         )
-    
+
     @staticmethod
     async def refresh_token(refresh_token: str):
         payload, err = TokenService.verify_token(refresh_token, "refresh_token")
         if err:
             return err
 
-        uid = int(payload["sub"])
+        from utils.uuid import parse_uuid
+        try:
+            uid = parse_uuid(payload["sub"])
+        except (TypeError, ValueError):
+            return error(AuthStatus.TOKEN_INVALID, "ข้อมูลผู้ใช้ในโทเค็นไม่ถูกต้อง")
 
         async with SessionLocal() as session:
             result = await session.execute(
@@ -283,23 +297,11 @@ class AuthService:
                 "ผู้ใช้งานถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ"
             )
 
-        new_access_token = create_token(
-            subject=str(uid),
-            token_type="access",
-            expires_minutes=60 * 24 * 7
-        )
-
-        new_refresh_token = create_token(
-            subject=str(uid),
-            token_type="refresh_token",
-            expires_minutes=60 * 24 * 7
-        )
+        new_access_token = create_token(subject=str(uid), token_type="access", expires_minutes=60 * 24 * 7)
+        new_refresh_token = create_token(subject=str(uid), token_type="refresh_token", expires_minutes=60 * 24 * 7)
 
         return success(
             AuthStatus.TOKEN_REFRESH_SUCCESS,
             "รีเฟรชโทเค็นสำเร็จ",
-            {
-                "access_token": new_access_token,
-                "refresh_token": new_refresh_token,
-            }
+            {"access_token": new_access_token, "refresh_token": new_refresh_token}
         )

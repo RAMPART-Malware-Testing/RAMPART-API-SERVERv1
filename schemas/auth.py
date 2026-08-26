@@ -19,6 +19,7 @@ class RegisterParame(BaseModel):
 class RegisterConfirmParame(BaseModel):
     token: str
     otp: str
+    username: str | None = None
 
 class ResetPasswdParame(BaseModel):
     email: str | None = None
