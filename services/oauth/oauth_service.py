@@ -1,7 +1,12 @@
 """Business logic for Google / GitHub OAuth login.
 
-RAMPART has no local password anymore: a user's identity is proven entirely
-by the OAuth provider. The only job of this service is:
+OAuth is one of two supported ways to authenticate (the other being local
+email+password with OTP confirmation, see services/auth/auth_service.py) -
+both resolve to the same `users` row and share the same `role`/`is_banned`
+access-control state. A user who signs in only via OAuth has `password IS
+NULL` on their row; AuthService.login() checks for that and rejects
+password-login for such accounts rather than crashing. The only job of this
+service is:
 
 1. Ask the provider "who is this?" (via `fetch_google_profile` /
    `fetch_github_profile`), normalized to a small `OAuthProfile`.

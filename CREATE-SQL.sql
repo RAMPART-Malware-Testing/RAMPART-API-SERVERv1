@@ -1,12 +1,15 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- Users are authenticated exclusively via external OAuth providers (Google, GitHub).
--- There is no local password: identity is proven by the provider, this table only
--- stores the minimal profile data the app needs.
+-- Users can authenticate either via a local email+password (with OTP
+-- confirmation) OR via an external OAuth provider (Google, GitHub) - both
+-- flows coexist and resolve to the same "users" row. "password" is NULL for
+-- OAuth-only accounts (that never called /api/auth/register); AuthService.login
+-- rejects login for any account whose password is NULL rather than crashing.
 CREATE TABLE "users" (
     "uid" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     "username" VARCHAR(50) NOT NULL UNIQUE,
     "email" VARCHAR(255) NOT NULL UNIQUE,
+    "password" TEXT NULL, -- Argon2 hash (utils/cypto/PasswordCreateAndVerify.py). NULL for OAuth-only accounts.
     "avatar_url" TEXT DEFAULT NULL,
     "role" VARCHAR(20) DEFAULT 'user', -- 'user' | 'admin' | 'master'. 'master' can ONLY be assigned by the ROOT_EMAIL OAuth login branch, never via API/UI.
     "status" VARCHAR(50) DEFAULT 'active', -- legacy free-text flag, NOT authoritative for access control anymore, see is_banned
@@ -65,6 +68,27 @@ CREATE TABLE "audit_logs" (
     "target_uid" UUID REFERENCES "users"("uid") ON DELETE SET NULL,
     "action" VARCHAR(255),
     "detail" TEXT,
+    "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- One row per successful/failed login attempt (both password and OAuth flows).
+CREATE TABLE "login_history" (
+    "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "uid" UUID NOT NULL REFERENCES "users"("uid") ON DELETE CASCADE,
+    "provider" VARCHAR(32), -- 'password' | 'google' | 'github'
+    "ip" VARCHAR(64),
+    "user_agent" TEXT,
+    "status" VARCHAR(32),
+    "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- One row per raw-report download (see controller/analysis_controller.py::downloadReport_controller).
+CREATE TABLE "download_history" (
+    "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "uid" UUID NOT NULL REFERENCES "users"("uid") ON DELETE CASCADE,
+    "file_name" TEXT,
+    "tool" VARCHAR(32),
+    "md5" VARCHAR(32),
     "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
