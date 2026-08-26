@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cores.Schema.schema_class import OAuthAccount, User
+from utils.email_normalize import normalize_email, normalized_email_expr
 from utils.jwt import create_token
 
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days, same lifetime as before
@@ -164,7 +165,7 @@ async def find_or_create_user(session: AsyncSession, profile: OAuthProfile) -> U
             return user
 
     existing_user_result = await session.execute(
-        select(User).where(User.email == profile.email)
+        select(User).where(normalized_email_expr(User.email) == normalize_email(profile.email))
     )
     user = existing_user_result.scalar_one_or_none()
 

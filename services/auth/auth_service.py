@@ -21,8 +21,9 @@ from sqlalchemy import select
 from cores.async_pg_db import SessionLocal
 from cores.Schema.schema_class import LoginHistory, OAuthAccount, User
 from utils.cypto.PasswordCreateAndVerify import get_password_hash, verify_password
+from utils.email_normalize import normalize_email, normalized_email_expr
 from utils.jwt import create_token
-from services.otp_service import OTPService
+from services.otp_service import OTPService, MAX_OTP_ATTEMPTS
 
 DEVICE_TOKEN_TTL_MINUTES = 60 * 24 * 7  # 7 days
 
@@ -62,13 +63,37 @@ async def _record_login_history(session, *, uid, provider: str, ip, user_agent, 
         print(f"[login_history] failed to queue row for {uid}: {exc}")
 
 
+def _otp_error_response(outcome: str, detail: int | None):
+    if outcome == "wrong":
+        return error(
+            AuthStatus.OTP_WRONG,
+            f"รหัส OTP ไม่ถูกต้อง เหลืออีก {detail} ครั้งก่อนถูกระงับชั่วคราว"
+            if detail and detail > 0
+            else "รหัส OTP ไม่ถูกต้อง คุณกรอกผิดครบจำนวนครั้งที่กำหนดแล้ว",
+            {"attempts_remaining": detail},
+        )
+    if outcome == "locked":
+        return error(
+            AuthStatus.OTP_LOCKED,
+            f"คุณกรอกรหัส OTP ผิดครบ {MAX_OTP_ATTEMPTS} ครั้งแล้ว "
+            + (f"กรุณารออีก {detail} วินาทีแล้วลองใหม่" if detail else "กรุณาขอรหัส OTP ใหม่อีกครั้ง"),
+            {"locked_seconds_remaining": detail},
+        )
+    return error(
+        AuthStatus.OTP_EXPIRED,
+        "รหัส OTP หมดอายุหรือไม่ถูกต้อง กรุณาเริ่มดำเนินการใหม่อีกครั้ง",
+    )
+
+
 class AuthService:
 
     @staticmethod
     async def login(body, user_agent, ip, deviceToken):
+        normalized_email = normalize_email(body.email)
+
         async with SessionLocal() as session:
             result = await session.execute(
-                select(User).where(User.email == body.email)
+                select(User).where(normalized_email_expr(User.email) == normalized_email)
             )
             user = result.scalar_one_or_none()
 
@@ -153,9 +178,9 @@ class AuthService:
         if err:
             return err
 
-        ok, otp_err = OTPService.verify_otp("login", body.token, body.otp)
-        if not ok:
-            return error(AuthStatus.OTP_INVALID, otp_err)
+        outcome, detail = OTPService.verify_otp("login", body.token, body.otp, identifier=payload.get("sub"))
+        if outcome != "ok":
+            return _otp_error_response(outcome, detail)
 
         from utils.uuid import parse_uuid
         try:
@@ -216,9 +241,11 @@ class AuthService:
 
     @staticmethod
     async def register(body: RegisterParame):
+        normalized_email = normalize_email(body.email)
+
         async with SessionLocal() as session:
             result = await session.execute(
-                select(User).where(User.email == body.email)
+                select(User).where(normalized_email_expr(User.email) == normalized_email)
             )
             if result.scalar_one_or_none():
                 return error(
@@ -227,7 +254,7 @@ class AuthService:
                 )
 
         token = create_token(
-            subject=body.email,
+            subject=normalized_email,
             token_type="register",
             expires_minutes=5,
             extra_payload={"password": body.password, "username": body.username}
@@ -235,9 +262,9 @@ class AuthService:
 
         return await OTPService.create_otp_session(
             action="register",
-            identifier=body.email,
+            identifier=normalized_email,
             token=token,
-            email=body.email
+            email=normalized_email
         )
 
     @staticmethod
@@ -246,9 +273,9 @@ class AuthService:
         if err:
             return err
 
-        ok, otp_err = OTPService.verify_otp("register", body.token, body.otp)
-        if not ok:
-            return error(AuthStatus.OTP_INVALID, otp_err)
+        outcome, detail = OTPService.verify_otp("register", body.token, body.otp, identifier=payload.get("sub"))
+        if outcome != "ok":
+            return _otp_error_response(outcome, detail)
 
         async with SessionLocal() as session:
             new_user = User(
@@ -297,9 +324,10 @@ class AuthService:
                 "รีเซ็ตรหัสผ่านสำเร็จ"
             )
         else:
+            normalized_email = normalize_email(body.email)
             async with SessionLocal() as session:
                 result = await session.execute(
-                    select(User.uid, User.email).where(User.email == body.email)
+                    select(User.uid, User.email).where(normalized_email_expr(User.email) == normalized_email)
                 )
                 user = result.mappings().one_or_none()
             if not user:
@@ -324,9 +352,9 @@ class AuthService:
         if err:
             return err
 
-        ok, otp_err = OTPService.verify_otp("reset-passwd", body.token, body.otp)
-        if not ok:
-            return error(AuthStatus.OTP_INVALID, otp_err)
+        outcome, detail = OTPService.verify_otp("reset-passwd", body.token, body.otp, identifier=payload.get("sub"))
+        if outcome != "ok":
+            return _otp_error_response(outcome, detail)
 
         from utils.uuid import parse_uuid
         try:

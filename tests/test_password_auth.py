@@ -314,11 +314,43 @@ async def test_login_confirm_rejects_wrong_otp(monkeypatch):
         "verify_token",
         lambda token, kind: ({"sub": str(uid), "type": "login"}, None),
     )
-    monkeypatch.setattr(auth_service_module.OTPService, "verify_otp", lambda action, token, otp: (False, "รหัส OTP ไม่ถูกต้องหรือหมดอายุ"))
+    monkeypatch.setattr(auth_service_module.OTPService, "verify_otp", lambda action, token, otp, **kwargs: ("wrong", 4))
 
     response = await AuthService.login_confirm(SimpleNamespace(token="tok", otp="000000"), "ua", "127.0.0.1")
     assert response["success"] is False
-    assert response["status"] == "OTP_INVALID"
+    assert response["status"] == "OTP_WRONG"
+    assert response["data"]["attempts_remaining"] == 4
+
+
+@pytest.mark.asyncio
+async def test_login_confirm_rejects_locked_otp_session(monkeypatch):
+    uid = uuid.uuid4()
+    monkeypatch.setattr(
+        auth_service_module.TokenService,
+        "verify_token",
+        lambda token, kind: ({"sub": str(uid), "type": "login"}, None),
+    )
+    monkeypatch.setattr(auth_service_module.OTPService, "verify_otp", lambda action, token, otp, **kwargs: ("locked", 180))
+
+    response = await AuthService.login_confirm(SimpleNamespace(token="tok", otp="999999"), "ua", "127.0.0.1")
+    assert response["success"] is False
+    assert response["status"] == "OTP_LOCKED"
+    assert response["data"]["locked_seconds_remaining"] == 180
+
+
+@pytest.mark.asyncio
+async def test_login_confirm_rejects_expired_otp_session(monkeypatch):
+    uid = uuid.uuid4()
+    monkeypatch.setattr(
+        auth_service_module.TokenService,
+        "verify_token",
+        lambda token, kind: ({"sub": str(uid), "type": "login"}, None),
+    )
+    monkeypatch.setattr(auth_service_module.OTPService, "verify_otp", lambda action, token, otp, **kwargs: ("expired", None))
+
+    response = await AuthService.login_confirm(SimpleNamespace(token="tok", otp="999999"), "ua", "127.0.0.1")
+    assert response["success"] is False
+    assert response["status"] == "OTP_EXPIRED"
 
 
 class _MappingRow(dict):
@@ -343,7 +375,7 @@ async def test_login_confirm_issues_tokens_on_correct_otp(monkeypatch):
         "verify_token",
         lambda token, kind: ({"sub": str(uid), "type": "login"}, None),
     )
-    monkeypatch.setattr(auth_service_module.OTPService, "verify_otp", lambda action, token, otp: (True, None))
+    monkeypatch.setattr(auth_service_module.OTPService, "verify_otp", lambda action, token, otp, **kwargs: ("ok", None))
     monkeypatch.setattr(auth_service_module.OTPService, "clear_otp_session", lambda *a, **k: None)
     patch_session(monkeypatch, user_row)
 
@@ -401,6 +433,60 @@ async def test_register_sends_otp_for_new_email(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_register_normalizes_plus_addressed_email_before_dup_check(monkeypatch):
+    from sqlalchemy.dialects import postgresql
+
+    class CapturingSession(FakeSession):
+        def __init__(self):
+            super().__init__([None])
+            self.last_stmt = None
+
+        async def execute(self, stmt):
+            self.last_stmt = stmt
+            return await super().execute(stmt)
+
+    session_holder = {}
+
+    def make_session():
+        s = CapturingSession()
+        session_holder["session"] = s
+        return s
+
+    monkeypatch.setattr(auth_service_module, "SessionLocal", make_session)
+
+    captured = {}
+
+    async def fake_create_otp_session(*, action, identifier, token, email):
+        captured["identifier"] = identifier
+        captured["email"] = email
+        return {"success": True, "status": "OTP_SENT", "message": "sent", "data": {"token": token}}
+
+    monkeypatch.setattr(auth_service_module.OTPService, "create_otp_session", fake_create_otp_session)
+
+    await AuthService.register(
+        SimpleNamespace(username="newuser", email="A+Promo@Example.COM", password="Sup3rSecret!")
+    )
+
+    compiled = session_holder["session"].last_stmt.compile(
+        dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+    )
+    assert "'a@example.com'" in str(compiled)
+    assert captured["identifier"] == "a@example.com"
+    assert captured["email"] == "a@example.com"
+
+
+@pytest.mark.asyncio
+async def test_register_rejects_plus_addressed_duplicate_of_existing_email(monkeypatch):
+    existing = make_user(email="taken@example.com")
+    patch_session(monkeypatch, existing)
+
+    response = await AuthService.register(
+        SimpleNamespace(username="newuser", email="Taken+spam@Example.com", password="Sup3rSecret!")
+    )
+    assert response["success"] is False
+
+
+@pytest.mark.asyncio
 async def test_register_confirm_creates_user_with_hashed_password(monkeypatch):
     added_users = []
 
@@ -417,7 +503,7 @@ async def test_register_confirm_creates_user_with_hashed_password(monkeypatch):
             None,
         ),
     )
-    monkeypatch.setattr(auth_service_module.OTPService, "verify_otp", lambda action, token, otp: (True, None))
+    monkeypatch.setattr(auth_service_module.OTPService, "verify_otp", lambda action, token, otp, **kwargs: ("ok", None))
     monkeypatch.setattr(auth_service_module.OTPService, "clear_otp_session", lambda *a, **k: None)
 
     response = await AuthService.register_confirm(SimpleNamespace(token="tok", otp="123456", username=None))
@@ -473,7 +559,7 @@ async def test_reset_confirm_actually_updates_password_hash(monkeypatch):
         "verify_token",
         lambda token, kind: ({"sub": str(uid), "type": "reset-passwd"}, None),
     )
-    monkeypatch.setattr(auth_service_module.OTPService, "verify_otp", lambda action, token, otp: (True, None))
+    monkeypatch.setattr(auth_service_module.OTPService, "verify_otp", lambda action, token, otp, **kwargs: ("ok", None))
     monkeypatch.setattr(auth_service_module.OTPService, "clear_otp_session", lambda *a, **k: None)
 
     response = await AuthService.reset_confirm(
@@ -495,13 +581,14 @@ async def test_reset_confirm_rejects_wrong_otp(monkeypatch):
         "verify_token",
         lambda token, kind: ({"sub": str(uid), "type": "reset-passwd"}, None),
     )
-    monkeypatch.setattr(auth_service_module.OTPService, "verify_otp", lambda action, token, otp: (False, "invalid"))
+    monkeypatch.setattr(auth_service_module.OTPService, "verify_otp", lambda action, token, otp, **kwargs: ("wrong", 3))
 
     response = await AuthService.reset_confirm(
         SimpleNamespace(token="tok", otp="000000", newPasswd="brand-new-password")
     )
     assert response["success"] is False
-    assert response["status"] == "OTP_INVALID"
+    assert response["status"] == "OTP_WRONG"
+    assert response["data"]["attempts_remaining"] == 3
 
 
 # ---------------------------------------------------------------------------

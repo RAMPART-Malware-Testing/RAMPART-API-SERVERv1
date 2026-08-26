@@ -1,25 +1,21 @@
-"""One-Time-Password issuing + verification for the password-auth flow.
-
-The OTP is a 6-digit code stored in Redis under ``otp:{action}:{token}`` with a
-short TTL. Delivery is a real e-mail when ``SMTP_*`` env vars are configured;
-otherwise (dev) the code is printed to the server console so the flow can be
-tested end-to-end without a mail server.
-"""
-
 import os
 import random
 import smtplib
 from email.mime.text import MIMEText
+from typing import Literal
 
-from utils.response import success
+from utils.response import error, success
 from utils.status_code import AuthStatus
 
 try:
     from cores.redis import redis_client
-except Exception:  # pragma: no cover - import guard
+except Exception:
     redis_client = None
 
-OTP_TTL_SECONDS = 300  # 5 minutes
+OTP_TTL_SECONDS = 300
+MAX_OTP_ATTEMPTS = 5
+
+VerifyOutcome = Literal["ok", "wrong", "locked", "expired"]
 
 
 class OTPService:
@@ -33,15 +29,41 @@ class OTPService:
         return f"otp:{action}:{token}"
 
     @staticmethod
+    def _attempts_key(action: str, token: str) -> str:
+        return f"otp_attempts:{action}:{token}"
+
+    @staticmethod
+    def _lockout_key(action: str, identifier: str) -> str:
+        return f"otp_lockout:{action}:{identifier}"
+
+    @staticmethod
     async def create_otp_session(action: str, identifier: str, token: str, email: str):
-        """Issue + store an OTP (and e-mail it), returning the envelope the
-        frontend needs to complete the next /confirm step (`data.token`)."""
+        if redis_client is not None:
+            try:
+                lockout_ttl = redis_client.ttl(OTPService._lockout_key(action, identifier))
+            except Exception as exc:
+                print(f"[OTP] lockout check failed for {action}:{identifier}: {exc}")
+                lockout_ttl = None
+            if isinstance(lockout_ttl, int) and lockout_ttl > 0:
+                return error(
+                    AuthStatus.OTP_LOCKED,
+                    f"คุณกรอกรหัส OTP ผิดครบ {MAX_OTP_ATTEMPTS} ครั้งแล้ว "
+                    f"กรุณารออีก {lockout_ttl} วินาทีแล้วลองใหม่",
+                    {"locked_seconds_remaining": lockout_ttl},
+                )
+
         otp = OTPService._generate()
         if redis_client is not None:
             try:
                 redis_client.setex(OTPService._key(action, token), OTP_TTL_SECONDS, otp)
-            except Exception as error:
-                print(f"[OTP] unable to store session {action}:{token}: {error}")
+                # Reset any stale attempt counter from a prior session that
+                # happened to reuse this exact token (practically
+                # impossible given tokens are fresh JWTs, but cheap
+                # insurance against ever starting a new session already
+                # "half locked out").
+                redis_client.delete(OTPService._attempts_key(action, token))
+            except Exception as exc:
+                print(f"[OTP] unable to store session {action}:{token}: {exc}")
         OTPService._send_email(email, otp, action)
         return success(
             AuthStatus.OTP_SENT,
@@ -50,19 +72,52 @@ class OTPService:
         )
 
     @staticmethod
-    def verify_otp(action: str, token: str, otp: str) -> tuple[bool, str | None]:
+    def verify_otp(action: str, token: str, otp: str, identifier: str | None = None) -> tuple[VerifyOutcome, int | None]:
         if redis_client is None:
-            return False, "OTP service unavailable"
+            return "expired", None
+
+        attempts_key = OTPService._attempts_key(action, token)
+        try:
+            current_attempts = redis_client.get(attempts_key)
+            current_attempts = int(current_attempts) if current_attempts is not None else 0
+        except Exception as error:
+            print(f"[OTP] attempts read error {action}:{token}: {error}")
+            current_attempts = 0
+
+        if current_attempts >= MAX_OTP_ATTEMPTS:
+            try:
+                remaining = redis_client.ttl(attempts_key)
+            except Exception:
+                remaining = None
+            remaining = remaining if isinstance(remaining, int) and remaining > 0 else None
+            return "locked", remaining
+
         try:
             stored = redis_client.get(OTPService._key(action, token))
         except Exception as error:
             print(f"[OTP] verify error {action}:{token}: {error}")
-            return False, "รหัส OTP ไม่ถูกต้องหรือหมดอายุ"
-        if stored:
-            value = stored.decode() if isinstance(stored, bytes) else str(stored)
-            if value == otp:
-                return True, None
-        return False, "รหัส OTP ไม่ถูกต้องหรือหมดอายุ"
+            return "expired", None
+
+        if not stored:
+            return "expired", None
+
+        value = stored.decode() if isinstance(stored, bytes) else str(stored)
+        if value == otp:
+            return "ok", None
+
+        new_count = current_attempts + 1
+        try:
+            ttl = redis_client.ttl(OTPService._key(action, token))
+            ttl = ttl if isinstance(ttl, int) and ttl > 0 else OTP_TTL_SECONDS
+            redis_client.setex(attempts_key, ttl, new_count)
+
+            if new_count >= MAX_OTP_ATTEMPTS and identifier:
+                redis_client.setex(OTPService._lockout_key(action, identifier), ttl, "1")
+        except Exception as error:
+            print(f"[OTP] unable to record failed attempt {action}:{token}: {error}")
+
+        attempts_remaining = max(0, MAX_OTP_ATTEMPTS - new_count)
+        return "wrong", attempts_remaining
 
     @staticmethod
     def clear_otp_session(action: str, token: str, identifier: str) -> None:
@@ -70,21 +125,34 @@ class OTPService:
             return
         try:
             redis_client.delete(OTPService._key(action, token))
+            redis_client.delete(OTPService._attempts_key(action, token))
         except Exception:
             pass
 
     @staticmethod
     def _send_email(email: str, otp: str, action: str) -> None:
         host = os.getenv("SMTP_HOST")
-        if not host:
-            # Dev fallback so the flow is testable without a mail server.
+        gmail_user = os.getenv("GMAIL_USERNAME")
+        gmail_pass = os.getenv("GMAIL_PASSWORD")
+
+        if not host and not (gmail_user and gmail_pass):
             print(f"[OTP] {action} code for {email}: {otp}")
             return
+
+        if host:
+            smtp_host = host
+            smtp_port = int(os.getenv("SMTP_PORT", "587"))
+            smtp_user = os.getenv("SMTP_USER")
+            smtp_pass = os.getenv("SMTP_PASSWORD")
+            sender = os.getenv("SMTP_FROM", smtp_user)
+        else:
+            smtp_host = "smtp.gmail.com"
+            smtp_port = 587
+            smtp_user = gmail_user
+            smtp_pass = gmail_pass
+            sender = os.getenv("SMTP_FROM", gmail_user)
+
         try:
-            port = int(os.getenv("SMTP_PORT", "587"))
-            user = os.getenv("SMTP_USER")
-            pw = os.getenv("SMTP_PASSWORD")
-            sender = os.getenv("SMTP_FROM", user)
             msg = MIMEText(
                 f"รหัสยืนยัน (OTP) ของคุณคือ: {otp}\n\nรหัสนี้จะหมดอายุใน 5 นาที",
                 "plain",
@@ -93,10 +161,10 @@ class OTPService:
             msg["Subject"] = f"รหัส OTP ของคุณ ({action})"
             msg["From"] = sender
             msg["To"] = email
-            with smtplib.SMTP(host, port, timeout=15) as server:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
                 server.starttls()
-                if user:
-                    server.login(user, pw)
+                if smtp_user:
+                    server.login(smtp_user, smtp_pass)
                 server.sendmail(sender, [email], msg.as_string())
         except Exception as error:
             print(f"[OTP] email send failed (dev code for {email}: {otp}): {error}")
