@@ -328,7 +328,7 @@ async def test_check_hash_controller_surfaces_gap_filled_outcome(monkeypatch):
     task_id/status so the frontend can distinguish this from a fully
     cached prior result (see check_hash_controller's response-shape
     comment for the documented contract)."""
-    active_user = SimpleNamespace(status="active")
+    active_user = SimpleNamespace(status="active", is_banned=False)
     monkeypatch.setattr(controller, "SessionLocal", lambda: _DbSession(active_user))
     monkeypatch.setattr(controller, "User", object)
 
@@ -359,7 +359,7 @@ async def test_check_hash_controller_falls_back_to_attach_when_no_gap_to_fill(mo
     returns "none"), the controller must fall through to the existing
     attempt_attach_to_existing_analysis reuse path unchanged, and the
     response must NOT claim gap_filled."""
-    active_user = SimpleNamespace(status="active")
+    active_user = SimpleNamespace(status="active", is_banned=False)
     monkeypatch.setattr(controller, "SessionLocal", lambda: _DbSession(active_user))
     monkeypatch.setattr(controller, "User", object)
 

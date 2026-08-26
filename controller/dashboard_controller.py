@@ -1,6 +1,7 @@
 from fastapi import HTTPException
 from cores.async_pg_db import SessionLocal
 from schemas.dashboard import ReportsHistoryParams
+from services.admin.authz import AuthError, ensure_not_banned, get_current_user
 from services.dashboard.dashboars_service import get_dashboard_summary, get_recent_activities, get_reports_history
 from services.token_service import TokenService
 from pydantic import BaseModel
@@ -10,44 +11,28 @@ class DashboardParams(BaseModel):
     token: str
 
 async def dashboard_summary_controller(body: DashboardParams):
-    payload, err = TokenService.verify_token(body.token, "access")
-    if err:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-    uid  = payload.get("sub")
-    role = payload.get("role", "user")
-    if not uid:
-        raise HTTPException(status_code=401, detail="Invalid token payload")
-
-    try:
-        uid = parse_uuid(uid)
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=401, detail="Invalid token payload")
-
     async with SessionLocal() as session:
         try:
-            return await get_dashboard_summary(session, uid, role)
+            user = await get_current_user(session, body.token)
+            ensure_not_banned(user)
+        except AuthError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+        try:
+            return await get_dashboard_summary(session, user.uid, user.role)
         except Exception:
             raise HTTPException(status_code=500, detail="Internal server error")
 
 async def recent_activities_controller(body: DashboardParams):
-    payload, err = TokenService.verify_token(body.token, "access")
-    if err:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-    uid  = payload.get("sub")
-    role = payload.get("role", "user")
-    if not uid:
-        raise HTTPException(status_code=401, detail="Invalid token payload")
-
-    try:
-        uid = parse_uuid(uid)
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=401, detail="Invalid token payload")
-
     async with SessionLocal() as session:
         try:
-            return await get_recent_activities(session, uid, role)
+            user = await get_current_user(session, body.token)
+            ensure_not_banned(user)
+        except AuthError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+        try:
+            return await get_recent_activities(session, user.uid, user.role)
         except Exception:
             raise HTTPException(status_code=500, detail="Internal server error")
         

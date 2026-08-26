@@ -137,8 +137,8 @@ async def test_require_upload_token_validates_redis_session_and_returns_string(m
     assert raised.value.status_code == 401
 
 
-def active_user(status="active"):
-    return SimpleNamespace(status=status)
+def active_user(status="active", is_banned=False):
+    return SimpleNamespace(status=status, is_banned=is_banned)
 
 
 async def run_upload(monkeypatch, controller, tmp_path, content=b"payload", filename="sample.bin", user=None, existing=None, refreshed=None, task=None, events=None, gap_fill=("none", None)):
@@ -231,7 +231,7 @@ async def test_upload_locks_hash_before_lookup_insert_and_dispatch(monkeypatch, 
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("user", "status_code"), [(None, 401), (active_user("inactive"), 403)])
+@pytest.mark.parametrize(("user", "status_code"), [(None, 401), (active_user(is_banned=True), 403)])
 async def test_upload_requires_existing_active_user(monkeypatch, upload_modules, tmp_path, user, status_code):
     _, controller, _ = upload_modules
     session = FakeSession(user)

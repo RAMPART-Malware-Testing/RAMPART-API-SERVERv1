@@ -48,6 +48,7 @@ from routers.test_route import router as test_router
 from utils.test_mode import test_mode_enabled
 from routers.dashboar_route import router as dashboard_route
 from routers.test_route import router as test_router
+from routers.admin import router as admin_router
 
 app.include_router(analy_router)
 app.include_router(test_router, include_in_schema=test_mode_enabled())
@@ -55,6 +56,7 @@ app.include_router(auth_router)
 app.include_router(profile_router)
 app.include_router(dashboard_route)
 app.include_router(test_router)
+app.include_router(admin_router)
 
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse

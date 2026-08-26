@@ -28,9 +28,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days, same lifetime as before
 _USERNAME_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9_.-]")
 
 # Whoever authenticates with this e-mail (set via ROOT_EMAIL in .env) is the
-# master admin. There is no separate pre-seeded "admin" account anymore -
-# the very first OAuth login matching this address creates the user with
-# role="admin" directly, and every later login re-confirms/repairs it.
+# master admin - the highest privilege tier in the app. There is no separate
+# pre-seeded "master" account and no API/UI path that can ever assign this
+# role: the very first OAuth login matching this address creates the user
+# with role="master" directly, and every later login re-confirms/repairs it
+# (including un-banning it, since master accounts can never be banned).
 ROOT_EMAIL = os.getenv("ROOT_EMAIL", "").strip().lower()
 
 
@@ -120,10 +122,26 @@ async def find_or_create_user(session: AsyncSession, profile: OAuthProfile) -> U
       to that existing account instead of creating a duplicate user.
     - Otherwise -> brand-new account, avatar_url stays NULL until the user
       explicitly uploads a profile picture.
-    - E-mail matches ROOT_EMAIL (.env) -> always role="admin", enforced on
-      every login (new account or existing one that drifted away from admin).
+    - E-mail matches ROOT_EMAIL (.env) -> always role="master" and never
+      banned, enforced on every login (new account, an existing one that
+      drifted away from master, or one that was somehow left banned).
     """
     is_root = bool(ROOT_EMAIL) and profile.email.lower() == ROOT_EMAIL
+
+    def _reconfirm_root(u: User) -> bool:
+        """Self-heal the root account's role/ban state. Returns True if a
+        commit is needed."""
+        changed = False
+        if u.role != "master":
+            u.role = "master"
+            changed = True
+        if u.is_banned:
+            u.is_banned = False
+            u.banned_at = None
+            u.banned_reason = None
+            u.banned_by = None
+            changed = True
+        return changed
 
     linked = await session.execute(
         select(OAuthAccount).where(
@@ -135,8 +153,7 @@ async def find_or_create_user(session: AsyncSession, profile: OAuthProfile) -> U
     if oauth_account is not None:
         user = await session.get(User, oauth_account.uid)
         if user is not None:
-            if is_root and user.role != "admin":
-                user.role = "admin"
+            if is_root and _reconfirm_root(user):
                 await session.commit()
                 await session.refresh(user)
             return user
@@ -152,13 +169,13 @@ async def find_or_create_user(session: AsyncSession, profile: OAuthProfile) -> U
             username=username,
             email=profile.email,
             avatar_url=None,
-            role="admin" if is_root else "user",
+            role="master" if is_root else "user",
             status="active",
         )
         session.add(user)
         await session.flush()
-    elif is_root and user.role != "admin":
-        user.role = "admin"
+    elif is_root:
+        _reconfirm_root(user)
 
     session.add(
         OAuthAccount(

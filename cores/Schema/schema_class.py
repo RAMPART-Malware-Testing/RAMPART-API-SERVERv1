@@ -18,6 +18,14 @@ class User(Base):
     status: Mapped[str] = mapped_column(String(50), server_default=text("'active'"))
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.uid"), nullable=True)
     fcm_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Ban state. This is the source of truth for access control - `status`
+    # above is legacy free-text and is NOT authoritative for authorization
+    # decisions. Master accounts can never have is_banned=True (enforced at
+    # the service layer in services/admin/authz.py, not by a DB constraint).
+    is_banned: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("FALSE"))
+    banned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    banned_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    banned_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.uid"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=text("CURRENT_TIMESTAMP"),

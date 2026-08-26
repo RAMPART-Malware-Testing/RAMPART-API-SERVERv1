@@ -7,6 +7,7 @@ from bgProcessing.tasks import analyze_malware_task
 from cores.async_pg_db import SessionLocal
 from cores.Schema.schema_class import User
 from schemas.analy import AnalysisHistoryParams 
+from services.admin.authz import AuthError, ensure_not_banned, get_current_user
 from services.analy.analy_service import get_analysis_history, get_analysis_with_report, get_file_by_hash, get_public_analysis_with_report, insert_table_analy
 from services.token_service import TokenService
 import os
@@ -88,14 +89,13 @@ async def require_upload_token(token: str) -> str:
     return str(uid)
 
 async def generateToken_controller(token):
-    payload, err = TokenService.verify_token(token, "access")
-    if err: 
-        return err
-
-    try:
-        uid = str(parse_uuid(payload.get("sub")))
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=401, detail="Invalid access token subject")
+    async with SessionLocal() as session:
+        try:
+            user = await get_current_user(session, token)
+            ensure_not_banned(user)
+        except AuthError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message)
+        uid = str(user.uid)
     session_key = f"upload_session:{uid}"
 
     existing_token = redis_client.get(session_key)
@@ -157,6 +157,11 @@ async def analysisReport_controller(uid: str, task_id: str):
     except (TypeError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid token payload")
     async with SessionLocal() as session:
+        user = await session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+        if user.is_banned:
+            raise HTTPException(status_code=403, detail="Account is banned")
         row = await get_analysis_with_report(session, task_id, uid=uid)
         if not row:
             # อนุญาตให้ดูรายงานที่เจ้าของคนอื่นเปิดเป็น public
@@ -247,6 +252,11 @@ async def get_file_by_hash_controller(task_id: str, uid: str, tool: str = "virus
     prefix = TOOL_REPORT_PREFIX.get(tool, "virustotal")
 
     async with SessionLocal() as session:
+        user = await session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+        if user.is_banned:
+            raise HTTPException(status_code=403, detail="Account is banned")
         row = await get_analysis_with_report(session, task_id, uid=uid)
         if not row:
             row = await get_public_analysis_with_report(session, task_id)
@@ -337,21 +347,15 @@ async def update_privacy_controller(task_id: str, token: str, privacy: bool):
 
 
 async def history_controller(body: AnalysisHistoryParams):
-    payload, err = TokenService.verify_token(body.token, "access")
-    if err:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-    uid = payload.get("sub")
-    if not uid:
-        raise HTTPException(status_code=401, detail="Invalid token payload")
-
-    try:
-        uid = parse_uuid(uid)
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=401, detail="Invalid token payload")
     async with SessionLocal() as session:
         try:
-            return await get_analysis_history(session, uid, body)
+            user = await get_current_user(session, body.token)
+            ensure_not_banned(user)
+        except AuthError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+        try:
+            return await get_analysis_history(session, user.uid, body)
         except HTTPException:
             raise
         except Exception:

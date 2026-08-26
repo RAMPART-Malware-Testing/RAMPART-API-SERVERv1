@@ -8,12 +8,18 @@ CREATE TABLE "users" (
     "username" VARCHAR(50) NOT NULL UNIQUE,
     "email" VARCHAR(255) NOT NULL UNIQUE,
     "avatar_url" TEXT DEFAULT NULL,
-    "role" VARCHAR(20) DEFAULT 'user',
-    "status" VARCHAR(50) DEFAULT 'active',
+    "role" VARCHAR(20) DEFAULT 'user', -- 'user' | 'admin' | 'master'. 'master' can ONLY be assigned by the ROOT_EMAIL OAuth login branch, never via API/UI.
+    "status" VARCHAR(50) DEFAULT 'active', -- legacy free-text flag, NOT authoritative for access control anymore, see is_banned
     "created_by" UUID REFERENCES "users"("uid"),
     "fcm_token" TEXT,
     "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    "updated_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    -- Ban state: source of truth for access control. Master accounts can never
+    -- be banned (enforced at the service layer, not a DB constraint).
+    "is_banned" BOOLEAN NOT NULL DEFAULT FALSE,
+    "banned_at" TIMESTAMPTZ NULL,
+    "banned_reason" TEXT NULL,
+    "banned_by" UUID NULL REFERENCES "users"("uid")
 );
 
 -- Links one user to one or more external OAuth identities (Google / GitHub).

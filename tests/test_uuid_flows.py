@@ -58,6 +58,7 @@ async def test_analysis_history_passes_uuid_to_service(monkeypatch):
 
     user_id = uuid.uuid4()
     captured = {}
+    fake_user = SimpleNamespace(uid=user_id, role="user", is_banned=False)
 
     class Session:
         async def __aenter__(self):
@@ -65,6 +66,9 @@ async def test_analysis_history_passes_uuid_to_service(monkeypatch):
 
         async def __aexit__(self, *args):
             return False
+
+        async def get(self, model, uid):
+            return fake_user
 
     async def history(session, uid, body):
         captured["uid"] = uid
@@ -120,6 +124,7 @@ async def test_dashboard_controllers_pass_uuid(monkeypatch, controller_name, ser
 
     user_id = uuid.uuid4()
     captured = {}
+    fake_user = SimpleNamespace(uid=user_id, role="user", is_banned=False)
 
     class Session:
         async def __aenter__(self):
@@ -127,6 +132,9 @@ async def test_dashboard_controllers_pass_uuid(monkeypatch, controller_name, ser
 
         async def __aexit__(self, *args):
             return False
+
+        async def get(self, model, uid):
+            return fake_user
 
     async def service(session, uid, role):
         captured["uid"] = uid
