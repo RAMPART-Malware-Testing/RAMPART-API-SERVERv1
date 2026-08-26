@@ -228,3 +228,99 @@ async def test_find_or_create_user_creates_new_account_on_first_login():
     assert user.email == "newuser@example.com"
     assert user.avatar_url is None
     assert user.username.startswith("NewUser")
+
+
+@pytest.mark.asyncio
+async def test_find_or_create_user_rejects_unverified_email_linking_into_existing_account(monkeypatch):
+    """A NEW OAuth identity (no existing OAuthAccount row) whose e-mail
+    happens to match an ALREADY-EXISTING account (e.g. one that registered
+    via /api/auth/register with a password) must only be auto-linked if
+    the OAuth provider actually verified that e-mail address - otherwise
+    anyone could claim someone else's unverified e-mail with a rogue OAuth
+    app and get silently merged into that person's account."""
+    from services.oauth.oauth_service import OAuthError, OAuthProfile, find_or_create_user
+
+    existing_user = SimpleNamespace(uid=uuid.uuid4(), email="victim@example.com", username="victim", role="user", is_banned=False)
+
+    class NoLinkedAccountResult:
+        def scalar_one_or_none(self):
+            return None
+
+    class ExistingUserByEmailResult:
+        def scalar_one_or_none(self):
+            return existing_user
+
+    class Session:
+        def __init__(self):
+            self._call = 0
+
+        async def execute(self, statement):
+            self._call += 1
+            # 1st call: OAuthAccount(provider, provider_uid) lookup -> miss.
+            # 2nd call: User.email lookup -> hits the existing account.
+            return NoLinkedAccountResult() if self._call == 1 else ExistingUserByEmailResult()
+
+    profile = OAuthProfile(
+        provider="github",
+        provider_uid="gh-attacker-999",
+        email="victim@example.com",
+        email_verified=False,  # provider did NOT verify this address
+        display_name="Attacker",
+    )
+
+    with pytest.raises(OAuthError):
+        await find_or_create_user(Session(), profile)
+
+
+@pytest.mark.asyncio
+async def test_find_or_create_user_links_verified_email_into_existing_account(monkeypatch):
+    """The legitimate counterpart: a verified e-mail match against an
+    existing account DOES auto-link (unchanged prior behavior), so a user
+    who registered with a password and later signs in with a verified
+    Google account of the same address gets connected to the same uid."""
+    from services.oauth.oauth_service import OAuthProfile, find_or_create_user
+
+    existing_uid = uuid.uuid4()
+    existing_user = SimpleNamespace(uid=existing_uid, email="real-user@example.com", username="realuser", role="user", is_banned=False)
+
+    class NoLinkedAccountResult:
+        def scalar_one_or_none(self):
+            return None
+
+    class ExistingUserByEmailResult:
+        def scalar_one_or_none(self):
+            return existing_user
+
+    class Session:
+        def __init__(self):
+            self._call = 0
+            self.added = []
+
+        async def execute(self, statement):
+            self._call += 1
+            return NoLinkedAccountResult() if self._call == 1 else ExistingUserByEmailResult()
+
+        def add(self, obj):
+            self.added.append(obj)
+
+        async def commit(self):
+            return None
+
+        async def refresh(self, obj):
+            return None
+
+    profile = OAuthProfile(
+        provider="google",
+        provider_uid="google-legit-1",
+        email="real-user@example.com",
+        email_verified=True,
+        display_name="Real User",
+    )
+
+    session = Session()
+    user = await find_or_create_user(session, profile)
+    assert user is existing_user
+    assert user.uid == existing_uid
+    # A new OAuthAccount row was linked to the existing user.
+    assert len(session.added) == 1
+    assert session.added[0].uid == existing_uid

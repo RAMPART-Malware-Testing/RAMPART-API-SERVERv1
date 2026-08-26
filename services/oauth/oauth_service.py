@@ -179,8 +179,22 @@ async def find_or_create_user(session: AsyncSession, profile: OAuthProfile) -> U
         )
         session.add(user)
         await session.flush()
-    elif is_root:
-        _reconfirm_root(user)
+    else:
+        # Auto-linking a new OAuth identity into an ALREADY-EXISTING account
+        # purely because the e-mail matches is only safe if the provider
+        # itself vouches that the address is verified - otherwise anyone
+        # could register an OAuth identity with someone else's unverified
+        # e-mail address and get silently merged into that person's
+        # account. Brand-new account creation (the `user is None` branch
+        # above) is unaffected by this - it never merges into anyone
+        # else's data regardless of verification state.
+        if not profile.email_verified:
+            raise OAuthError(
+                "This e-mail is already registered with a different sign-in "
+                "method and the provider did not verify this address."
+            )
+        if is_root:
+            _reconfirm_root(user)
 
     session.add(
         OAuthAccount(
@@ -204,6 +218,24 @@ def issue_access_token(user: User) -> str:
             "username": user.username,
             "role": user.role,
         },
+    )
+
+
+# Same 7-day lifetime and (uid, email) binding as the password-auth flow's
+# device token (see services/auth/auth_service.py::_issue_device_token) -
+# kept as a separate copy rather than a shared import to avoid a circular
+# import between services/oauth and services/auth (neither currently
+# depends on the other), and because the two flows are allowed to diverge
+# independently later without coordinating a shared helper's signature.
+DEVICE_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
+
+
+def issue_device_token(user: User) -> str:
+    return create_token(
+        subject=str(user.uid),
+        token_type="device",
+        expires_minutes=DEVICE_TOKEN_EXPIRE_MINUTES,
+        extra_payload={"email": user.email},
     )
 
 

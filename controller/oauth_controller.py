@@ -13,6 +13,7 @@ from services.oauth.oauth_service import (
     fetch_google_profile,
     find_or_create_user,
     issue_access_token,
+    issue_device_token,
     user_public_dict,
 )
 from utils.status_code import AuthStatus
@@ -81,10 +82,18 @@ async def oauth_callback_controller(request: Request, provider: str):
             message=str(exc),
         )
 
-    async with SessionLocal() as session:
-        user = await find_or_create_user(session, profile)
+    try:
+        async with SessionLocal() as session:
+            user = await find_or_create_user(session, profile)
+    except OAuthError as exc:
+        return _frontend_redirect(
+            "/login",
+            error=AuthStatus.OAUTH_EMAIL_MISSING,
+            message=str(exc),
+        )
 
     access_token = issue_access_token(user)
+    device_token = issue_device_token(user)
 
     # Record the login for the profile "ประวัติการเข้าสู่ระบบ" tab.
     try:
@@ -107,4 +116,5 @@ async def oauth_callback_controller(request: Request, provider: str):
         access_token=access_token,
         token_type="bearer",
         expires_in=60 * 60 * 24 * 7,
+        device_token=device_token,
     )
