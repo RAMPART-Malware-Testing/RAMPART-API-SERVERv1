@@ -1,0 +1,98 @@
+{
+    "file_info": {
+        "names": [
+            "557c02b5e9ca8103e6ad5413df1b447fae5c9ce086a0b5330bf9c79a578585df.apk",
+            "update.apk",
+            "sa071zj9.exe"
+        ],
+        "meaningful_name": "557c02b5e9ca8103e6ad5413df1b447fae5c9ce086a0b5330bf9c79a578585df.apk",
+        "type": "Android",
+        "size": 8406437,
+        "hashes": {
+            "md5": "e931d549c340cca59535fcbcc0b434cc",
+            "sha1": "3782d24bc9b35545281776d7bc83b74a9b619954",
+            "sha256": "557c02b5e9ca8103e6ad5413df1b447fae5c9ce086a0b5330bf9c79a578585df"
+        }
+    },
+    "app_identity": {
+        "package_name": "br.digital.service",
+        "developer_signer": "Lumen Tech",
+        "is_verified": null,
+        "is_trusted_developer": false
+    },
+    "scan_summary": {
+        "malicious_count": 28,
+        "suspicious_count": 0,
+        "undetected_count": 39,
+        "harmless_count": 0,
+        "total_scanners": 75,
+        "reputation": 0,
+        "community_votes": {
+            "harmless": 0,
+            "malicious": 0
+        }
+    },
+    "threats_found": {
+        "malicious": [
+            "CTX: apk.trojan.banker",
+            "Trustlook: Android.Malware.Trojan",
+            "K7GW: Trojan ( 006d9f731 )",
+            "SymantecMobileInsight: AppRisk:Generisk",
+            "Symantec: Trojan.Gen.NPE",
+            "ESET-NOD32: Android/Agent.FOQ trojan",
+            "Avast: Android:Evo-gen [Trj]",
+            "Kaspersky: UDS:Trojan-Banker.AndroidOS.Agent.abd",
+            "Alibaba: TrojanBanker:Android/Agent.79463349",
+            "Tencent: a.privacy.BankBotSteal",
+            "Sophos: Andr/Xgen4-EW",
+            "F-Secure: Malware.ANDROID/Evo.AG1566022.Gen",
+            "DrWeb: Android.Banker.1067.origin",
+            "McAfeeD: ti!557C02B5E9CA",
+            "Google: Detected",
+            "Avira: ANDROID/Evo.AG1566022.Gen",
+            "Varist: AndroidOS/ABPWS.XORH-8",
+            "Kingsoft: Android.Troj.Agent.FOQ",
+            "ZoneAlarm: Andr/Xgen4-EW",
+            "Avast-Mobile: APK:RepMalware [Trj]",
+            "Cynet: Malicious (score: 99)",
+            "BitDefenderFalx: Android.Trojan.Banker.AYP",
+            "AhnLab-V3: Trojan/Android.SpyAgent.1323424",
+            "Ikarus: Trojan.AndroidOS.Agent",
+            "Rising: Trojan.Agent/Android!8.358 (CLOUD)",
+            "TrellixENS: Artemis!E931D549C340",
+            "Fortinet: Android/Agent.FOQ!tr",
+            "AVG: Android:Evo-gen [Trj]"
+        ],
+        "suspicious": []
+    },
+    "security_analysis": {
+        "sigma_rules": {},
+        "sandbox_results": [
+            {
+                "sandbox": "Zenbox android",
+                "category": "harmless",
+                "malware_classification": [
+                    "CLEAN"
+                ]
+            }
+        ]
+    },
+    "permissions": [
+        "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+        "br.digital.service.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.WAKE_LOCK",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION",
+        "android.permission.INTERNET",
+        "android.permission.FOREGROUND_SERVICE"
+    ],
+    "tags": [
+        "telephony",
+        "reflection",
+        "apk",
+        "contains-elf",
+        "checks-gps",
+        "obfuscated",
+        "android"
+    ]
+}

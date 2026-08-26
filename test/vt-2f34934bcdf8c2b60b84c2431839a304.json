@@ -1,0 +1,116 @@
+{
+    "file_info": {
+        "names": [
+            "d7b4f9e10c306aa74ed49f99595c5924b380dc8ef1fb601ca6733584ae478580.exe",
+            "_d7b4f9e10c306aa74ed49f99595c5924b380dc8ef1fb601ca6733584ae478580.exe",
+            "ynnify.exe"
+        ],
+        "meaningful_name": "d7b4f9e10c306aa74ed49f99595c5924b380dc8ef1fb601ca6733584ae478580.exe",
+        "type": "Win32 EXE",
+        "size": 6583808,
+        "hashes": {
+            "md5": "2f34934bcdf8c2b60b84c2431839a304",
+            "sha1": "3b642ad05a232f1338ba69ddbf4a7b3e958229f5",
+            "sha256": "d7b4f9e10c306aa74ed49f99595c5924b380dc8ef1fb601ca6733584ae478580"
+        }
+    },
+    "app_identity": {
+        "package_name": "d7b4f9e10c306aa74ed49f99595c5924b380dc8ef1fb601ca6733584ae478580.exe",
+        "developer_signer": "www.bytedance.com",
+        "is_verified": false,
+        "is_trusted_developer": false
+    },
+    "scan_summary": {
+        "malicious_count": 41,
+        "suspicious_count": 0,
+        "undetected_count": 28,
+        "harmless_count": 0,
+        "total_scanners": 75,
+        "reputation": -2,
+        "community_votes": {
+            "harmless": 0,
+            "malicious": 2
+        }
+    },
+    "threats_found": {
+        "malicious": [
+            "Lionic: Trojan.Win32.Msb.4!c",
+            "MicroWorld-eScan: Trojan.GenericKD.80114003",
+            "ClamAV: Win.Trojan.ChaosBotDLL-10059219-0",
+            "CTX: exe.trojan.generic",
+            "CAT-QuickHeal: Trojan.Msb",
+            "ALYac: Trojan.GenericKD.80114003",
+            "Cylance: Unsafe",
+            "VIPRE: Trojan.GenericKD.80114003",
+            "BitDefender: Trojan.GenericKD.80114003",
+            "Symantec: ML.Attribute.HighConfidence",
+            "Elastic: malicious (high confidence)",
+            "TrendMicro-HouseCall: Trojan.Win32.ZYX.USBLEO26",
+            "Paloalto: generic.ml",
+            "Kaspersky: HEUR:Trojan.Win32.Msb.a",
+            "Alibaba: Trojan:Win32/MalwareX.f987ba13",
+            "Rising: Spyware.Stealer!8.3090 (CLOUD)",
+            "Sophos: Mal/Generic-S",
+            "F-Secure: Trojan:W32/AuroraStealer.A",
+            "TrendMicro: Trojan.Win32.ZYX.USBLEO26",
+            "McAfeeD: ti!D7B4F9E10C30",
+            "Emsisoft: Trojan.GenericKD.80114003 (B)",
+            "SentinelOne: Static AI - Malicious PE",
+            "GData: Trojan.GenericKD.80114003",
+            "Google: Detected",
+            "Avira: TR/W64.Agent",
+            "Antiy-AVL: Trojan/Win32.Msb",
+            "Kingsoft: Win32.Trojan.Msb.a",
+            "Arcabit: Trojan.Generic.D4C67153",
+            "ViRobot: Trojan.Win.Z.Msb.6583808",
+            "Microsoft: Trojan:Win32/Qwexlafiba!rfn",
+            "Varist: W64/ABTrojan.FQXN-4797",
+            "VBA32: Trojan.Msb",
+            "DeepInstinct: MALICIOUS",
+            "Tencent: Win32.Trojan.FalseSign.Ximw",
+            "TrellixENS: Artemis!2F34934BCDF8",
+            "huorong: TrojanSpy/Stealer.gg",
+            "MaxSecure: Trojan.Malware.76927029.susgen",
+            "Fortinet: W32/PossibleThreat",
+            "AVG: Win64:MalwareX-gen [Misc]",
+            "Avast: Win64:MalwareX-gen [Misc]",
+            "alibabacloud: Trojan:Win/Msb.a"
+        ],
+        "suspicious": []
+    },
+    "security_analysis": {
+        "sigma_rules": {
+            "critical": 0,
+            "high": 3,
+            "medium": 3,
+            "low": 2
+        },
+        "sandbox_results": [
+            {
+                "sandbox": "C2AE",
+                "category": "undetected",
+                "malware_classification": [
+                    "UNKNOWN_VERDICT"
+                ]
+            },
+            {
+                "sandbox": "Yomi Hunter",
+                "category": "malicious",
+                "malware_classification": [
+                    "MALWARE"
+                ]
+            }
+        ]
+    },
+    "permissions": [],
+    "tags": [
+        "detect-debug-environment",
+        "idle",
+        "signed",
+        "64bits",
+        "overlay",
+        "invalid-signature",
+        "peexe",
+        "calls-wmi"
+    ]
+}

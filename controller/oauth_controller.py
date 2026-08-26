@@ -6,6 +6,7 @@ from fastapi.responses import RedirectResponse
 
 from cores.async_pg_db import SessionLocal
 from cores.oauth import FRONTEND_URL, oauth, oauth_configured, redirect_uri_for
+from cores.Schema.schema_class import LoginHistory
 from services.oauth.oauth_service import (
     OAuthError,
     fetch_github_profile,
@@ -84,6 +85,22 @@ async def oauth_callback_controller(request: Request, provider: str):
         user = await find_or_create_user(session, profile)
 
     access_token = issue_access_token(user)
+
+    # Record the login for the profile "ประวัติการเข้าสู่ระบบ" tab.
+    try:
+        async with SessionLocal() as session:
+            session.add(
+                LoginHistory(
+                    uid=user.uid,
+                    provider=profile.provider,
+                    ip=request.client.host if request.client else None,
+                    user_agent=request.headers.get("user-agent"),
+                    status="success",
+                )
+            )
+            await session.commit()
+    except Exception as exc:
+        print(f"[LoginHistory] Failed to record login for {user.uid}: {exc}")
 
     return _frontend_redirect(
         "/auth/callback",

@@ -203,6 +203,17 @@ def handle_mobsf(
             "retry_in": 30,
         }
 
+    # MobSF only analyses mobile apps (APK/IPA). If the file type isn't
+    # supported, skip immediately instead of uploading and finding out later.
+    MOBSF_SUPPORTED_EXTS = {".apk", ".ipa", ".xapk", ".jex", ".dex", ".apks", ".aab"}
+    ext = Path(file_path).suffix.lower()
+    if ext not in MOBSF_SUPPORTED_EXTS:
+        return {
+            "status": "skipped",
+            "report_path": str(report_path),
+            "error": f"Unsupported file type for MobSF: ({ext or 'unknown'})",
+        }
+
     upload = client.upload_file(file_path)
     if not upload.get("success"):
         error = str(upload.get("error", "MobSF upload failed"))
@@ -291,6 +302,91 @@ def handle_cape(
 ) -> dict:
     client = client or CAPEAnalyzer()
     report_path = Path(report_path or reports_dir / f"cape-{md5}.json")
+    # Explicit CAPE package per file type. Without this CAPE auto-detects and
+    # can pick a wrong package (e.g. an APK run as "jar"/"exe" on a Windows
+    # machine with no Java), which fails the analysis. Package names use
+    # CAPE/Cuckoo's own package names.
+    CAPE_PACKAGE_MAP = {
+        # --- Mobile / Android ---
+        ".apk": "apk",
+        ".xapk": "apk",
+        ".dex": "android",
+        ".jex": "android",
+        # --- PE executables ---
+        ".exe": "exe",
+        ".scr": "exe",
+        ".com": "exe",
+        ".dll": "dll",
+        ".cpl": "dll",
+        ".msi": "msi",
+        ".msp": "msi",
+        ".cab": "emulation",
+        # --- Archives ---
+        ".zip": "emulation",
+        ".rar": "emulation",
+        ".7z": "7z",
+        ".tar": "emulation",
+        ".gz": "emulation",
+        ".gzip": "gzip",
+        ".tgz": "emulation",
+        ".bz2": "emulation",
+        ".iso": "emulation",
+        # --- Documents ---
+        ".doc": "doc",
+        ".docm": "docm",
+        ".docx": "docx",
+        ".dotm": "dotm",
+        ".dotx": "dotx",
+        ".rtf": "rtf",
+        ".mht": "mht",
+        ".sway": "sway",
+        ".wsf": "generic",
+        ".vsdx": "generic",
+        # --- Office spreadsheets ---
+        ".xls": "xls",
+        ".xlsb": "xlsb",
+        ".xlsm": "xlsm",
+        ".xlsx": "xlsx",
+        ".xltm": "xlsm",
+        ".xltx": "xlsm",
+        # --- Presentations ---
+        ".ppt": "ppt",
+        ".ppam": "ppt",
+        ".ppa": "ppt",
+        ".pps": "ppt",
+        ".ppsm": "ppt",
+        ".ppsx": "ppt",
+        ".pptm": "ppt",
+        ".pptx": "pptx",
+        ".pot": "ppt",
+        ".potm": "ppt",
+        ".potx": "ppt",
+        ".pub": "pub",
+        # --- PDF ---
+        ".pdf": "pdf",
+        # --- Scripts / code ---
+        ".js": "js",
+        ".jsx": "js",
+        ".hta": "hta",
+        ".html": "url",
+        ".htm": "url",
+        ".url": "http_url",
+        ".vbs": "vbs",
+        ".py": "python",
+        ".ps1": "powershell",
+        ".sh": "sh",
+        ".jar": "jar",
+        ".java": "java",
+        # --- Email ---
+        ".msg": "msg",
+        ".eml": "msg",
+        ".tnef": "tnef",
+        # --- Misc ---
+        ".lnk": "lnk",
+        ".elf": "elf",
+        ".swf": "generic",
+    }
+    package = CAPE_PACKAGE_MAP.get(Path(file_path).suffix.lower())
     if task_id is None:
         existing = client.cheack_analyer(file_path)
         if isinstance(existing, dict) and existing.get("error"):
@@ -304,7 +400,7 @@ def handle_cape(
             task_id = existing[0].get("id")
             retry_in = 30
         else:
-            created = client.create_file_task(file_path, machine="win10")
+            created = client.create_file_task(file_path, machine="win10", package=package)
             if created.get("status") == "error" or not created.get("task_id"):
                 error = str(created.get("error", "CAPE submission failed"))
                 if "not supported" in error.lower() or "not support" in error.lower():

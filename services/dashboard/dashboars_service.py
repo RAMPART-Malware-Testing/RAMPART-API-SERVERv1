@@ -147,7 +147,7 @@ async def get_reports_history(
     params: ReportsHistoryParams
 ) -> dict[str, Any]:
     conditions = [
-        Analysis.privacy == False,
+        Analysis.privacy == True,
         Analysis.deleted_at.is_(None),
     ]
     if params.status:
@@ -209,6 +209,14 @@ async def get_reports_history(
     else:
         stmt = stmt.options(joinedload(Analysis.report))
     analyses = (await session.execute(stmt)).scalars().unique().all()
+    # Map analysis.uid -> user (for owner name + avatar on public reports)
+    uids = [a.uid for a in analyses if a.uid]
+    owners: dict = {}
+    if uids:
+        user_rows = (
+            await session.execute(select(User).where(User.uid.in_(uids)))
+        ).scalars().all()
+        owners = {u.uid: u for u in user_rows}
     def serialize(a: Analysis) -> dict[str, Any]:
         item: dict[str, Any] = {
             "aid":        str(a.aid),
@@ -222,8 +230,15 @@ async def get_reports_history(
             "md5":        a.md5,
             "privacy":    a.privacy,
             "created_at": a.created_at.isoformat() if a.created_at else None,
+            "uploaded_by": None,
             "report":     None,
         }
+        owner = owners.get(a.uid)
+        if owner:
+            item["uploaded_by"] = {
+                "username": owner.username,
+                "avatar_url": owner.avatar_url,
+            }
         if a.report:
             r = a.report
             item["report"] = {

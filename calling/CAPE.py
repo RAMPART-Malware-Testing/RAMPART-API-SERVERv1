@@ -222,11 +222,12 @@ class CAPEAnalyzer:
             requests.get(f"{self.base_url}/apiv2/tasks/delete/{task_id}", timeout=30)
         except: pass
 
-    def create_file_task(self, file_path: str, machine: Optional[str] = None, is_pcap: bool = False) -> Dict[str, Any]:
+    def create_file_task(self, file_path: str, machine: Optional[str] = None, package: Optional[str] = None, is_pcap: bool = False) -> Dict[str, Any]:
         url = f"{self.base_url}/apiv2/tasks/create/file/"
         files = {'file': open(file_path, 'rb')}
         data = {}
         if machine: data['machine'] = machine
+        if package: data['package'] = package
         if is_pcap: data['pcap'] = '1'
 
         try:

@@ -47,7 +47,7 @@ CREATE TABLE "reports" (
     "virustotal_score" INTEGER,
     "mobsf_score" NUMERIC(5, 2),
     "cape_score" NUMERIC(5, 2),
-    "rampart_ai_score" NUMERIC(5, 2),
+    "rampart_ai_score" JSONB,
     "gemini_recommendation" TEXT,
     "malware_signatures" TEXT[],
     "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP

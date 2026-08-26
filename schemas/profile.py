@@ -16,6 +16,13 @@ class ProfileTokenParams(BaseModel):
     token: str
 
 
+class DownloadRecordParams(BaseModel):
+    token: str
+    file_name: str | None = None
+    tool: str | None = None
+    md5: str | None = None
+
+
 class UpdateProfileParams(BaseModel):
     token: str
     username: str | None = None

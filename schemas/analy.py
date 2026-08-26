@@ -116,6 +116,11 @@ class GenerateTokenParams(BaseModel):
     token: str
 
 
+class UpdatePrivacyParams(BaseModel):
+    token: str
+    privacy: bool = True
+
+
 class CheckHashParams(BaseModel):
     token: str
     sha256: str

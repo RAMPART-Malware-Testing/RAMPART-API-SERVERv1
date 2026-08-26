@@ -1,0 +1,74 @@
+{
+    "file_info": {
+        "names": [
+            "note-8-0020-03.apk"
+        ],
+        "meaningful_name": "note-8-0020-03.apk",
+        "type": "Android",
+        "size": 16847406,
+        "hashes": {
+            "md5": "2d3967b69b84e7d8f65e9fd06418ae9b",
+            "sha1": "4aa8326bf2ad2add365f951dd9355e16238f9920",
+            "sha256": "9fb3aead2e35d836f10595da5d8fe047ad2607719013394ad258624f49425148"
+        }
+    },
+    "app_identity": {
+        "package_name": "com.fihtdc.note",
+        "developer_signer": "Android",
+        "is_verified": null,
+        "is_trusted_developer": false
+    },
+    "scan_summary": {
+        "malicious_count": 0,
+        "suspicious_count": 0,
+        "undetected_count": 63,
+        "harmless_count": 0,
+        "total_scanners": 76,
+        "reputation": 0,
+        "community_votes": {
+            "harmless": 0,
+            "malicious": 0
+        }
+    },
+    "threats_found": {
+        "malicious": [],
+        "suspicious": []
+    },
+    "security_analysis": {
+        "sigma_rules": {},
+        "sandbox_results": []
+    },
+    "permissions": [
+        "com.google.android.providers.gsf.permission.READ_GSERVICES",
+        "android.permission.WRITE_MEDIA_STORAGE",
+        "android.permission.READ_CALENDAR",
+        "android.permission.PROCESS_OUTGOING_CALLS",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.WRITE_CALENDAR",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "com.android.launcher.permission.INSTALL_SHORTCUT",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.GET_TASKS",
+        "android.permission.READ_CALL_LOG",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.WRITE_SETTINGS",
+        "android.permission.READ_PHONE_STATE",
+        "android.permission.READ_WAETHER",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.ACCESS_WIFI_STATE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_CONTACTS"
+    ],
+    "tags": [
+        "apk",
+        "android",
+        "obfuscated",
+        "checks-gps",
+        "telephony",
+        "checks-network-adapters",
+        "reflection"
+    ]
+}

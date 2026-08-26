@@ -1,0 +1,62 @@
+{
+    "file_info": {
+        "names": [
+            "AnyDesk.exe",
+            "AnyDesk (1).exe",
+            "AnyDesk(1).exe"
+        ],
+        "meaningful_name": "AnyDesk.exe",
+        "type": "Win32 EXE",
+        "size": 8316856,
+        "hashes": {
+            "md5": "cbd03167ae9c3fd67dae1e0ba7c3ff07",
+            "sha1": "6918c0be905c9fbb18d20fb78296251e270125c8",
+            "sha256": "9f1effd1929bb3af3318e1500af2221b990e3ceb5bdae2d327e3fc8929fc41dc"
+        }
+    },
+    "app_identity": {
+        "package_name": "AnyDesk",
+        "developer_signer": "AnyDesk Software GmbH",
+        "is_verified": true,
+        "is_trusted_developer": false
+    },
+    "scan_summary": {
+        "malicious_count": 0,
+        "suspicious_count": 0,
+        "undetected_count": 70,
+        "harmless_count": 0,
+        "total_scanners": 75,
+        "reputation": 2,
+        "community_votes": {
+            "harmless": 2,
+            "malicious": 0
+        }
+    },
+    "threats_found": {
+        "malicious": [],
+        "suspicious": []
+    },
+    "security_analysis": {
+        "sigma_rules": {
+            "critical": 0,
+            "high": 1,
+            "medium": 4,
+            "low": 0
+        },
+        "sandbox_results": [
+            {
+                "sandbox": "Zenbox",
+                "category": "harmless",
+                "malware_classification": [
+                    "CLEAN"
+                ]
+            }
+        ]
+    },
+    "permissions": [],
+    "tags": [
+        "peexe",
+        "signed",
+        "overlay"
+    ]
+}

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from controller.analysis_controller import analysisReport_controller, downloadReport_controller, generateToken_controller,get_file_by_hash_controller, history_controller, require_upload_token
-from schemas.analy import AnalysisHistoryParams, AnalysisReportParams, CheckHashParams, GenerateTokenParams,AnalysisReportParamsTarget
+from controller.analysis_controller import analysisReport_controller, downloadReport_controller, generateToken_controller,get_file_by_hash_controller, history_controller, require_upload_token, update_privacy_controller
+from schemas.analy import AnalysisHistoryParams, AnalysisReportParams, CheckHashParams, GenerateTokenParams,AnalysisReportParamsTarget, UpdatePrivacyParams
 from services.token_service import TokenService
 from controller.Analysis.ScanFile_controller import scan_file_controller
 from controller.Analysis.CheckHash_controller import check_hash_controller
@@ -65,4 +65,8 @@ async def download_report(file_name: str):
 @router.post("/history")
 async def getHistoryAnalysis(body: AnalysisHistoryParams):
     return await history_controller(body);
+
+@router.patch("/{task_id}/privacy")
+async def updatePrivacy(task_id: str, body: UpdatePrivacyParams):
+    return await update_privacy_controller(task_id, body.token, body.privacy)
 

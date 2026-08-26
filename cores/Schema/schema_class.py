@@ -1,6 +1,6 @@
 from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, Text, text, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from datetime import datetime, timezone
 import uuid
 
@@ -107,10 +107,9 @@ class Reports(Base):
     virustotal_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mobsf_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     cape_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
-    # RampartAI's own classifier score (malware_probability * 100), derived
-    # purely from a MobSF report - NULL when MobSF was skipped/unsupported
-    # or RampartAI itself is unavailable.
-    rampart_ai_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    # RampartAI full /predict response (malware_probability, benign_probability,
+    # prediction, confidence, ...) stored verbatim as JSON.
+    rampart_ai_score: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     rampart_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     gemini_recommendation: Mapped[str | None] = mapped_column(Text, nullable=True)
     malware_signatures: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
@@ -136,6 +135,35 @@ class AuditLog(Base):
 
     actor = relationship("User", foreign_keys=[actor_uid], back_populates="audit_logs_as_actor")
     target = relationship("User", foreign_keys=[target_uid], back_populates="audit_logs_as_target")
+
+
+class LoginHistory(Base):
+    __tablename__ = "login_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    uid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.uid", ondelete="CASCADE"), nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class DownloadHistory(Base):
+    __tablename__ = "download_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    uid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.uid", ondelete="CASCADE"), nullable=False)
+    file_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tool: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    md5: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("CURRENT_TIMESTAMP")
+    )
 
 from cores.async_pg_db import engine
 

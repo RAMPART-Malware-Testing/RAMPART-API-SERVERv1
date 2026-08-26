@@ -134,7 +134,7 @@ async def check_hash_controller(user_id: str, sha256: str, file_name: str, file_
                     "mobsf_score": float(report.mobsf_score) if report.mobsf_score is not None else None,
                     "cape_score": float(report.cape_score) if report.cape_score is not None else None,
                     "rampart_ai_score": (
-                        float(report.rampart_ai_score) if report.rampart_ai_score is not None else None
+                        report.rampart_ai_score if report.rampart_ai_score is not None else None
                     ),
                 }
                 if report

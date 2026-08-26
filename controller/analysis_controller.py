@@ -7,7 +7,7 @@ from bgProcessing.tasks import analyze_malware_task
 from cores.async_pg_db import SessionLocal
 from cores.Schema.schema_class import User
 from schemas.analy import AnalysisHistoryParams 
-from services.analy.analy_service import get_analysis_history, get_analysis_with_report, get_file_by_hash, insert_table_analy
+from services.analy.analy_service import get_analysis_history, get_analysis_with_report, get_file_by_hash, get_public_analysis_with_report, insert_table_analy
 from services.token_service import TokenService
 import os
 from pathlib import Path
@@ -158,13 +158,15 @@ async def analysisReport_controller(uid: str, task_id: str):
         raise HTTPException(status_code=401, detail="Invalid token payload")
     async with SessionLocal() as session:
         row = await get_analysis_with_report(session, task_id, uid=uid)
-        
         if not row:
-            return {
-                "success": False,
-                "task_id": task_id,
-                "message": "TASK_NOT_FOUND"
-            }
+            # อนุญาตให้ดูรายงานที่เจ้าของคนอื่นเปิดเป็น public
+            row = await get_public_analysis_with_report(session, task_id)
+            if not row:
+                return {
+                    "success": False,
+                    "task_id": task_id,
+                    "message": "TASK_NOT_FOUND"
+                }
 
         analysis, report = row
 
@@ -222,7 +224,7 @@ async def analysisReport_controller(uid: str, task_id: str):
                 "mobsf_score": report.mobsf_score,
                 "cape_score": report.cape_score,
                 "rampart_ai_score": (
-                    float(report.rampart_ai_score) if report.rampart_ai_score is not None else None
+                    report.rampart_ai_score if report.rampart_ai_score is not None else None
                 ),
                 "score": float(report.score) if report.score is not None else None,
                 "risk_level": report.risk_level,
@@ -247,11 +249,13 @@ async def get_file_by_hash_controller(task_id: str, uid: str, tool: str = "virus
     async with SessionLocal() as session:
         row = await get_analysis_with_report(session, task_id, uid=uid)
         if not row:
-            return {
-                "success": False,
-                "task_id": task_id,
-                "message": "TASK_NOT_FOUND"
-            }
+            row = await get_public_analysis_with_report(session, task_id)
+            if not row:
+                return {
+                    "success": False,
+                    "task_id": task_id,
+                    "message": "TASK_NOT_FOUND"
+                }
 
         analysis, report = row
 
@@ -302,6 +306,35 @@ async def downloadReport_controller(file_name:str):
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="Report not found")
     return file_path
+
+async def update_privacy_controller(task_id: str, token: str, privacy: bool):
+    payload, err = TokenService.verify_token(token, "access")
+    if err:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    uid = payload.get("sub")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+    try:
+        uid = parse_uuid(uid)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+
+    async with SessionLocal() as session:
+        row = await get_analysis_with_report(session, task_id, uid=uid)
+        if not row:
+            raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
+        analysis, _ = row
+        analysis.privacy = bool(privacy)
+        await session.commit()
+        await session.refresh(analysis)
+        return {
+            "success": True,
+            "task_id": str(analysis.task_id),
+            "privacy": analysis.privacy,
+            "message": "อัปเดตความเป็นส่วนตัวของรายงานสำเร็จ",
+        }
+
 
 async def history_controller(body: AnalysisHistoryParams):
     payload, err = TokenService.verify_token(body.token, "access")

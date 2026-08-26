@@ -367,6 +367,27 @@ async def get_analysis_with_report(
     return row.Analysis, row.Reports
 
 
+async def get_public_analysis_with_report(
+    session: AsyncSession,
+    task_id: str
+) -> tuple[Analysis, Reports | None] | None:
+    """Allow viewing a report that the requester does NOT own, as long as it
+    is shared publicly (privacy == True) and not deleted."""
+    result = await session.execute(
+        select(Analysis, Reports)
+        .outerjoin(Reports, Analysis.rid == Reports.rid)
+        .where(
+            Analysis.task_id == task_id,
+            Analysis.privacy == True,  # noqa: E712
+            Analysis.deleted_at.is_(None),
+        )
+    )
+    row = result.first()
+    if row is None:
+        return None
+    return row.Analysis, row.Reports
+
+
 
 async def get_analysis_history(
     session: AsyncSession,

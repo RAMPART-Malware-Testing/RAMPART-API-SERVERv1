@@ -17,6 +17,81 @@ from utils.rate_limit import is_rate_limited
 from utils.response import error, success
 from utils.status_code import AuthStatus
 from utils.uuid import parse_uuid
+from sqlalchemy import select
+from cores.Schema.schema_class import DownloadHistory, LoginHistory
+
+
+async def record_download_controller(token: str, file_name: str | None, tool: str | None, md5: str | None):
+    uid, err = _resolve_uid_or_error(token)
+    if err:
+        return err
+
+    async with SessionLocal() as session:
+        session.add(
+            DownloadHistory(
+                uid=uid,
+                file_name=file_name,
+                tool=tool,
+                md5=md5,
+            )
+        )
+        await session.commit()
+        return success(AuthStatus.LOGIN_SUCCESS, "บันทึกประวัติการดาวน์โหลดสำเร็จ", None)
+
+
+async def get_download_history_controller(token: str, limit: int = 50):
+    uid, err = _resolve_uid_or_error(token)
+    if err:
+        return err
+
+    async with SessionLocal() as session:
+        rows = (
+            await session.execute(
+                select(DownloadHistory)
+                .where(DownloadHistory.uid == uid)
+                .order_by(DownloadHistory.created_at.desc())
+                .limit(limit)
+            )
+        ).scalars().all()
+        data = [
+            {
+                "id": str(r.id),
+                "file_name": r.file_name,
+                "tool": r.tool,
+                "md5": r.md5,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+        return success(AuthStatus.LOGIN_SUCCESS, "ดึงประวัติการดาวน์โหลดสำเร็จ", data)
+
+
+async def get_login_history_controller(token: str, limit: int = 50):
+    uid, err = _resolve_uid_or_error(token)
+    if err:
+        return err
+
+    async with SessionLocal() as session:
+        rows = (
+            await session.execute(
+                select(LoginHistory)
+                .where(LoginHistory.uid == uid)
+                .order_by(LoginHistory.created_at.desc())
+                .limit(limit)
+            )
+        ).scalars().all()
+        data = [
+            {
+                "id": str(r.id),
+                "provider": r.provider,
+                "ip": r.ip,
+                "user_agent": r.user_agent,
+                "status": r.status,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+        return success(AuthStatus.LOGIN_SUCCESS, "ดึงประวัติการเข้าสู่ระบบสำเร็จ", data)
 
 # Fixed-window caps per authenticated user (OWASP A04). Deliberately
 # generous for real usage - these exist to blunt scripted abuse of an

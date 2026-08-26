@@ -256,6 +256,16 @@ def finalize_analysis_report(
             "cape_score": read_sandbox_score(cape_report_path, calculate_cape_danger_score),
             "rampart_ai_score": read_sandbox_score(rampart_ai_report_path, calculate_rampart_ai_score),
         }
+        # Full RampartAI /predict response, stored verbatim into
+        # rampart_ai_score (a JSONB column). Score keeps the numeric value
+        # for the transient progress payload only.
+        rampartai_prediction = None
+        if rampart_ai_report_path:
+            try:
+                if Path(rampart_ai_report_path).is_file():
+                    rampartai_prediction = read_report(rampart_ai_report_path)
+            except Exception:
+                rampartai_prediction = None
         if report_ids:
             report = db.get(Reports, next(iter(report_ids)))
             if report is None:
@@ -263,12 +273,15 @@ def finalize_analysis_report(
             report.virustotal_score = scores["virustotal_score"]
             report.mobsf_score = scores["mobsf_score"]
             report.cape_score = scores["cape_score"]
-            report.rampart_ai_score = scores["rampart_ai_score"]
+            report.rampart_ai_score = rampartai_prediction
             report.malware_signatures = signatures
         else:
             report = Reports(
                 file_type=Path(file_path).suffix.lstrip(".") or None,
-                **scores,
+                virustotal_score=scores["virustotal_score"],
+                mobsf_score=scores["mobsf_score"],
+                cape_score=scores["cape_score"],
+                rampart_ai_score=rampartai_prediction,
                 malware_signatures=signatures,
             )
             db.add(report)
@@ -424,9 +437,37 @@ def analyze_malware_task(
                 tools={"virustotal": {"status": "success", "score": vt_score}},
             )
             if vt_score == 100:
-                report, scores = finalize_analysis_report(
-                    db, task_id, file_path, vt_report_path, tools="virustotal", tool_notes=tool_notes or None
+                # VirusTotal is dangerous (> 0) -> skip Stage 2
+                # (MobSF / CAPE / RampartAI) and go straight to Stage 3
+                # (Gemini) to conclude the risk.
+                try:
+                    evidence = build_gemini_evidence(vt_report_path, None, None)
+                except Exception as error:
+                    print(f"[Gemini] Evidence build failed for {file_path}: {error}")
+                    evidence = None
+                publish_progress(
+                    task_id,
+                    "gemini",
+                    "Gemini is synthesizing tool evidence",
+                    tools={
+                        "virustotal": {"status": "success", "score": vt_score},
+                        "mobsf": {"status": "skipped", "note": "Skipped: VirusTotal already detected malware"},
+                        "cape": {"status": "skipped", "note": "Skipped: VirusTotal already detected malware"},
+                        "rampart_ai": {"status": "skipped", "note": "Skipped: VirusTotal already detected malware"},
+                        "gemini": {"status": "processing"},
+                    },
                 )
+                try:
+                    assessment = GeminiAPI().AnalysisGemini(evidence) if evidence else {}
+                except Exception as error:
+                    print(f"[Gemini] Analysis failed for {file_path}: {error}")
+                    assessment = {}
+                tools = "virustotal,gemini" if assessment else "virustotal"
+                report, scores = finalize_analysis_report(
+                    db, task_id, file_path, vt_report_path, tools=tools, tool_notes=tool_notes or None
+                )
+                if assessment:
+                    apply_gemini_assessment(report, assessment)
                 db.commit()
                 return {
                     "success": True,
