@@ -21,3 +21,4 @@ authlib
 itsdangerous
 httpx
 Pillow
+psutil

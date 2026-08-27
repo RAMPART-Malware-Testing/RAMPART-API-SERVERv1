@@ -1,9 +1,7 @@
-import os
 import random
-import smtplib
-from email.mime.text import MIMEText
 from typing import Literal
 
+from utils.mailer import send_email
 from utils.response import error, success
 from utils.status_code import AuthStatus
 
@@ -131,40 +129,8 @@ class OTPService:
 
     @staticmethod
     def _send_email(email: str, otp: str, action: str) -> None:
-        host = os.getenv("SMTP_HOST")
-        gmail_user = os.getenv("GMAIL_USERNAME")
-        gmail_pass = os.getenv("GMAIL_PASSWORD")
-
-        if not host and not (gmail_user and gmail_pass):
-            print(f"[OTP] {action} code for {email}: {otp}")
-            return
-
-        if host:
-            smtp_host = host
-            smtp_port = int(os.getenv("SMTP_PORT", "587"))
-            smtp_user = os.getenv("SMTP_USER")
-            smtp_pass = os.getenv("SMTP_PASSWORD")
-            sender = os.getenv("SMTP_FROM", smtp_user)
-        else:
-            smtp_host = "smtp.gmail.com"
-            smtp_port = 587
-            smtp_user = gmail_user
-            smtp_pass = gmail_pass
-            sender = os.getenv("SMTP_FROM", gmail_user)
-
-        try:
-            msg = MIMEText(
-                f"รหัสยืนยัน (OTP) ของคุณคือ: {otp}\n\nรหัสนี้จะหมดอายุใน 5 นาที",
-                "plain",
-                "utf-8",
-            )
-            msg["Subject"] = f"รหัส OTP ของคุณ ({action})"
-            msg["From"] = sender
-            msg["To"] = email
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
-                server.starttls()
-                if smtp_user:
-                    server.login(smtp_user, smtp_pass)
-                server.sendmail(sender, [email], msg.as_string())
-        except Exception as error:
-            print(f"[OTP] email send failed (dev code for {email}: {otp}): {error}")
+        send_email(
+            email,
+            f"รหัส OTP ของคุณ ({action})",
+            f"รหัสยืนยัน (OTP) ของคุณคือ: {otp}\n\nรหัสนี้จะหมดอายุใน 5 นาที",
+        )

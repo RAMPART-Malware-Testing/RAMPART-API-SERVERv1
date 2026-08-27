@@ -15,8 +15,17 @@ from sqlalchemy.orm import contains_eager, joinedload, selectinload
 from cores.Schema.schema_class import Analysis, User, Reports
 from schemas.analy import AnalysisHistoryParams
 from uuid import UUID
+from utils.cache import build_suffix, cached_async
 
-async def get_dashboard_summary(session: AsyncSession, uid: UUID | str, role: str) -> dict:
+DASHBOARD_SUMMARY_CACHE_NAMESPACE = "dashboard:summary"
+DASHBOARD_SUMMARY_CACHE_TTL_SECONDS = 5
+RECENT_ACTIVITIES_CACHE_NAMESPACE = "dashboard:recent_activities"
+RECENT_ACTIVITIES_CACHE_TTL_SECONDS = 5
+REPORTS_HISTORY_CACHE_NAMESPACE = "dashboard:reports_history"
+REPORTS_HISTORY_CACHE_TTL_SECONDS = 5
+
+
+async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role: str) -> dict:
     # ── 1. Total files (ทั้งระบบ) ──────────────────────────────────────
     total_q = await session.execute(
         select(
@@ -106,7 +115,17 @@ async def get_dashboard_summary(session: AsyncSession, uid: UUID | str, role: st
     }
 
 
-async def get_recent_activities(
+async def get_dashboard_summary(session: AsyncSession, uid: UUID | str, role: str) -> dict:
+    suffix = build_suffix(uid=str(uid), role=role)
+    return await cached_async(
+        DASHBOARD_SUMMARY_CACHE_NAMESPACE,
+        DASHBOARD_SUMMARY_CACHE_TTL_SECONDS,
+        lambda: _fetch_dashboard_summary(session, uid, role),
+        suffix=suffix,
+    )
+
+
+async def _fetch_recent_activities(
     session: AsyncSession,
     uid: UUID | str,
     role: str,
@@ -142,7 +161,22 @@ async def get_recent_activities(
     ]
 
 
-async def get_reports_history(
+async def get_recent_activities(
+    session: AsyncSession,
+    uid: UUID | str,
+    role: str,
+    limit: int = 10
+) -> list[dict]:
+    suffix = build_suffix(uid=str(uid), role=role, limit=limit)
+    return await cached_async(
+        RECENT_ACTIVITIES_CACHE_NAMESPACE,
+        RECENT_ACTIVITIES_CACHE_TTL_SECONDS,
+        lambda: _fetch_recent_activities(session, uid, role, limit),
+        suffix=suffix,
+    )
+
+
+async def _fetch_reports_history(
     session: AsyncSession,
     params: ReportsHistoryParams
 ) -> dict[str, Any]:
@@ -267,3 +301,26 @@ async def get_reports_history(
             "has_prev":    params.page > 1,
         }
     }
+
+
+async def get_reports_history(
+    session: AsyncSession,
+    params: ReportsHistoryParams
+) -> dict[str, Any]:
+    suffix = build_suffix(
+        page=params.page,
+        limit=params.limit,
+        s=params.s,
+        status=params.status,
+        file_type=params.file_type,
+        created_at=params.created_at,
+        file_name=params.file_name,
+        file_size=params.file_size,
+        score=params.score,
+    )
+    return await cached_async(
+        REPORTS_HISTORY_CACHE_NAMESPACE,
+        REPORTS_HISTORY_CACHE_TTL_SECONDS,
+        lambda: _fetch_reports_history(session, params),
+        suffix=suffix,
+    )

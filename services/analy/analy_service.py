@@ -13,6 +13,12 @@ from uuid import UUID, uuid4
 
 REPORTS_DIR = Path("reports")
 
+# Self-service analysis history listing (/api/analy/v1/history) - mirrors
+# the admin equivalent (services.admin.admin_service.get_user_analysis_history_admin),
+# which already carries the same short TTL cache.
+ANALYSIS_HISTORY_CACHE_NAMESPACE = "analy:history"
+ANALYSIS_HISTORY_CACHE_TTL_SECONDS = 5
+
 # Maps a tool name to the (status_kwarg, report_path_kwarg) pair
 # analyze_malware_task accepts to be told "this tool already succeeded,
 # don't re-call its handler" (see bgProcessing/tasks.py). Used by
@@ -381,6 +387,21 @@ async def get_public_analysis_with_report(
             Analysis.privacy == True,  # noqa: E712
             Analysis.deleted_at.is_(None),
         )
+    )
+    row = result.first()
+    if row is None:
+        return None
+    return row.Analysis, row.Reports
+
+
+async def get_analysis_with_report_admin(
+    session: AsyncSession,
+    task_id: str
+) -> tuple[Analysis, Reports | None] | None:
+    result = await session.execute(
+        select(Analysis, Reports)
+        .outerjoin(Reports, Analysis.rid == Reports.rid)
+        .where(Analysis.task_id == task_id)
     )
     row = result.first()
     if row is None:

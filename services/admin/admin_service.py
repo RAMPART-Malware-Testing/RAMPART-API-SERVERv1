@@ -20,7 +20,7 @@ from sqlalchemy import and_, asc, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, joinedload
 
-from cores.Schema.schema_class import AuditLog, Analysis, Reports, User
+from cores.Schema.schema_class import AuditLog, Analysis, DownloadHistory, LoginHistory, Reports, User
 from schemas.admin import AdminUserHistoryParams
 from services.admin.authz import (
     ROLE_ADMIN,
@@ -28,6 +28,37 @@ from services.admin.authz import (
     AuthError,
     ensure_can_manage_target,
 )
+from utils.cache import build_suffix, cached_async, invalidate_cached
+
+AUDIT_LOG_CACHE_NAMESPACE = "admin:audit_logs"
+AUDIT_LOG_CACHE_TTL_SECONDS = 5
+USER_LIST_CACHE_NAMESPACE = "admin:users:list"
+USER_LIST_CACHE_TTL_SECONDS = 5
+USER_HISTORY_CACHE_NAMESPACE = "admin:users:history"
+USER_HISTORY_CACHE_TTL_SECONDS = 5
+USER_LOGIN_HISTORY_CACHE_NAMESPACE = "admin:users:login_history"
+USER_DOWNLOAD_HISTORY_CACHE_NAMESPACE = "admin:users:download_history"
+FILE_LIST_CACHE_NAMESPACE = "admin:files:list"
+FILE_LIST_CACHE_TTL_SECONDS = 5
+REPORT_LIST_CACHE_NAMESPACE = "admin:reports:list"
+REPORT_LIST_CACHE_TTL_SECONDS = 5
+DASHBOARD_CACHE_NAMESPACE = "admin:dashboard"
+DASHBOARD_CACHE_TTL_SECONDS = 20
+
+
+def _invalidate_user_caches(target_uid: uuid.UUID | None = None) -> None:
+    invalidate_cached(USER_LIST_CACHE_NAMESPACE)
+    invalidate_cached(DASHBOARD_CACHE_NAMESPACE)
+    invalidate_cached(AUDIT_LOG_CACHE_NAMESPACE)
+    if target_uid:
+        invalidate_cached(USER_HISTORY_CACHE_NAMESPACE, str(target_uid))
+
+
+def _invalidate_file_caches() -> None:
+    invalidate_cached(FILE_LIST_CACHE_NAMESPACE)
+    invalidate_cached(REPORT_LIST_CACHE_NAMESPACE)
+    invalidate_cached(DASHBOARD_CACHE_NAMESPACE)
+    invalidate_cached(AUDIT_LOG_CACHE_NAMESPACE)
 
 
 # ---------------------------------------------------------------------------
@@ -57,13 +88,13 @@ async def write_audit_log(
     )
 
 
-async def list_audit_logs(
+async def _fetch_audit_logs(
     session: AsyncSession,
     *,
     page: int,
     limit: int,
-    actor_uid: uuid.UUID | None = None,
-    action: str | None = None,
+    actor_uid: uuid.UUID | None,
+    action: str | None,
 ) -> dict[str, Any]:
     conditions = []
     if actor_uid is not None:
@@ -116,6 +147,28 @@ async def list_audit_logs(
     }
 
 
+async def list_audit_logs(
+    session: AsyncSession,
+    *,
+    page: int,
+    limit: int,
+    actor_uid: uuid.UUID | None = None,
+    action: str | None = None,
+) -> dict[str, Any]:
+    suffix = build_suffix(
+        page=page,
+        limit=limit,
+        actor_uid=str(actor_uid) if actor_uid else None,
+        action=action,
+    )
+    return await cached_async(
+        AUDIT_LOG_CACHE_NAMESPACE,
+        AUDIT_LOG_CACHE_TTL_SECONDS,
+        lambda: _fetch_audit_logs(session, page=page, limit=limit, actor_uid=actor_uid, action=action),
+        suffix=suffix,
+    )
+
+
 # ---------------------------------------------------------------------------
 # User listing / detail
 # ---------------------------------------------------------------------------
@@ -137,7 +190,7 @@ def serialize_user(user: User) -> dict[str, Any]:
     }
 
 
-async def list_users(
+async def _fetch_users(
     session: AsyncSession,
     *,
     q: str | None,
@@ -193,8 +246,157 @@ async def list_users(
     }
 
 
+async def list_users(
+    session: AsyncSession,
+    *,
+    q: str | None,
+    role_filter: str | list[str] | None,
+    banned_filter: bool | None,
+    page: int,
+    limit: int,
+) -> dict[str, Any]:
+    suffix = build_suffix(
+        q=q,
+        role=",".join(role_filter) if isinstance(role_filter, list) else role_filter,
+        banned=banned_filter,
+        page=page,
+        limit=limit,
+    )
+    return await cached_async(
+        USER_LIST_CACHE_NAMESPACE,
+        USER_LIST_CACHE_TTL_SECONDS,
+        lambda: _fetch_users(session, q=q, role_filter=role_filter, banned_filter=banned_filter, page=page, limit=limit),
+        suffix=suffix,
+    )
+
+
 async def get_user_admin_view(session: AsyncSession, target_uid: uuid.UUID) -> User | None:
     return await session.get(User, target_uid)
+
+
+async def _fetch_user_login_history(
+    session: AsyncSession,
+    target_uid: uuid.UUID,
+    *,
+    page: int,
+    limit: int,
+) -> dict[str, Any]:
+    total = (
+        await session.execute(
+            select(func.count()).select_from(LoginHistory).where(LoginHistory.uid == target_uid)
+        )
+    ).scalar_one()
+
+    stmt = (
+        select(LoginHistory)
+        .where(LoginHistory.uid == target_uid)
+        .order_by(desc(LoginHistory.created_at))
+        .offset((page - 1) * limit)
+        .limit(limit)
+    )
+    rows = (await session.execute(stmt)).scalars().all()
+
+    total_pages = max(1, -(-total // limit))
+    return {
+        "success": True,
+        "data": [
+            {
+                "id": str(r.id),
+                "provider": r.provider,
+                "ip": r.ip,
+                "user_agent": r.user_agent,
+                "status": r.status,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "total_pages": total_pages,
+            "has_next": page < total_pages,
+            "has_prev": page > 1,
+        },
+    }
+
+
+async def get_user_login_history_admin(
+    session: AsyncSession,
+    target_uid: uuid.UUID,
+    *,
+    page: int,
+    limit: int,
+) -> dict[str, Any]:
+    suffix = build_suffix(uid=str(target_uid), page=page, limit=limit)
+    return await cached_async(
+        USER_LOGIN_HISTORY_CACHE_NAMESPACE,
+        USER_HISTORY_CACHE_TTL_SECONDS,
+        lambda: _fetch_user_login_history(session, target_uid, page=page, limit=limit),
+        suffix=suffix,
+    )
+
+
+async def _fetch_user_download_history(
+    session: AsyncSession,
+    target_uid: uuid.UUID,
+    *,
+    page: int,
+    limit: int,
+) -> dict[str, Any]:
+    total = (
+        await session.execute(
+            select(func.count()).select_from(DownloadHistory).where(DownloadHistory.uid == target_uid)
+        )
+    ).scalar_one()
+
+    stmt = (
+        select(DownloadHistory)
+        .where(DownloadHistory.uid == target_uid)
+        .order_by(desc(DownloadHistory.created_at))
+        .offset((page - 1) * limit)
+        .limit(limit)
+    )
+    rows = (await session.execute(stmt)).scalars().all()
+
+    total_pages = max(1, -(-total // limit))
+    return {
+        "success": True,
+        "data": [
+            {
+                "id": str(r.id),
+                "file_name": r.file_name,
+                "tool": r.tool,
+                "md5": r.md5,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "total_pages": total_pages,
+            "has_next": page < total_pages,
+            "has_prev": page > 1,
+        },
+    }
+
+
+async def get_user_download_history_admin(
+    session: AsyncSession,
+    target_uid: uuid.UUID,
+    *,
+    page: int,
+    limit: int,
+) -> dict[str, Any]:
+    suffix = build_suffix(uid=str(target_uid), page=page, limit=limit)
+    return await cached_async(
+        USER_DOWNLOAD_HISTORY_CACHE_NAMESPACE,
+        USER_HISTORY_CACHE_TTL_SECONDS,
+        lambda: _fetch_user_download_history(session, target_uid, page=page, limit=limit),
+        suffix=suffix,
+    )
 
 
 async def get_user_analysis_history_admin(
@@ -527,6 +729,46 @@ async def soft_delete_file(
     return analysis
 
 
+async def bulk_soft_delete_files(
+    session: AsyncSession,
+    *,
+    actor: User,
+    aids: list[uuid.UUID],
+    reason: str,
+) -> dict[str, Any]:
+    succeeded: list[str] = []
+    failed: list[dict[str, str]] = []
+    for aid in aids:
+        try:
+            analysis = await session.get(Analysis, aid, options=[joinedload(Analysis.user)])
+            if analysis is None:
+                failed.append({"aid": str(aid), "reason": "ไม่พบไฟล์"})
+                continue
+            if analysis.deleted_at is not None:
+                failed.append({"aid": str(aid), "reason": "ถูกลบไปแล้ว"})
+                continue
+            owner = analysis.user
+            if owner is None:
+                failed.append({"aid": str(aid), "reason": "ไม่พบเจ้าของไฟล์"})
+                continue
+            ensure_can_manage_target(actor, owner)
+            analysis.deleted_at = datetime.now(timezone.utc)
+            analysis.deleted_by = actor.uid
+            await write_audit_log(
+                session,
+                actor_uid=actor.uid,
+                target_uid=owner.uid,
+                action="delete_file",
+                detail=f"{analysis.file_name} | reason={reason} | bulk",
+            )
+            succeeded.append(str(aid))
+        except AuthError as exc:
+            failed.append({"aid": str(aid), "reason": exc.message})
+
+    await session.commit()
+    return {"success": True, "data": {"succeeded": succeeded, "failed": failed}}
+
+
 # ---------------------------------------------------------------------------
 # Ban / unban / role change
 # ---------------------------------------------------------------------------
@@ -560,6 +802,41 @@ async def ban_user(
     await session.commit()
     await session.refresh(target)
     return target
+
+
+async def bulk_ban_users(
+    session: AsyncSession,
+    *,
+    actor: User,
+    target_uids: list[uuid.UUID],
+    reason: str,
+) -> dict[str, Any]:
+    succeeded: list[str] = []
+    failed: list[dict[str, str]] = []
+    for target_uid in target_uids:
+        try:
+            target = await session.get(User, target_uid)
+            if target is None:
+                failed.append({"uid": str(target_uid), "reason": "ไม่พบผู้ใช้"})
+                continue
+            ensure_can_manage_target(actor, target)
+            target.is_banned = True
+            target.banned_at = datetime.now(timezone.utc)
+            target.banned_reason = reason
+            target.banned_by = actor.uid
+            await write_audit_log(
+                session,
+                actor_uid=actor.uid,
+                target_uid=target.uid,
+                action="ban_user",
+                detail=f"reason={reason} | bulk",
+            )
+            succeeded.append(str(target_uid))
+        except AuthError as exc:
+            failed.append({"uid": str(target_uid), "reason": exc.message})
+
+    await session.commit()
+    return {"success": True, "data": {"succeeded": succeeded, "failed": failed}}
 
 
 async def unban_user(
@@ -764,3 +1041,112 @@ async def get_admin_dashboard_summary(session: AsyncSession, *, trend_days: int 
             "recent_actions": recent_actions,
         },
     }
+
+
+async def export_users_csv(session: AsyncSession) -> str:
+    import csv
+    import io
+
+    rows = (await session.execute(select(User).order_by(desc(User.created_at)))).scalars().all()
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["uid", "username", "email", "role", "status", "is_banned", "banned_reason", "created_at"])
+    for u in rows:
+        writer.writerow([
+            str(u.uid), u.username, u.email, u.role, u.status, u.is_banned,
+            u.banned_reason or "", u.created_at.isoformat() if u.created_at else "",
+        ])
+    return buffer.getvalue()
+
+
+async def export_files_csv(session: AsyncSession) -> str:
+    import csv
+    import io
+
+    stmt = (
+        select(Analysis)
+        .options(joinedload(Analysis.user), joinedload(Analysis.report))
+        .where(Analysis.deleted_at.is_(None))
+        .order_by(desc(Analysis.created_at))
+    )
+    rows = (await session.execute(stmt)).scalars().unique().all()
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["aid", "task_id", "file_name", "file_type", "status", "owner", "score", "risk_level", "is_malicious", "created_at"])
+    for a in rows:
+        writer.writerow([
+            str(a.aid), a.task_id or "", a.file_name or "", a.file_type or "", a.status or "",
+            a.user.username if a.user else "",
+            float(a.report.score) if a.report and a.report.score is not None else "",
+            a.report.risk_level if a.report else "",
+            a.is_malicious, a.created_at.isoformat() if a.created_at else "",
+        ])
+    return buffer.getvalue()
+
+
+async def export_audit_logs_csv(session: AsyncSession) -> str:
+    import csv
+    import io
+
+    stmt = (
+        select(AuditLog)
+        .options(joinedload(AuditLog.actor), joinedload(AuditLog.target))
+        .order_by(desc(AuditLog.created_at))
+        .limit(5000)
+    )
+    rows = (await session.execute(stmt)).scalars().unique().all()
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["log_id", "actor", "target", "action", "detail", "created_at"])
+    for log in rows:
+        writer.writerow([
+            str(log.log_id),
+            log.actor.username if log.actor else "",
+            log.target.username if log.target else "",
+            log.action or "",
+            log.detail or "",
+            log.created_at.isoformat() if log.created_at else "",
+        ])
+    return buffer.getvalue()
+
+
+async def broadcast_email(
+    session: AsyncSession,
+    *,
+    actor: User,
+    subject: str,
+    message: str,
+    target_role: str | None,
+) -> dict[str, Any]:
+    from utils.mailer import send_email
+
+    stmt = select(User.email, User.username)
+    if target_role:
+        stmt = stmt.where(User.role == target_role)
+    rows = (await session.execute(stmt)).all()
+
+    sent = 0
+    for email, username in rows:
+        if not email:
+            continue
+        text_body = f"สวัสดีคุณ {username},\n\n{message}\n\n— ทีมงาน RAMPART"
+        html_body = f"""
+        <div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:auto">
+          <p>สวัสดีคุณ {username},</p>
+          <p style="white-space:pre-line">{message}</p>
+          <p style="color:#888;font-size:12px">— ทีมงาน RAMPART</p>
+        </div>
+        """
+        if send_email(email, subject, text_body, html_body):
+            sent += 1
+
+    await write_audit_log(
+        session,
+        actor_uid=actor.uid,
+        target_uid=None,
+        action="broadcast_email",
+        detail=f"subject={subject} | role={target_role or 'all'} | sent={sent}",
+    )
+    await session.commit()
+
+    return {"success": True, "data": {"sent": sent, "total_recipients": len(rows)}}

@@ -14,12 +14,20 @@ from services.profile.profile_service import (
     update_username,
 )
 from services.token_service import TokenService
+from utils.cache import build_suffix, cached_async, invalidate_cached
 from utils.rate_limit import is_rate_limited
 from utils.response import error, success
 from utils.status_code import AuthStatus
 from utils.uuid import parse_uuid
 from sqlalchemy import select
 from cores.Schema.schema_class import DownloadHistory, LoginHistory
+
+PROFILE_CACHE_NAMESPACE = "profile:me"
+PROFILE_CACHE_TTL_SECONDS = 5
+DOWNLOAD_HISTORY_CACHE_NAMESPACE = "profile:download_history"
+DOWNLOAD_HISTORY_CACHE_TTL_SECONDS = 5
+LOGIN_HISTORY_CACHE_NAMESPACE = "profile:login_history"
+LOGIN_HISTORY_CACHE_TTL_SECONDS = 5
 
 
 async def record_download_controller(token: str, file_name: str | None, tool: str | None, md5: str | None):
@@ -37,7 +45,32 @@ async def record_download_controller(token: str, file_name: str | None, tool: st
             )
         )
         await session.commit()
+        # build_suffix mixes uid+limit into one key, so a single-uid
+        # invalidate can't target just this user's entries - clear the
+        # whole (short-TTL) namespace instead.
+        invalidate_cached(DOWNLOAD_HISTORY_CACHE_NAMESPACE)
         return success(AuthStatus.LOGIN_SUCCESS, "บันทึกประวัติการดาวน์โหลดสำเร็จ", None)
+
+
+async def _fetch_download_history(session, uid, limit: int):
+    rows = (
+        await session.execute(
+            select(DownloadHistory)
+            .where(DownloadHistory.uid == uid)
+            .order_by(DownloadHistory.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [
+        {
+            "id": str(r.id),
+            "file_name": r.file_name,
+            "tool": r.tool,
+            "md5": r.md5,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
 
 
 async def get_download_history_controller(token: str, limit: int = 50):
@@ -46,25 +79,36 @@ async def get_download_history_controller(token: str, limit: int = 50):
         return err
 
     async with SessionLocal() as session:
-        rows = (
-            await session.execute(
-                select(DownloadHistory)
-                .where(DownloadHistory.uid == uid)
-                .order_by(DownloadHistory.created_at.desc())
-                .limit(limit)
-            )
-        ).scalars().all()
-        data = [
-            {
-                "id": str(r.id),
-                "file_name": r.file_name,
-                "tool": r.tool,
-                "md5": r.md5,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-            }
-            for r in rows
-        ]
+        suffix = build_suffix(uid=str(uid), limit=limit)
+        data = await cached_async(
+            DOWNLOAD_HISTORY_CACHE_NAMESPACE,
+            DOWNLOAD_HISTORY_CACHE_TTL_SECONDS,
+            lambda: _fetch_download_history(session, uid, limit),
+            suffix=suffix,
+        )
         return success(AuthStatus.LOGIN_SUCCESS, "ดึงประวัติการดาวน์โหลดสำเร็จ", data)
+
+
+async def _fetch_login_history(session, uid, limit: int):
+    rows = (
+        await session.execute(
+            select(LoginHistory)
+            .where(LoginHistory.uid == uid)
+            .order_by(LoginHistory.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [
+        {
+            "id": str(r.id),
+            "provider": r.provider,
+            "ip": r.ip,
+            "user_agent": r.user_agent,
+            "status": r.status,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
 
 
 async def get_login_history_controller(token: str, limit: int = 50):
@@ -73,25 +117,13 @@ async def get_login_history_controller(token: str, limit: int = 50):
         return err
 
     async with SessionLocal() as session:
-        rows = (
-            await session.execute(
-                select(LoginHistory)
-                .where(LoginHistory.uid == uid)
-                .order_by(LoginHistory.created_at.desc())
-                .limit(limit)
-            )
-        ).scalars().all()
-        data = [
-            {
-                "id": str(r.id),
-                "provider": r.provider,
-                "ip": r.ip,
-                "user_agent": r.user_agent,
-                "status": r.status,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-            }
-            for r in rows
-        ]
+        suffix = build_suffix(uid=str(uid), limit=limit)
+        data = await cached_async(
+            LOGIN_HISTORY_CACHE_NAMESPACE,
+            LOGIN_HISTORY_CACHE_TTL_SECONDS,
+            lambda: _fetch_login_history(session, uid, limit),
+            suffix=suffix,
+        )
         return success(AuthStatus.LOGIN_SUCCESS, "ดึงประวัติการเข้าสู่ระบบสำเร็จ", data)
 
 # Fixed-window caps per authenticated user (OWASP A04). Deliberately
@@ -128,18 +160,29 @@ def _resolve_uid_or_error(token: str):
         return None, error(AuthStatus.TOKEN_INVALID, "ข้อมูลผู้ใช้ในโทเค็นไม่ถูกต้อง")
 
 
+async def _fetch_profile(session, uid):
+    user = await get_user_or_404(session, uid)
+    ensure_not_banned(user)
+    return user_public_dict(user)
+
+
 async def get_profile_controller(token: str):
     uid, err = _resolve_uid_or_error(token)
     if err:
         return err
 
     async with SessionLocal() as session:
-        user = await get_user_or_404(session, uid)
         try:
-            ensure_not_banned(user)
+            suffix = build_suffix(uid=str(uid))
+            data = await cached_async(
+                PROFILE_CACHE_NAMESPACE,
+                PROFILE_CACHE_TTL_SECONDS,
+                lambda: _fetch_profile(session, uid),
+                suffix=suffix,
+            )
         except AuthError as exc:
             return error(exc.code, exc.message)
-        return success(AuthStatus.LOGIN_SUCCESS, "ดึงข้อมูลโปรไฟล์สำเร็จ", user_public_dict(user))
+        return success(AuthStatus.LOGIN_SUCCESS, "ดึงข้อมูลโปรไฟล์สำเร็จ", data)
 
 
 async def update_username_controller(token: str, username: str | None):
@@ -161,6 +204,7 @@ async def update_username_controller(token: str, username: str | None):
 
     async with SessionLocal() as session:
         user = await update_username(session, uid, username)
+        invalidate_cached(PROFILE_CACHE_NAMESPACE)
         return success(AuthStatus.PROFILE_UPDATE_SUCCESS, "อัปเดตโปรไฟล์สำเร็จ", user_public_dict(user))
 
 
@@ -181,6 +225,7 @@ async def update_avatar_controller(token: str, file: UploadFile):
 
     async with SessionLocal() as session:
         user = await update_avatar(session, uid, file)
+        invalidate_cached(PROFILE_CACHE_NAMESPACE)
         return success(AuthStatus.AVATAR_UPDATE_SUCCESS, "อัปเดตรูปโปรไฟล์สำเร็จ", user_public_dict(user))
 
 

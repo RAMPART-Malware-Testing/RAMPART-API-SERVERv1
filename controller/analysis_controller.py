@@ -7,16 +7,25 @@ from bgProcessing.tasks import analyze_malware_task
 from cores.async_pg_db import SessionLocal
 from cores.Schema.schema_class import User
 from schemas.analy import AnalysisHistoryParams 
-from services.admin.authz import AuthError, ensure_not_banned, get_current_user
-from services.analy.analy_service import get_analysis_history, get_analysis_with_report, get_file_by_hash, get_public_analysis_with_report, insert_table_analy
+from services.admin.admin_service import write_audit_log
+from services.admin.authz import ADMIN_ROLES, AuthError, ensure_not_banned, get_current_user
+from services.analy.analy_service import get_analysis_history, get_analysis_with_report, get_analysis_with_report_admin, get_file_by_hash, get_public_analysis_with_report, insert_table_analy
 from services.token_service import TokenService
 import os
 from pathlib import Path
 from cores.redis import redis_client
+from utils.cache import build_suffix, cached_async, invalidate_cached
 from utils.calculate_hash import calculate_hash_from_chunks
 from utils.jwt import create_token
 from utils.uuid import parse_uuid
 import json
+
+# Status-poll endpoint (POST /api/analy/v1/task_id) is hit repeatedly by the
+# frontend while a task is running, and can be polled by several admins
+# viewing the same task at once - a short TTL means concurrent/rapid polls
+# reuse the same DB read instead of re-querying Postgres every time.
+TASK_STATUS_CACHE_NAMESPACE = "analy:task_status"
+TASK_STATUS_CACHE_TTL_SECONDS = 3
 
 UPLOAD_DIR = Path("temps_files")
 REPORTS_DIR = Path("reports")
@@ -152,6 +161,16 @@ def _read_task_progress(task_id: str) -> dict | None:
 
 
 async def analysisReport_controller(uid: str, task_id: str):
+    suffix = build_suffix(task_id=task_id, uid=uid)
+    return await cached_async(
+        TASK_STATUS_CACHE_NAMESPACE,
+        TASK_STATUS_CACHE_TTL_SECONDS,
+        lambda: _compute_analysis_report(uid, task_id),
+        suffix=suffix,
+    )
+
+
+async def _compute_analysis_report(uid: str, task_id: str):
     try:
         uid = parse_uuid(uid)
     except (TypeError, ValueError):
@@ -164,14 +183,24 @@ async def analysisReport_controller(uid: str, task_id: str):
             raise HTTPException(status_code=403, detail="Account is banned")
         row = await get_analysis_with_report(session, task_id, uid=uid)
         if not row:
-            # อนุญาตให้ดูรายงานที่เจ้าของคนอื่นเปิดเป็น public
             row = await get_public_analysis_with_report(session, task_id)
-            if not row:
-                return {
-                    "success": False,
-                    "task_id": task_id,
-                    "message": "TASK_NOT_FOUND"
-                }
+        if not row and user.role in ADMIN_ROLES:
+            row = await get_analysis_with_report_admin(session, task_id)
+            if row:
+                await write_audit_log(
+                    session,
+                    actor_uid=user.uid,
+                    target_uid=row[0].uid,
+                    action="view_private_analysis",
+                    detail=f"task_id={task_id}",
+                )
+                await session.commit()
+        if not row:
+            return {
+                "success": False,
+                "task_id": task_id,
+                "message": "TASK_NOT_FOUND"
+            }
 
         analysis, report = row
 
@@ -221,9 +250,9 @@ async def analysisReport_controller(uid: str, task_id: str):
                 "tool_notes": _parse_tool_notes(analysis.tool_notes),
                 "md5": analysis.md5,
                 "status": analysis.status,
-                "deleted_at": analysis.deleted_at,
+                "deleted_at": analysis.deleted_at.isoformat() if analysis.deleted_at else None,
                 "deleted_by": str(analysis.deleted_by) if analysis.deleted_by else None,
-                "created_at": analysis.created_at,
+                "created_at": analysis.created_at.isoformat() if analysis.created_at else None,
                 "report_file_type": report.file_type,
                 "virustotal_score": report.virustotal_score,
                 "mobsf_score": report.mobsf_score,
@@ -238,7 +267,7 @@ async def analysisReport_controller(uid: str, task_id: str):
                 "risk_indicators": report.risk_indicators,
                 "gemini_recommendation": report.gemini_recommendation,
                 "malware_signatures": report.malware_signatures,
-                "report_created_at": report.created_at,
+                "report_created_at": report.created_at.isoformat() if report.created_at else None,
             }
         }
     
@@ -260,12 +289,23 @@ async def get_file_by_hash_controller(task_id: str, uid: str, tool: str = "virus
         row = await get_analysis_with_report(session, task_id, uid=uid)
         if not row:
             row = await get_public_analysis_with_report(session, task_id)
-            if not row:
-                return {
-                    "success": False,
-                    "task_id": task_id,
-                    "message": "TASK_NOT_FOUND"
-                }
+        if not row and user.role in ADMIN_ROLES:
+            row = await get_analysis_with_report_admin(session, task_id)
+            if row:
+                await write_audit_log(
+                    session,
+                    actor_uid=user.uid,
+                    target_uid=row[0].uid,
+                    action="view_private_report_target",
+                    detail=f"task_id={task_id} tool={tool}",
+                )
+                await session.commit()
+        if not row:
+            return {
+                "success": False,
+                "task_id": task_id,
+                "message": "TASK_NOT_FOUND"
+            }
 
         analysis, report = row
 
@@ -338,6 +378,7 @@ async def update_privacy_controller(task_id: str, token: str, privacy: bool):
         analysis.privacy = bool(privacy)
         await session.commit()
         await session.refresh(analysis)
+        invalidate_cached(TASK_STATUS_CACHE_NAMESPACE)
         return {
             "success": True,
             "task_id": str(analysis.task_id),
@@ -347,6 +388,10 @@ async def update_privacy_controller(task_id: str, token: str, privacy: bool):
 
 
 async def history_controller(body: AnalysisHistoryParams):
+    from services.analy.analy_service import (
+        ANALYSIS_HISTORY_CACHE_NAMESPACE,
+        ANALYSIS_HISTORY_CACHE_TTL_SECONDS,
+    )
     async with SessionLocal() as session:
         try:
             user = await get_current_user(session, body.token)
@@ -355,7 +400,24 @@ async def history_controller(body: AnalysisHistoryParams):
             raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
         try:
-            return await get_analysis_history(session, user.uid, body)
+            suffix = build_suffix(
+                uid=str(user.uid),
+                page=body.page,
+                limit=body.limit,
+                s=body.s,
+                status=body.status,
+                file_type=body.file_type,
+                created_at=body.created_at,
+                file_name=body.file_name,
+                file_size=body.file_size,
+                score=body.score,
+            )
+            return await cached_async(
+                ANALYSIS_HISTORY_CACHE_NAMESPACE,
+                ANALYSIS_HISTORY_CACHE_TTL_SECONDS,
+                lambda: get_analysis_history(session, user.uid, body),
+                suffix=suffix,
+            )
         except HTTPException:
             raise
         except Exception:

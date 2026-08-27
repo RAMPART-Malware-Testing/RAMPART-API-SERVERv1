@@ -24,6 +24,7 @@ from cores.Schema.schema_class import Analysis, Reports
 from cores.sync_pg_db import SyncSessionLocal
 from cores.redis import redis_client
 from calling.GeminiAPI import GeminiAPI
+from bgProcessing.notifications import notify_analysis_failed, notify_analysis_success
 
 
 REPORTS_DIR = Path("reports")
@@ -102,6 +103,10 @@ def fail_task(db, task_id: str, error, *, report_paths=(), tool_notes: dict | No
         tool_notes=json.dumps(tool_notes, ensure_ascii=False) if tool_notes else None,
     )
     db.commit()
+    try:
+        notify_analysis_failed(db, task_id, message)
+    except Exception as notify_error:
+        print(f"[Notify] Failed to send failure email for {task_id}: {notify_error}")
     return {"success": False, "task_id": task_id, "error": message}
 
 
@@ -469,6 +474,10 @@ def analyze_malware_task(
                 if assessment:
                     apply_gemini_assessment(report, assessment)
                 db.commit()
+                try:
+                    notify_analysis_success(db, task_id)
+                except Exception as notify_error:
+                    print(f"[Notify] Failed to send success email for {task_id}: {notify_error}")
                 return {
                     "success": True,
                     "task_id": task_id,
@@ -728,6 +737,10 @@ def analyze_malware_task(
         )
         apply_gemini_assessment(report, assessment)
         db.commit()
+        try:
+            notify_analysis_success(db, task_id)
+        except Exception as notify_error:
+            print(f"[Notify] Failed to send success email for {task_id}: {notify_error}")
         publish_progress(
             task_id,
             "complete",

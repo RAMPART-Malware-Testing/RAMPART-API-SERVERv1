@@ -272,6 +272,54 @@ class AdminListFilesParams(AdminTokenParams):
         return v
 
 
+class AdminBulkBanUsersParams(AdminTokenParams):
+    target_uids: list[str]
+    reason: str
+
+    @field_validator("target_uids")
+    @classmethod
+    def validate_target_uids(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("target_uids must not be empty")
+        if len(v) > 100:
+            raise ValueError("Cannot bulk-act on more than 100 targets at once")
+        return v
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("A ban reason is required")
+        if len(v) > MAX_REASON_LENGTH:
+            raise ValueError(f"Reason too long (max {MAX_REASON_LENGTH})")
+        return v
+
+
+class AdminBulkDeleteFilesParams(AdminTokenParams):
+    aids: list[str]
+    reason: str
+
+    @field_validator("aids")
+    @classmethod
+    def validate_aids(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("aids must not be empty")
+        if len(v) > 100:
+            raise ValueError("Cannot bulk-act on more than 100 targets at once")
+        return v
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("A deletion reason is required")
+        if len(v) > MAX_REASON_LENGTH:
+            raise ValueError(f"Reason too long (max {MAX_REASON_LENGTH})")
+        return v
+
+
 class AdminDeleteFileParams(AdminTokenParams):
     aid: str
     reason: str
@@ -335,4 +383,130 @@ class AdminListReportsParams(AdminTokenParams):
         v = v.strip().lower()
         if not re.fullmatch(r"[a-z0-9]{1,10}", v):
             raise ValueError("Invalid file_type format")
+        return v
+
+
+class AdminDashboardParams(AdminTokenParams):
+    trend_days: int = 14
+
+    @field_validator("trend_days")
+    @classmethod
+    def validate_trend_days(cls, v: int) -> int:
+        if v < 1 or v > 90:
+            raise ValueError("trend_days must be between 1 and 90")
+        return v
+
+
+class AdminUserSubHistoryParams(AdminTargetUserParams):
+    page: int = 1
+    limit: int = 20
+
+    @field_validator("page")
+    @classmethod
+    def validate_page(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("Page must be >= 1")
+        return v
+
+    @field_validator("limit")
+    @classmethod
+    def validate_limit(cls, v: int) -> int:
+        if v < 1 or v > MAX_LIMIT:
+            raise ValueError(f"Limit must be between 1 and {MAX_LIMIT}")
+        return v
+
+
+class AdminTaskQueueParams(AdminTokenParams):
+    page: int = 1
+    limit: int = 20
+    status: str | None = None
+    q: str | None = None
+
+    @field_validator("page")
+    @classmethod
+    def validate_page(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("Page must be >= 1")
+        return v
+
+    @field_validator("limit")
+    @classmethod
+    def validate_limit(cls, v: int) -> int:
+        if v < 1 or v > MAX_LIMIT:
+            raise ValueError(f"Limit must be between 1 and {MAX_LIMIT}")
+        return v
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().lower()
+        if v not in ALLOWED_ANALYSIS_STATUSES:
+            raise ValueError(f"status must be one of: {', '.join(ALLOWED_ANALYSIS_STATUSES)}")
+        return v
+
+    @field_validator("q")
+    @classmethod
+    def validate_q(cls, v: str | None) -> str | None:
+        return _validate_search_text(v)
+
+
+class AdminTaskActionParams(AdminTokenParams):
+    task_id: str
+
+    @field_validator("task_id")
+    @classmethod
+    def validate_task_id(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v or len(v) > 100:
+            raise ValueError("Invalid task_id")
+        return v
+
+
+class AdminClearLockoutParams(AdminTokenParams):
+    key: str
+
+    @field_validator("key")
+    @classmethod
+    def validate_key(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v or len(v) > 300:
+            raise ValueError("Invalid key")
+        return v
+
+
+class AdminBroadcastEmailParams(AdminTokenParams):
+    subject: str
+    message: str
+    target_role: str | None = None
+
+    @field_validator("subject")
+    @classmethod
+    def validate_subject(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("Subject is required")
+        if len(v) > 200:
+            raise ValueError("Subject too long (max 200)")
+        return v
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("Message is required")
+        if len(v) > 5000:
+            raise ValueError("Message too long (max 5000)")
+        return v
+
+    @field_validator("target_role")
+    @classmethod
+    def validate_target_role(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().lower()
+        if v not in {"user", "admin", "master"}:
+            raise ValueError("target_role must be one of: user, admin, master")
         return v

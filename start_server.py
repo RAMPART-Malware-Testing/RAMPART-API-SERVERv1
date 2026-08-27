@@ -37,10 +37,9 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     await init_db()
-    # No pre-seeded admin account anymore: whoever signs in via Google/GitHub
-    # with an e-mail matching ROOT_EMAIL (.env) is auto-promoted to admin on
-    # login - see services/oauth/oauth_service.find_or_create_user.
-    
+    from services.admin.root_bootstrap import ensure_root_master_account
+    await ensure_root_master_account()
+
 from routers.auth import router as auth_router
 from routers.profile import router as profile_router
 from routers.analysis import router as analy_router
