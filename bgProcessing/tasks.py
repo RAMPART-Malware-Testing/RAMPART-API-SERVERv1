@@ -565,6 +565,17 @@ def analyze_malware_task(
         cape_ready = bool(cape_status is True and cape_report_path and Path(cape_report_path).is_file())
         cape_countdown = None
         if cape_status not in (True, "skipped") and not cape_ready:
+            publish_progress(
+                task_id,
+                "sandboxes",
+                "Advancing CAPE analysis",
+                tools={
+                    "virustotal": {"status": vt_status if vt_status is True else "skipped", "score": vt_score},
+                    "mobsf": {"status": mobsf_status},
+                    "cape": {"status": "processing", "task_id": cape_task_id},
+                    "rampart_ai": {"status": rampart_ai_status or "waiting"},
+                },
+            )
             cape_report_path = cape_report_path or str(REPORTS_DIR / f"cape-{md5}.json")
             result = handle_cape(
                 file_path,
@@ -584,6 +595,28 @@ def analyze_malware_task(
             cape_countdown = outcome["retry_countdown"]
             if outcome["note"]:
                 tool_notes["cape"] = outcome["note"]
+            # Publish again right after the call resolves (not just the
+            # "processing" snapshot above) so a poll landing between this
+            # call and the shared sandboxes/gemini gate further down still
+            # sees CAPE's just-updated status/task_id instead of a stale
+            # "processing" - this was the actual bug: CAPE could run to
+            # completion across several Celery retries with NO Redis
+            # update in between (MobSF/RampartAI publish their own
+            # progress, but nothing published one specifically for CAPE),
+            # so the frontend poll saw CAPE stuck at "waiting" the whole
+            # time even though it was genuinely working and eventually
+            # succeeded.
+            publish_progress(
+                task_id,
+                "sandboxes",
+                "CAPE analysis updated",
+                tools={
+                    "virustotal": {"status": vt_status if vt_status is True else "skipped", "score": vt_score},
+                    "mobsf": {"status": mobsf_status},
+                    "cape": {"status": cape_status, "task_id": cape_task_id, "note": tool_notes.get("cape")},
+                    "rampart_ai": {"status": rampart_ai_status or "waiting"},
+                },
+            )
 
         # --- Retry gate: only for tools still genuinely resolving -------
         # A tool that just got force-skipped is terminal ("skipped") and

@@ -70,6 +70,19 @@ async def get_file_by_hash(
     session: AsyncSession,
     file_hash: str
 ) -> Analysis | None:
+    """Backs the upload-time dedup path (attempt_attach_to_existing_analysis
+    / attempt_gap_fill_redispatch / ScanFile_controller's direct reuse
+    check) - finds the most recent still-usable analysis for this content
+    hash so a re-upload can attach to the existing task_id instead of
+    re-running every tool.
+
+    Must exclude soft-deleted rows: a deleted Analysis row can still have
+    status='success' (soft-delete never changes status, only deleted_at),
+    so without this filter a re-upload of previously-deleted content would
+    "successfully" attach to a task_id that every report-viewing endpoint
+    (get_analysis_with_report et al.) now correctly refuses to show,
+    surfacing as an inexplicable TASK_NOT_FOUND right after upload instead
+    of triggering a fresh analysis."""
     result = await session.execute(
         select(
             Analysis.rid,
@@ -87,6 +100,7 @@ async def get_file_by_hash(
             Analysis.file_path.isnot(None),
             Analysis.task_id.isnot(None),
             Analysis.status.in_(("dispatching", "queued", "processing", "analyzing", "success")),
+            Analysis.deleted_at.is_(None),
         ).order_by(desc(Analysis.created_at)).limit(1)
     )
     return result.mappings().one_or_none()
@@ -278,6 +292,11 @@ async def attempt_gap_fill_redispatch(
 
 
 async def get_file_by_task_id(session: AsyncSession, task_id: str):
+    """Re-verification lookup used right after get_file_by_hash picks a
+    reuse/gap-fill candidate (under the per-hash/per-task advisory lock).
+    Must exclude soft-deleted rows for the same reason as get_file_by_hash
+    - otherwise a deleted row that slipped through some other path would
+    still be treated as a valid reuse target here."""
     result = await session.execute(
         select(
             Analysis.rid,
@@ -292,6 +311,7 @@ async def get_file_by_task_id(session: AsyncSession, task_id: str):
         ).where(
             Analysis.task_id == task_id,
             Analysis.status.in_(("dispatching", "queued", "processing", "analyzing", "success", "failed")),
+            Analysis.deleted_at.is_(None),
         ).limit(1)
     )
     return result.mappings().one_or_none()
@@ -314,11 +334,22 @@ async def insert_table_analy(
     privacy: bool,
     md5: str,
 ) -> Analysis:
-    
+    # Only upsert onto a still-active row for this (uid, file_name,
+    # file_hash) triple. Excluding soft-deleted rows here matters just as
+    # much as it does for get_file_by_hash/get_file_by_task_id above: this
+    # is the write side of the same dedup path, called both when reusing
+    # an existing analysis AND for a brand-new upload. Without this
+    # filter, re-uploading previously-deleted content would silently
+    # resurrect (UPDATE) the old, soft-deleted row in place - task_id and
+    # status get overwritten with the fresh values, but deleted_at is
+    # never cleared, so the row keeps failing every deleted_at IS NULL
+    # check everywhere else (report viewing, history, dashboard stats)
+    # while still LOOKING like a normal insert to this function's caller.
     stmt = select(Analysis).where(
         Analysis.uid == uid,
         Analysis.file_name == file_name,
         Analysis.file_hash == file_hash,
+        Analysis.deleted_at.is_(None),
     )
     existing = await session.execute(stmt)
     analy = existing.scalars().first()
@@ -362,10 +393,19 @@ async def get_analysis_with_report(
     task_id: str,
     uid: UUID | str
 ) -> tuple[Analysis, Reports | None] | None:
+    """Owner viewing their own report. Excludes soft-deleted rows, matching
+    get_public_analysis_with_report below - a file the owner (or an admin
+    acting on their behalf) has deleted must disappear from the status-poll
+    endpoint (/api/analy/v1/task_id) the same way it already disappears
+    from get_analysis_history, not keep rendering as if still live."""
     result = await session.execute(
         select(Analysis, Reports)
         .outerjoin(Reports, Analysis.rid == Reports.rid)
-        .where(Analysis.task_id == task_id, Analysis.uid == uid)
+        .where(
+            Analysis.task_id == task_id,
+            Analysis.uid == uid,
+            Analysis.deleted_at.is_(None),
+        )
     )
     row = result.first()
     if row is None:
@@ -398,10 +438,17 @@ async def get_analysis_with_report_admin(
     session: AsyncSession,
     task_id: str
 ) -> tuple[Analysis, Reports | None] | None:
+    """Admin/master-only fallback used by the status-poll endpoint when the
+    requester doesn't own the row and it isn't public - bypasses the
+    owner/privacy check, but NOT the deleted_at check. A file the requester
+    (or another admin) has soft-deleted must not keep rendering here
+    either - this endpoint is the ordinary poll/view path any authenticated
+    user hits, not a dedicated admin recovery/audit tool that would
+    legitimately need to see deleted rows."""
     result = await session.execute(
         select(Analysis, Reports)
         .outerjoin(Reports, Analysis.rid == Reports.rid)
-        .where(Analysis.task_id == task_id)
+        .where(Analysis.task_id == task_id, Analysis.deleted_at.is_(None))
     )
     row = result.first()
     if row is None:

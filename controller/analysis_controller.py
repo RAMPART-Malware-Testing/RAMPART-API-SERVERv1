@@ -255,8 +255,8 @@ async def _compute_analysis_report(uid: str, task_id: str):
                 "created_at": analysis.created_at.isoformat() if analysis.created_at else None,
                 "report_file_type": report.file_type,
                 "virustotal_score": report.virustotal_score,
-                "mobsf_score": report.mobsf_score,
-                "cape_score": report.cape_score,
+                "mobsf_score": float(report.mobsf_score) if report.mobsf_score is not None else None,
+                "cape_score": float(report.cape_score) if report.cape_score is not None else None,
                 "rampart_ai_score": (
                     report.rampart_ai_score if report.rampart_ai_score is not None else None
                 ),

@@ -127,3 +127,21 @@ def ensure_can_manage_target(actor: User, target: User) -> None:
 
     # actor is master targeting admin/user, or actor is admin targeting user.
     return None
+
+
+def ensure_can_manage_file_owner(actor: User, owner: User) -> None:
+    """Same permission rule as ensure_can_manage_target, with one addition:
+    an admin/master is always allowed to delete their OWN uploaded files.
+
+    ensure_can_manage_target's "target is master -> always rejected, even
+    self" rule exists to stop a master account from ever being banned/
+    demoted, by itself or anyone else (see that function's docstring) -
+    that identity-protection concern does not apply to deleting one's own
+    file. Without this carve-out, any admin/master account whose own
+    uploads are the delete target (e.g. a test/seed account, or simply an
+    admin who uploaded a file themselves) would see every single-file and
+    bulk-delete call rejected with MASTER_PROTECTED/ADMIN_TARGET_FORBIDDEN,
+    with no way to ever delete their own files via the admin panel."""
+    if actor.uid == owner.uid:
+        return None
+    ensure_can_manage_target(actor, owner)

@@ -208,7 +208,16 @@ class CAPEAnalyzer:
         return hash_obj.hexdigest()
 
     def cheack_analyer(self, file_path: str, hash_type: str = "sha256"):
-        file_hash = self.calculate_hash(file_path, hash_type)
+        # File-read errors (deleted upload, locked file, permissions) must
+        # surface the same "pending -> retry" shape as a network error, not
+        # raise unhandled - an unhandled exception here would abort the
+        # entire Celery task (not just CAPE), contradicting the
+        # per-tool graceful-degradation policy documented in
+        # bgProcessing/tasks.py.
+        try:
+            file_hash = self.calculate_hash(file_path, hash_type)
+        except OSError as e:
+            return {"error": str(e), "data": None}
         url = f"{self.base_url}/apiv2/tasks/search/{hash_type}/{file_hash}/"
         try:
             response = requests.get(url, timeout=30)
@@ -224,7 +233,10 @@ class CAPEAnalyzer:
 
     def create_file_task(self, file_path: str, machine: Optional[str] = None, package: Optional[str] = None, is_pcap: bool = False) -> Dict[str, Any]:
         url = f"{self.base_url}/apiv2/tasks/create/file/"
-        files = {'file': open(file_path, 'rb')}
+        try:
+            files = {'file': open(file_path, 'rb')}
+        except OSError as e:
+            return {"status": "error", "error": str(e)}
         data = {}
         if machine: data['machine'] = machine
         if package: data['package'] = package

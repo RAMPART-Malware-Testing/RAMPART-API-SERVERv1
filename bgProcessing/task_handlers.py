@@ -388,6 +388,18 @@ def handle_cape(
     }
     package = CAPE_PACKAGE_MAP.get(Path(file_path).suffix.lower())
     if task_id is None:
+        # The upload no longer being readable (deleted, moved, locked) is a
+        # permanent condition, not a transient CAPE-server hiccup - retrying
+        # it every 30s would poll forever without ever resolving, unlike a
+        # genuine network error against the CAPE API which can legitimately
+        # recover. Fail fast instead so it's governed by
+        # MAX_TOOL_ERROR_RETRIES like VirusTotal/MobSF.
+        if not Path(file_path).is_file():
+            return {
+                "status": "failed",
+                "report_path": str(report_path),
+                "error": f"Upload file no longer exists on disk: {file_path}",
+            }
         existing = client.cheack_analyer(file_path)
         if isinstance(existing, dict) and existing.get("error"):
             return {

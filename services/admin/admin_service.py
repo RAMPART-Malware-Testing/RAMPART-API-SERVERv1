@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta as _timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import and_, asc, desc, func, or_, select
@@ -26,6 +27,7 @@ from services.admin.authz import (
     ROLE_ADMIN,
     ROLE_MASTER,
     AuthError,
+    ensure_can_manage_file_owner,
     ensure_can_manage_target,
 )
 from utils.cache import build_suffix, cached_async, invalidate_cached
@@ -681,6 +683,38 @@ async def list_reports(
     }
 
 
+async def _purge_temp_file_if_unreferenced(session: AsyncSession, file_path: str | None) -> None:
+    """Deletes the on-disk upload under temps_files/ ONLY if no other
+    (non-soft-deleted) Analysis row still points at the same file_path.
+
+    file_path is content-hash-named and deliberately reused across
+    multiple Analysis rows by the dedup logic in
+    services.analy.analy_service.attempt_attach_to_existing_analysis (e.g.
+    two different users uploading the same APK, or the same user
+    re-uploading it under a different display name, all reuse one on-disk
+    copy). Soft-deleting ANY one of those rows must never delete the file
+    out from under the others still relying on it - this check runs
+    within the same DB transaction as the soft-delete itself, right
+    before commit, so the count it sees already reflects this call's own
+    deleted_at write.
+    """
+    if not file_path:
+        return
+    still_referenced = await session.execute(
+        select(func.count())
+        .select_from(Analysis)
+        .where(Analysis.file_path == file_path, Analysis.deleted_at.is_(None))
+    )
+    if still_referenced.scalar_one() > 0:
+        return
+    try:
+        Path(file_path).unlink(missing_ok=True)
+    except OSError:
+        # Best-effort - a locked/already-gone file must never fail the
+        # surrounding soft-delete transaction.
+        pass
+
+
 async def soft_delete_file(
     session: AsyncSession,
     *,
@@ -688,9 +722,11 @@ async def soft_delete_file(
     aid: uuid.UUID,
     reason: str,
 ) -> Analysis:
-    """Soft-deletes one Analysis row (sets deleted_at/deleted_by). Every
-    existing query that reads Analysis already filters
-    `deleted_at IS NULL` (get_analysis_history, get_reports_history,
+    """Soft-deletes one Analysis row (sets deleted_at/deleted_by), then
+    removes the on-disk upload under temps_files/ if no other row still
+    references it (see _purge_temp_file_if_unreferenced). Every existing
+    query that reads Analysis already filters `deleted_at IS NULL`
+    (get_analysis_history, get_reports_history,
     get_user_analysis_history_admin, list_all_files/list_reports above,
     and the admin dashboard's total_analyses count) - so a deleted file
     disappears from the owner's history, the public feed, and every stat
@@ -712,7 +748,7 @@ async def soft_delete_file(
         # than allow a delete with no ownership check.
         raise AuthError(404, "TARGET_NOT_FOUND", "ไม่พบเจ้าของไฟล์")
 
-    ensure_can_manage_target(actor, owner)
+    ensure_can_manage_file_owner(actor, owner)
 
     analysis.deleted_at = datetime.now(timezone.utc)
     analysis.deleted_by = actor.uid
@@ -724,6 +760,7 @@ async def soft_delete_file(
         action="delete_file",
         detail=f"{analysis.file_name} | reason={reason}",
     )
+    await _purge_temp_file_if_unreferenced(session, analysis.file_path)
     await session.commit()
     await session.refresh(analysis)
     return analysis
@@ -751,7 +788,7 @@ async def bulk_soft_delete_files(
             if owner is None:
                 failed.append({"aid": str(aid), "reason": "ไม่พบเจ้าของไฟล์"})
                 continue
-            ensure_can_manage_target(actor, owner)
+            ensure_can_manage_file_owner(actor, owner)
             analysis.deleted_at = datetime.now(timezone.utc)
             analysis.deleted_by = actor.uid
             await write_audit_log(
@@ -764,6 +801,18 @@ async def bulk_soft_delete_files(
             succeeded.append(str(aid))
         except AuthError as exc:
             failed.append({"aid": str(aid), "reason": exc.message})
+
+    # Purge on-disk files only after every row's deleted_at is set (but
+    # still pre-commit within this same transaction) so
+    # _purge_temp_file_if_unreferenced's "any other still-referencing row"
+    # count correctly sees every file in THIS batch as already deleted too
+    # - otherwise two rows in the same bulk request sharing a file_path
+    # would each see the other as "still referencing it" and neither would
+    # ever get purged.
+    for aid_str in succeeded:
+        analysis = await session.get(Analysis, uuid.UUID(aid_str))
+        if analysis is not None:
+            await _purge_temp_file_if_unreferenced(session, analysis.file_path)
 
     await session.commit()
     return {"success": True, "data": {"succeeded": succeeded, "failed": failed}}
