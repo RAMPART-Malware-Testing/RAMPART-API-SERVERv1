@@ -8,8 +8,9 @@ from pydantic import BaseModel, ConfigDict, field_validator
 # accepting arbitrary Unicode/control characters here would push the whole
 # burden of safe rendering onto every future UI that ever displays a
 # username. Restricting to a known-safe charset closes that off at the
-# source instead.
-_USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{3,50}$")
+# source instead. Thai script (U+0E00-U+0E7F) is allowlisted alongside
+# Latin letters/digits since usernames may be written in Thai.
+_USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.\-\u0E00-\u0E7F]{3,50}$")
 
 
 class ProfileTokenParams(BaseModel):
@@ -38,7 +39,7 @@ class UpdateProfileParams(BaseModel):
             return None
         if not _USERNAME_RE.match(v):
             raise ValueError(
-                "Username must be 3-50 characters and may only contain "
-                "letters, numbers, '.', '_' and '-'"
+                "ชื่อผู้ใช้ต้องมีความยาว 3-50 ตัวอักษร "
+                "และใช้ได้เฉพาะตัวอักษรไทย ตัวอักษรอังกฤษ ตัวเลข '.', '_' และ '-' เท่านั้น"
             )
         return v

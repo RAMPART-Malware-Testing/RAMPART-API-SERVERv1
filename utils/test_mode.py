@@ -4,7 +4,7 @@ import re
 from fastapi import HTTPException
 
 
-USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,50}$")
+USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.\-\u0E00-\u0E7F]{3,50}$")
 EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
