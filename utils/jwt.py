@@ -3,20 +3,11 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from jose import jwt, JWTError
 
-# ======================
-# Config
-# ======================
-
 JWT_SECRET = os.getenv("JWT_SECRET")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 
 if not JWT_SECRET:
     raise RuntimeError("JWT_SECRET is not set in environment variables")
-
-
-# ======================
-# Token Factory
-# ======================
 
 def create_token(
     *,
@@ -40,11 +31,6 @@ def create_token(
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
     return token
 
-
-# ======================
-# Token Decoder
-# ======================
-
 def decode_token(token: str) -> Dict[str, Any]:
     try:
         payload = jwt.decode(
@@ -56,16 +42,10 @@ def decode_token(token: str) -> Dict[str, Any]:
     except JWTError as e:
         return None
 
-
-# ======================
-# Token Helpers
-# ======================
-
 def get_token_subject(payload: Dict[str, Any]) -> str:
     if not payload:
         return None
     return payload.get("sub")
-
 
 def get_token_type(payload: Dict[str, Any]) -> str:
     if not payload:

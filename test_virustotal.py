@@ -4,14 +4,12 @@ import time
 import hashlib
 from dotenv import load_dotenv
 
-# นำเข้าเฉพาะคลาส VirusTotal ของคุณ
 from calling.VirusTotal import VirusToTalAPI
 
 load_dotenv()
 
 VIRUSTOTAL_MAX_SIZE = 32 * 1024 * 1024
 
-# ─── ฟังก์ชันใหม่สำหรับสกัดชนิดมัลแวร์ ────────────────────────────────────
 def extract_malware_types(vt_data: dict) -> list:
     """
     สกัดรายชื่อ/ชนิดของมัลแวร์จาก Report ของ VirusTotal
@@ -21,20 +19,16 @@ def extract_malware_types(vt_data: dict) -> list:
         return []
         
     malicious_list = vt_data.get("threats_found", {}).get("malicious", [])
-    extracted_types = set() # ใช้ set เพื่อป้องกันรายชื่อมัลแวร์ซ้ำกัน
+    extracted_types = set()
     
     for threat in malicious_list:
-        # รูปแบบข้อความจะเป็น "EngineName: MalwareType/Name"
-        # เช่น "ESET-NOD32: Android/Spy.Banker.BGB trojan"
         if ":" in threat:
-            # แยกข้อความด้วย ":" และเอาเฉพาะส่วนที่ 2 (index 1) มาใช้
             malware_name = threat.split(":", 1)[1].strip()
             extracted_types.add(malware_name)
         else:
             extracted_types.add(threat.strip())
             
     return list(extracted_types)
-# ──────────────────────────────────────────────────────────────────
 
 def calculate_hashes(file_path: str) -> dict:
     md5_hash = hashlib.md5()
@@ -75,7 +69,6 @@ def run_virustotal_test(file_path: str):
     if rp.get('success'):
         print("[VT] พบ Report จาก Hash เรียบร้อยแล้ว ไม่ต้องอัปโหลดใหม่")
         results["virustotal"] = rp.get("data")
-        # สกัดชนิดมัลแวร์
         results["extracted_malware_types"] = extract_malware_types(results["virustotal"])
     else:
         print("[VT] ไม่พบ Report จาก Hash")
@@ -100,7 +93,6 @@ def run_virustotal_test(file_path: str):
                     if new_rp.get('success'):
                         print("[VT] ได้รับผลการวิเคราะห์จากการอัปโหลดเรียบร้อย")
                         results["virustotal"] = new_rp.get("data")
-                        # สกัดชนิดมัลแวร์
                         results["extracted_malware_types"] = extract_malware_types(results["virustotal"])
                     else:
                         print("[VT] ดึงผลลัพธ์ไม่ทัน (อาจต้องใช้เวลาประมวลผลนานกว่านี้)")
@@ -118,7 +110,6 @@ def run_virustotal_test(file_path: str):
 
     print(f"\n--- จบการทำงาน บันทึกผลลัพธ์ไว้ที่: {save_path} ---")
     
-    # แสดงผลชนิดของมัลแวร์ที่สกัดได้
     if "extracted_malware_types" in results:
         print("\n=== 🦠 ชนิดมัลแวร์ที่ตรวจพบ ===")
         if results["extracted_malware_types"]:
@@ -130,6 +121,5 @@ def run_virustotal_test(file_path: str):
     return {"success": True, "data": results}
 
 if __name__ == "__main__":
-    # เปลี่ยนชื่อไฟล์ตรงนี้ให้ตรงกับไฟล์ที่คุณมีในเครื่อง
     TEST_FILE_PATH = input("input file : ") 
     result = run_virustotal_test(file_path=TEST_FILE_PATH)

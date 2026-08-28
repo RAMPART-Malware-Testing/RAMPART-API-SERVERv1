@@ -23,7 +23,6 @@ from utils.uuid import parse_uuid
 
 _SHA256_RE = re.compile(r"^[a-fA-F0-9]{64}$")
 
-
 async def check_hash_controller(user_id: str, sha256: str, file_name: str, file_size: int, is_private: bool):
     if not _SHA256_RE.match(sha256 or ""):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid sha256 hash.")
@@ -40,8 +39,6 @@ async def check_hash_controller(user_id: str, sha256: str, file_name: str, file_
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={"success": False, "code": "USER_NOT_FOUND", "message": "User not found."},
             )
-        # See ScanFile_controller.py for why is_banned (not the legacy
-        # `status` string) is the authoritative check here.
         if user_record.is_banned:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -49,16 +46,6 @@ async def check_hash_controller(user_id: str, sha256: str, file_name: str, file_
             )
 
         try:
-            # Gap-fill takes precedence over plain reuse: if the most
-            # recent analysis for this hash finished "success" but had
-            # one or more tools force-skipped after exhausting their
-            # retry budget (non-null tool_notes), re-dispatch a fresh
-            # task that only retries the gap instead of silently handing
-            # back the same permanently-incomplete result forever. This
-            # naturally falls through to "none" for a "dispatching" row
-            # (still in-flight, not "success" yet) or a "success" row
-            # with no tool_notes (nothing to gap-fill), letting the
-            # existing attach logic below handle those cases unchanged.
             outcome, analysis = await attempt_gap_fill_redispatch(
                 db_session,
                 uid=user_id,
@@ -92,13 +79,6 @@ async def check_hash_controller(user_id: str, sha256: str, file_name: str, file_
             }
 
         if outcome == "gap_filled" and analysis is not None:
-            # Response shape mirrors a fresh-dispatch ("found": True since
-            # we DO have a matching hash on record, "status": "queued" for
-            # the new task) plus an explicit "gap_filled": True flag so the
-            # frontend can distinguish "here's your fully-cached prior
-            # result" (outcome == "attached", gap_filled absent/False) from
-            # "we're re-running just the piece that was missing"
-            # (gap_filled == True, task_id is a brand-new task to poll).
             return {
                 "success": True,
                 "found": True,

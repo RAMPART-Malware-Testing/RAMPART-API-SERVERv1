@@ -30,7 +30,6 @@ else:
 
 redis_client = redis.StrictRedis.from_url(REDIS_URL)
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
 def map_final_data_to_report(final_data: dict) -> dict:
     return {
         "package":          final_data.get("app_metadata", {}).get("package"),
@@ -67,8 +66,6 @@ async def predicRampartAI(path_mobsf_report: str) -> dict:
     except Exception as e:
         return {"success": False, "message": str(e)}
 
-
-# ─── Main Task ────────────────────────────────────────────────────────────────
 @celery_app.task(bind=True, max_retries=100)
 def analyze_malware_task(
     self,
@@ -97,7 +94,6 @@ def analyze_malware_task(
         PREVIOUS = list(previous_results.keys()) if isinstance(previous_results, dict) else []
         print(f"REPORTED PREVIOUS: {PREVIOUS}")
 
-        # ── VirusTotal ────────────────────────────────────────────────────────
         if cape_task_id is None and "virustotal" not in results and "vt_skipped" not in results:
             analysis_tool += ",virustotal"
             vt = VirusTotal()
@@ -128,7 +124,6 @@ def analyze_malware_task(
                     print("[VT] vt_skipped")
                     results["vt_skipped"] = True
 
-        # ── MobSF ─────────────────────────────────────────────────────────────
         if cape_task_id is None and "mobsf" in analysis_tool:
             mobsf     = MobSFCall()
             redis_key = f"mobsf_status:{md5}"
@@ -169,7 +164,6 @@ def analyze_malware_task(
                             print("[MobSF] Failed to upload")
                             results["mobsf_error"] = "Failed to upload file not support"
 
-        # ── CAPE ──────────────────────────────────────────────────────────────
         if "cape" in analysis_tool:
             cape = CAPEAnalyzer()
             print(f"[CAPE] cape_task_id ==> {cape_task_id}")
@@ -226,7 +220,6 @@ def analyze_malware_task(
                     })
 
         with open(f'results/{md5}.json', 'w', encoding='utf-8') as f: json.dump(results, f)
-        # ── Gemini AI ─────────────────────────────────────────────────────────
         print("[Gemini] Sending data to AI...")
         gemini   = GeminiAPI()
         response = gemini.AnalysisGemini(results)
@@ -238,7 +231,6 @@ def analyze_malware_task(
             except:
                 pass
         with open(f'results/test-gemini2.json', 'w', encoding='utf-8') as f: json.dump(final_data, f)
-        # ── RampartAI Predict ─────────────────────────────────────────────────
         if results.get('mobsf_report') and "rampart_ai" not in results:
             mobsf_report_path = os.path.join("reports", f'mobsf-{md5}.json')
             print(f"[RampartAI] Predicting: {mobsf_report_path} (attempt {predict_retried + 1}/5)")
@@ -265,7 +257,6 @@ def analyze_malware_task(
             final_data["rampart_score"] = results["rampart_ai"].get("rampart_score")
             print(f"[RampartAI] rampart_score merged: {final_data['rampart_score']}")
 
-        # ── Save Report ───────────────────────────────────────────────────────
         report_data = map_final_data_to_report(final_data)
         stmt   = select(Reports).where(Reports.rid == analy.rid)
         report = db.execute(stmt).scalar_one_or_none()
@@ -279,7 +270,6 @@ def analyze_malware_task(
 
         db.flush()
 
-        # ── Sync duplicate analyses ───────────────────────────────────────────
         if sha256:
             stmt_all = select(Analysis).where(
                 Analysis.file_hash == sha256,

@@ -17,7 +17,6 @@ from services.auth import auth_service as auth_service_module
 from services.auth.auth_service import AuthService
 from utils.cypto.PasswordCreateAndVerify import get_password_hash
 
-
 def make_user(uid=None, email="user@example.com", password=None, username="tester", role="user", status="active"):
     return SimpleNamespace(
         uid=uid or uuid.uuid4(),
@@ -29,7 +28,6 @@ def make_user(uid=None, email="user@example.com", password=None, username="teste
         created_at=None,
         __dict__={},
     )
-
 
 class _ScalarResult:
     def __init__(self, value):
@@ -43,7 +41,6 @@ class _ScalarResult:
 
     def one_or_none(self):
         return self._value
-
 
 class FakeSession:
     """Minimal SessionLocal() async-context stand-in. `queue` is a list of
@@ -67,9 +64,6 @@ class FakeSession:
     async def execute(self, stmt):
         value = self._queue.pop(0) if self._queue else None
         if self._queue == [] and value is not None:
-            # keep the last value available if more calls happen than
-            # entries were queued, so single-value callers (most tests)
-            # don't need to think about the second (oauth-link) query.
             pass
         return _ScalarResult(value)
 
@@ -78,7 +72,6 @@ class FakeSession:
 
     def add(self, value):
         self.added.append(value)
-
 
 def patch_session(monkeypatch, value, *, has_linked_oauth=False):
     """Every AuthService method that touches the DB does
@@ -93,12 +86,6 @@ def patch_session(monkeypatch, value, *, has_linked_oauth=False):
         auth_service_module, "SessionLocal", lambda: FakeSession([value, oauth_link_result, value, value])
     )
 
-
-# ---------------------------------------------------------------------------
-# login()
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_login_rejects_unknown_email(monkeypatch):
     patch_session(monkeypatch, None)
@@ -107,7 +94,6 @@ async def test_login_rejects_unknown_email(monkeypatch):
     )
     assert response["success"] is False
     assert response["status"] == "USER_NOT_FOUND"
-
 
 @pytest.mark.asyncio
 async def test_login_rejects_oauth_only_account_with_null_password(monkeypatch):
@@ -122,7 +108,6 @@ async def test_login_rejects_oauth_only_account_with_null_password(monkeypatch):
     assert response["success"] is False
     assert response["status"] == "INVALID_CREDENTIALS"
 
-
 @pytest.mark.asyncio
 async def test_login_rejects_wrong_password(monkeypatch):
     user = make_user(password=get_password_hash("correct-horse-battery-staple"))
@@ -132,7 +117,6 @@ async def test_login_rejects_wrong_password(monkeypatch):
     )
     assert response["success"] is False
     assert response["status"] == "INVALID_CREDENTIALS"
-
 
 @pytest.mark.asyncio
 async def test_login_sends_otp_on_correct_password(monkeypatch):
@@ -156,7 +140,6 @@ async def test_login_sends_otp_on_correct_password(monkeypatch):
     assert captured["action"] == "login"
     assert captured["identifier"] == str(user.uid)
 
-
 @pytest.mark.asyncio
 async def test_login_bypasses_otp_with_matching_device_token(monkeypatch):
     """The device token's sub (uid) AND email must both match the account
@@ -177,12 +160,8 @@ async def test_login_bypasses_otp_with_matching_device_token(monkeypatch):
     assert response["success"] is True
     assert response["data"]["bypass_otp"] is True
     assert "access_token" in response["data"]
-    # A fresh device token is minted on every successful bypass (rolling
-    # 7-day renewal) rather than reusing the presented one.
     assert "device_token" in response["data"]
-    # Sensitive fields never leak into the response.
     assert "password" not in response["data"]["data"]
-
 
 @pytest.mark.asyncio
 async def test_login_falls_back_to_otp_when_device_token_invalid(monkeypatch):
@@ -206,7 +185,6 @@ async def test_login_falls_back_to_otp_when_device_token_invalid(monkeypatch):
     )
     assert response["status"] == "OTP_SENT"
 
-
 @pytest.mark.asyncio
 async def test_login_ignores_device_token_issued_for_a_different_email(monkeypatch):
     """The exact scenario from the product requirement: a device token
@@ -217,7 +195,6 @@ async def test_login_ignores_device_token_issued_for_a_different_email(monkeypat
     user_b = make_user(email="b@b.com", password=get_password_hash(plain))
     patch_session(monkeypatch, user_b)
 
-    # Device token was issued for a completely different account (a@a.com).
     monkeypatch.setattr(
         auth_service_module.TokenService,
         "verify_token",
@@ -237,7 +214,6 @@ async def test_login_ignores_device_token_issued_for_a_different_email(monkeypat
     )
     assert response["status"] == "OTP_SENT"
     assert "bypass_otp" not in response.get("data", {})
-
 
 @pytest.mark.asyncio
 async def test_login_ignores_device_token_with_matching_uid_but_stale_email(monkeypatch):
@@ -268,7 +244,6 @@ async def test_login_ignores_device_token_with_matching_uid_but_stale_email(monk
     )
     assert response["status"] == "OTP_SENT"
 
-
 @pytest.mark.asyncio
 async def test_login_forces_otp_for_oauth_linked_account_even_with_matching_device_token(monkeypatch):
     """An account with any linked OAuth identity must always require OTP
@@ -296,15 +271,7 @@ async def test_login_forces_otp_for_oauth_linked_account_even_with_matching_devi
         SimpleNamespace(email=user.email, password=plain), "ua", "127.0.0.1", "perfectly-matching-device-token"
     )
     assert response["status"] == "OTP_SENT"
-    # The device-token check is skipped entirely for OAuth-linked accounts
-    # - it's not even worth verifying the token's signature.
     assert verify_called is False
-
-
-# ---------------------------------------------------------------------------
-# login_confirm()
-# ---------------------------------------------------------------------------
-
 
 @pytest.mark.asyncio
 async def test_login_confirm_rejects_wrong_otp(monkeypatch):
@@ -321,7 +288,6 @@ async def test_login_confirm_rejects_wrong_otp(monkeypatch):
     assert response["status"] == "OTP_WRONG"
     assert response["data"]["attempts_remaining"] == 4
 
-
 @pytest.mark.asyncio
 async def test_login_confirm_rejects_locked_otp_session(monkeypatch):
     uid = uuid.uuid4()
@@ -337,7 +303,6 @@ async def test_login_confirm_rejects_locked_otp_session(monkeypatch):
     assert response["status"] == "OTP_LOCKED"
     assert response["data"]["locked_seconds_remaining"] == 180
 
-
 @pytest.mark.asyncio
 async def test_login_confirm_rejects_expired_otp_session(monkeypatch):
     uid = uuid.uuid4()
@@ -352,7 +317,6 @@ async def test_login_confirm_rejects_expired_otp_session(monkeypatch):
     assert response["success"] is False
     assert response["status"] == "OTP_EXPIRED"
 
-
 class _MappingRow(dict):
     """RowMapping stand-in: supports both attribute access (user.uid) and
     subscript access (user["uid"]) plus .keys(), matching how
@@ -363,7 +327,6 @@ class _MappingRow(dict):
             return self[item]
         except KeyError as exc:
             raise AttributeError(item) from exc
-
 
 @pytest.mark.asyncio
 async def test_login_confirm_issues_tokens_on_correct_otp(monkeypatch):
@@ -385,20 +348,11 @@ async def test_login_confirm_issues_tokens_on_correct_otp(monkeypatch):
     assert "access_token" in response["data"]
     assert "refresh_token" in response["data"]
 
-    # The minted device token (typo'd key kept for backend-compat, see
-    # auth_service.py) embeds the account's email - this is what login()
-    # cross-checks against on a later login attempt.
     from utils.jwt import decode_token
     device_payload = decode_token(response["data"]["deiveToken"])
     assert device_payload["sub"] == str(uid)
     assert device_payload["email"] == "user@example.com"
     assert device_payload["type"] == "device"
-
-
-# ---------------------------------------------------------------------------
-# register() / register_confirm()
-# ---------------------------------------------------------------------------
-
 
 @pytest.mark.asyncio
 async def test_register_rejects_duplicate_email(monkeypatch):
@@ -409,7 +363,6 @@ async def test_register_rejects_duplicate_email(monkeypatch):
         SimpleNamespace(username="newuser", email="taken@example.com", password="Sup3rSecret!")
     )
     assert response["success"] is False
-
 
 @pytest.mark.asyncio
 async def test_register_sends_otp_for_new_email(monkeypatch):
@@ -430,7 +383,6 @@ async def test_register_sends_otp_for_new_email(monkeypatch):
     assert response["status"] == "OTP_SENT"
     assert captured["action"] == "register"
     assert captured["email"] == "new@example.com"
-
 
 @pytest.mark.asyncio
 async def test_register_normalizes_plus_addressed_email_before_dup_check(monkeypatch):
@@ -474,7 +426,6 @@ async def test_register_normalizes_plus_addressed_email_before_dup_check(monkeyp
     assert captured["identifier"] == "a@example.com"
     assert captured["email"] == "a@example.com"
 
-
 @pytest.mark.asyncio
 async def test_register_rejects_plus_addressed_duplicate_of_existing_email(monkeypatch):
     existing = make_user(email="taken@example.com")
@@ -484,7 +435,6 @@ async def test_register_rejects_plus_addressed_duplicate_of_existing_email(monke
         SimpleNamespace(username="newuser", email="Taken+spam@Example.com", password="Sup3rSecret!")
     )
     assert response["success"] is False
-
 
 @pytest.mark.asyncio
 async def test_register_confirm_creates_user_with_hashed_password(monkeypatch):
@@ -514,16 +464,9 @@ async def test_register_confirm_creates_user_with_hashed_password(monkeypatch):
     created = added_users[0]
     assert created.email == "new@example.com"
     assert created.role == "user"
-    # Password is hashed, never stored in plaintext.
     assert created.password != "Sup3rSecret!"
     from utils.cypto.PasswordCreateAndVerify import verify_password
     assert verify_password(created.password, "Sup3rSecret!") is True
-
-
-# ---------------------------------------------------------------------------
-# reset() / reset_confirm()
-# ---------------------------------------------------------------------------
-
 
 @pytest.mark.asyncio
 async def test_reset_rejects_unknown_email(monkeypatch):
@@ -531,7 +474,6 @@ async def test_reset_rejects_unknown_email(monkeypatch):
     response = await AuthService.reset(SimpleNamespace(email="nobody@example.com", token=None, newPasswd=None))
     assert response["success"] is False
     assert response["status"] == "USER_NOT_FOUND"
-
 
 @pytest.mark.asyncio
 async def test_reset_sends_otp_for_known_email(monkeypatch):
@@ -546,7 +488,6 @@ async def test_reset_sends_otp_for_known_email(monkeypatch):
 
     response = await AuthService.reset(SimpleNamespace(email="user@example.com", token=None, newPasswd=None))
     assert response["status"] == "OTP_SENT"
-
 
 @pytest.mark.asyncio
 async def test_reset_confirm_actually_updates_password_hash(monkeypatch):
@@ -572,7 +513,6 @@ async def test_reset_confirm_actually_updates_password_hash(monkeypatch):
     assert verify_password(user.password, "brand-new-password") is True
     assert verify_password(user.password, "old-password") is False
 
-
 @pytest.mark.asyncio
 async def test_reset_confirm_rejects_wrong_otp(monkeypatch):
     uid = uuid.uuid4()
@@ -590,12 +530,6 @@ async def test_reset_confirm_rejects_wrong_otp(monkeypatch):
     assert response["status"] == "OTP_WRONG"
     assert response["data"]["attempts_remaining"] == 3
 
-
-# ---------------------------------------------------------------------------
-# refresh_token()
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_refresh_token_rejects_banned_or_inactive_user(monkeypatch):
     uid = uuid.uuid4()
@@ -609,7 +543,6 @@ async def test_refresh_token_rejects_banned_or_inactive_user(monkeypatch):
 
     response = await AuthService.refresh_token("refresh-tok")
     assert response["success"] is False
-
 
 @pytest.mark.asyncio
 async def test_refresh_token_issues_new_tokens_for_active_user(monkeypatch):

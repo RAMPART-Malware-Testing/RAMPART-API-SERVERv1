@@ -15,7 +15,6 @@ TASK_LIST_CACHE_TTL_SECONDS = 5
 QUEUE_DEPTH_CACHE_NAMESPACE = "admin:tasks:depth"
 QUEUE_DEPTH_CACHE_TTL_SECONDS = 5
 
-
 async def _fetch_active_tasks(
     session: AsyncSession,
     *,
@@ -85,7 +84,6 @@ async def _fetch_active_tasks(
         },
     }
 
-
 async def list_active_tasks(
     session: AsyncSession,
     *,
@@ -101,7 +99,6 @@ async def list_active_tasks(
         lambda: _fetch_active_tasks(session, status_filter=status_filter, q=q, page=page, limit=limit),
         suffix=suffix,
     )
-
 
 def _fetch_queue_depth() -> dict[str, Any]:
     try:
@@ -128,19 +125,13 @@ def _fetch_queue_depth() -> dict[str, Any]:
             "data": {"active": 0, "reserved": 0, "scheduled": 0, "workers_online": 0, "error": str(exc)[:200]},
         }
 
-
 def get_queue_depth() -> dict[str, Any]:
     return cached_sync(QUEUE_DEPTH_CACHE_NAMESPACE, QUEUE_DEPTH_CACHE_TTL_SECONDS, _fetch_queue_depth)
-
 
 def _invalidate_task_caches() -> None:
     invalidate_cached(TASK_LIST_CACHE_NAMESPACE)
     invalidate_cached(QUEUE_DEPTH_CACHE_NAMESPACE)
-    # Also bust the per-task status-poll cache (services.analy - controller.
-    # analysis_controller._compute_analysis_report) so a manual retry/cancel
-    # is reflected on the next poll instead of waiting out its short TTL.
     invalidate_cached("analy:task_status")
-
 
 async def retry_task(session: AsyncSession, task_id: str) -> dict[str, Any]:
     result = await session.execute(select(Analysis).where(Analysis.task_id == task_id))
@@ -162,7 +153,6 @@ async def retry_task(session: AsyncSession, task_id: str) -> dict[str, Any]:
     )
     _invalidate_task_caches()
     return {"success": True, "message": "ส่ง task เข้าคิวใหม่แล้ว", "task_id": task_id}
-
 
 async def cancel_task(session: AsyncSession, task_id: str) -> dict[str, Any]:
     result = await session.execute(select(Analysis).where(Analysis.task_id == task_id))

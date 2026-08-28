@@ -24,15 +24,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Required by Authlib's OAuth client to stash the CSRF `state`/`nonce`
-# between the /login redirect and the /callback request.
 app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv("SESSION_SECRET", os.getenv("JWT_SECRET", "")),
     same_site="lax",
     https_only=os.getenv("SESSION_COOKIE_HTTPS_ONLY", "FALSE").upper() == "TRUE",
 )
-
 
 @app.on_event("startup")
 async def startup_event():

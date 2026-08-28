@@ -9,9 +9,7 @@ class AnalysisReportParams(BaseModel):
     task_id: str
     token: str
 
-
 ALLOWED_REPORT_TOOLS = {"virustotal", "mobsf", "cape", "rampartai"}
-
 
 class AnalysisReportParamsTarget(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -28,7 +26,6 @@ class AnalysisReportParamsTarget(BaseModel):
             raise ValueError(f"tool must be one of: {', '.join(sorted(ALLOWED_REPORT_TOOLS))}")
         return v
 
-
 class AnalysisHistoryParams(BaseModel):
     token: str
     page: int = 1
@@ -36,7 +33,6 @@ class AnalysisHistoryParams(BaseModel):
     s: str | None = None
     status: str | None = None
     file_type: str | None = None
-    # sort: 1 = asc, -1 = desc, 0 = no sort
     created_at: int = -1
     file_name: int = 0
     file_size: int = 0
@@ -70,7 +66,6 @@ class AnalysisHistoryParams(BaseModel):
             return None
         if len(v) > MAX_SEARCH_LENGTH:
             raise ValueError(f"Search query too long (max {MAX_SEARCH_LENGTH})")
-        # Block SQL injection patterns
         dangerous = ["'", '"', ";", "--", "/*", "*/", "xp_", "exec", "drop", "union", "select", "insert", "update", "delete"]
         v_lower = v.lower()
         for pattern in dangerous:
@@ -115,11 +110,9 @@ class AnalysisHistoryParams(BaseModel):
 class GenerateTokenParams(BaseModel):
     token: str
 
-
 class UpdatePrivacyParams(BaseModel):
     token: str
     privacy: bool = True
-
 
 class CheckHashParams(BaseModel):
     token: str

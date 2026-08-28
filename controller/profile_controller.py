@@ -29,7 +29,6 @@ DOWNLOAD_HISTORY_CACHE_TTL_SECONDS = 5
 LOGIN_HISTORY_CACHE_NAMESPACE = "profile:login_history"
 LOGIN_HISTORY_CACHE_TTL_SECONDS = 5
 
-
 async def record_download_controller(token: str, file_name: str | None, tool: str | None, md5: str | None):
     uid, err = _resolve_uid_or_error(token)
     if err:
@@ -45,12 +44,8 @@ async def record_download_controller(token: str, file_name: str | None, tool: st
             )
         )
         await session.commit()
-        # build_suffix mixes uid+limit into one key, so a single-uid
-        # invalidate can't target just this user's entries - clear the
-        # whole (short-TTL) namespace instead.
         invalidate_cached(DOWNLOAD_HISTORY_CACHE_NAMESPACE)
         return success(AuthStatus.LOGIN_SUCCESS, "บันทึกประวัติการดาวน์โหลดสำเร็จ", None)
-
 
 async def _fetch_download_history(session, uid, limit: int):
     rows = (
@@ -72,7 +67,6 @@ async def _fetch_download_history(session, uid, limit: int):
         for r in rows
     ]
 
-
 async def get_download_history_controller(token: str, limit: int = 50):
     uid, err = _resolve_uid_or_error(token)
     if err:
@@ -87,7 +81,6 @@ async def get_download_history_controller(token: str, limit: int = 50):
             suffix=suffix,
         )
         return success(AuthStatus.LOGIN_SUCCESS, "ดึงประวัติการดาวน์โหลดสำเร็จ", data)
-
 
 async def _fetch_login_history(session, uid, limit: int):
     rows = (
@@ -110,7 +103,6 @@ async def _fetch_login_history(session, uid, limit: int):
         for r in rows
     ]
 
-
 async def get_login_history_controller(token: str, limit: int = 50):
     uid, err = _resolve_uid_or_error(token)
     if err:
@@ -126,20 +118,11 @@ async def get_login_history_controller(token: str, limit: int = 50):
         )
         return success(AuthStatus.LOGIN_SUCCESS, "ดึงประวัติการเข้าสู่ระบบสำเร็จ", data)
 
-# Fixed-window caps per authenticated user (OWASP A04). Deliberately
-# generous for real usage - these exist to blunt scripted abuse of an
-# authenticated session, not to constrain normal editing.
 _AVATAR_UPLOAD_LIMIT = 10
-_AVATAR_UPLOAD_WINDOW_SECONDS = 60 * 10  # 10 requests / 10 minutes
+_AVATAR_UPLOAD_WINDOW_SECONDS = 60 * 10
 _USERNAME_UPDATE_LIMIT = 10
 _USERNAME_UPDATE_WINDOW_SECONDS = 60 * 10
 
-# Stored avatar filenames are always `{32 hex chars}{extension}`
-# (see `services.profile.profile_service._generate_avatar_token`).
-# Enforcing that shape here - on top of the path-resolution check below -
-# means the download route only ever serves files this API itself wrote,
-# never an arbitrary name an attacker might have gotten onto disk some
-# other way.
 _EXTENSIONS = "|".join(re.escape(ext) for ext in ALLOWED_IMAGE_FORMATS.values())
 _AVATAR_FILENAME_RE = re.compile(rf"^[0-9a-f]{{32}}(?:{_EXTENSIONS})$")
 
@@ -148,7 +131,6 @@ _MEDIA_TYPES = {
     ".jpg": "image/jpeg",
     ".webp": "image/webp",
 }
-
 
 def _resolve_uid_or_error(token: str):
     payload, err = TokenService.verify_token(token, "access")
@@ -159,12 +141,10 @@ def _resolve_uid_or_error(token: str):
     except (TypeError, ValueError, KeyError):
         return None, error(AuthStatus.TOKEN_INVALID, "ข้อมูลผู้ใช้ในโทเค็นไม่ถูกต้อง")
 
-
 async def _fetch_profile(session, uid):
     user = await get_user_or_404(session, uid)
     ensure_not_banned(user)
     return user_public_dict(user)
-
 
 async def get_profile_controller(token: str):
     uid, err = _resolve_uid_or_error(token)
@@ -183,7 +163,6 @@ async def get_profile_controller(token: str):
         except AuthError as exc:
             return error(exc.code, exc.message)
         return success(AuthStatus.LOGIN_SUCCESS, "ดึงข้อมูลโปรไฟล์สำเร็จ", data)
-
 
 async def update_username_controller(token: str, username: str | None):
     uid, err = _resolve_uid_or_error(token)
@@ -207,7 +186,6 @@ async def update_username_controller(token: str, username: str | None):
         invalidate_cached(PROFILE_CACHE_NAMESPACE)
         return success(AuthStatus.PROFILE_UPDATE_SUCCESS, "อัปเดตโปรไฟล์สำเร็จ", user_public_dict(user))
 
-
 async def update_avatar_controller(token: str, file: UploadFile):
     uid, err = _resolve_uid_or_error(token)
     if err:
@@ -228,14 +206,7 @@ async def update_avatar_controller(token: str, file: UploadFile):
         invalidate_cached(PROFILE_CACHE_NAMESPACE)
         return success(AuthStatus.AVATAR_UPDATE_SUCCESS, "อัปเดตรูปโปรไฟล์สำเร็จ", user_public_dict(user))
 
-
 async def download_avatar_controller(file_name: str):
-    # Reject anything that doesn't look like a filename this API generated
-    # itself before ever touching the filesystem - defense in depth on top
-    # of the path-resolution check (OWASP A01/A05: prevents path traversal
-    # and stops the route being turned into a generic arbitrary-file server
-    # for whatever else might land in AVATAR_DIR, e.g. the `.tmp` scratch
-    # files written during upload).
     if not _AVATAR_FILENAME_RE.match(file_name):
         raise HTTPException(status_code=404, detail="Avatar not found")
 
@@ -243,9 +214,6 @@ async def download_avatar_controller(file_name: str):
     if safe_path.parent != AVATAR_DIR.resolve() or not safe_path.is_file():
         raise HTTPException(status_code=404, detail="Avatar not found")
 
-    # Serve with the extension's known-safe media type and `nosniff` so
-    # browsers never MIME-sniff stored bytes into something executable
-    # (OWASP A05 - Security Misconfiguration / stored-content confusion).
     media_type = _MEDIA_TYPES.get(safe_path.suffix.lower(), "application/octet-stream")
     return FileResponse(
         path=safe_path,

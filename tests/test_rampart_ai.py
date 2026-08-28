@@ -12,7 +12,6 @@ import pytest
 from bgProcessing import task_handlers
 from calling.RampartAI import RampartAICall
 
-
 class FakeRampartAIClient:
     def __init__(self, result):
         self.result = result
@@ -22,19 +21,12 @@ class FakeRampartAIClient:
         self.calls.append(mobsf_report_path)
         return self.result
 
-
-# --------------------------------------------------------------------------
-# calling/RampartAI.py
-# --------------------------------------------------------------------------
-
-
 def test_rampart_ai_client_requires_configured_url(monkeypatch):
     monkeypatch.delenv("RAMPARTAI_URL", raising=False)
     client = RampartAICall()
     result = client.predict("does-not-matter.json")
     assert result["success"] is False
     assert "RAMPARTAI_URL" in result["error"]
-
 
 def test_rampart_ai_client_rejects_missing_file(monkeypatch, tmp_path):
     monkeypatch.setenv("RAMPARTAI_URL", "http://rampartai.test")
@@ -43,7 +35,6 @@ def test_rampart_ai_client_rejects_missing_file(monkeypatch, tmp_path):
     result = client.predict(str(missing))
     assert result["success"] is False
     assert "not found" in result["error"].lower()
-
 
 def test_rampart_ai_client_posts_report_and_returns_prediction(monkeypatch, tmp_path):
     monkeypatch.setenv("RAMPARTAI_URL", "http://rampartai.test")
@@ -86,7 +77,6 @@ def test_rampart_ai_client_posts_report_and_returns_prediction(monkeypatch, tmp_
     assert captured["url"] == "http://rampartai.test/predict"
     assert "file" in captured["files"]
 
-
 def test_rampart_ai_client_surfaces_non_200_as_failure(monkeypatch, tmp_path):
     monkeypatch.setenv("RAMPARTAI_URL", "http://rampartai.test")
     report_path = tmp_path / "mobsf-abc.json"
@@ -106,12 +96,6 @@ def test_rampart_ai_client_surfaces_non_200_as_failure(monkeypatch, tmp_path):
     assert result["success"] is False
     assert "400" in result["error"]
 
-
-# --------------------------------------------------------------------------
-# calculate_rampart_ai_score
-# --------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(("probability", "expected"), [
     (0.0, 0.0),
     (0.5, 50.0),
@@ -121,19 +105,11 @@ def test_rampart_ai_client_surfaces_non_200_as_failure(monkeypatch, tmp_path):
 def test_calculate_rampart_ai_score(probability, expected):
     assert task_handlers.calculate_rampart_ai_score({"malware_probability": probability}) == expected
 
-
 def test_calculate_rampart_ai_score_missing_field_is_null():
     assert task_handlers.calculate_rampart_ai_score({}) is None
 
-
 def test_calculate_rampart_ai_score_invalid_type_is_null():
     assert task_handlers.calculate_rampart_ai_score({"malware_probability": "invalid"}) is None
-
-
-# --------------------------------------------------------------------------
-# handle_rampart_ai
-# --------------------------------------------------------------------------
-
 
 def test_handle_rampart_ai_writes_report_on_success(tmp_path):
     mobsf_report = tmp_path / "mobsf-x.json"
@@ -152,7 +128,6 @@ def test_handle_rampart_ai_writes_report_on_success(tmp_path):
     assert result["report_path"] == str(report_path)
     assert json.loads(report_path.read_text()) == {"malware_probability": 0.9, "prediction": "malware"}
     assert client.calls == [str(mobsf_report)]
-
 
 def test_handle_rampart_ai_skips_on_client_failure_without_blocking_pipeline(tmp_path):
     """An unavailable/misconfigured RampartAI service must degrade to

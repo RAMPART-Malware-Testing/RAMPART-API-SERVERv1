@@ -23,7 +23,6 @@ _PROFILE_FETCHERS = {
     "github": fetch_github_profile,
 }
 
-
 def _require_supported_provider(provider: str) -> None:
     if provider not in _PROFILE_FETCHERS:
         raise HTTPException(status_code=404, detail="Unsupported OAuth provider")
@@ -34,7 +33,6 @@ def _require_supported_provider(provider: str) -> None:
             f"Set the corresponding client id/secret in .env.",
         )
 
-
 def _frontend_redirect(path: str, **params) -> RedirectResponse:
     query = urlencode({k: v for k, v in params.items() if v is not None})
     url = f"{FRONTEND_URL}{path}"
@@ -42,13 +40,11 @@ def _frontend_redirect(path: str, **params) -> RedirectResponse:
         url = f"{url}?{query}"
     return RedirectResponse(url, status_code=302)
 
-
 async def oauth_login_controller(request: Request, provider: str):
     _require_supported_provider(provider)
     client = oauth.create_client(provider)
     redirect_uri = redirect_uri_for(provider)
     return await client.authorize_redirect(request, redirect_uri)
-
 
 async def oauth_callback_controller(request: Request, provider: str):
     """Finishes the OAuth dance and hands control back to the browser.
@@ -66,7 +62,7 @@ async def oauth_callback_controller(request: Request, provider: str):
 
     try:
         token = await client.authorize_access_token(request)
-    except Exception as exc:  # authlib raises provider-specific OAuthError subclasses
+    except Exception as exc:
         return _frontend_redirect(
             "/login",
             error=AuthStatus.OAUTH_PROVIDER_ERROR,
@@ -95,7 +91,6 @@ async def oauth_callback_controller(request: Request, provider: str):
     access_token = issue_access_token(user)
     device_token = issue_device_token(user)
 
-    # Record the login for the profile "ประวัติการเข้าสู่ระบบ" tab.
     try:
         async with SessionLocal() as session:
             session.add(

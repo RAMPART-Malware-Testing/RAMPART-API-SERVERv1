@@ -1,4 +1,3 @@
-# task_handlers.py
 import json
 import math
 from pathlib import Path
@@ -14,7 +13,6 @@ vt = VirusToTalAPI()
 def get_virustotal_attributes(report: dict) -> dict:
     return report.get("data", {}).get("attributes", {})
 
-
 def get_malicious_virustotal_results(report: dict) -> dict:
     attributes = get_virustotal_attributes(report)
     if attributes:
@@ -27,7 +25,6 @@ def get_malicious_virustotal_results(report: dict) -> dict:
         str(index): result
         for index, result in enumerate(report.get("threats_found", {}).get("malicious", []))
     }
-
 
 def is_reportvt_complete(report: dict) -> bool:
     if not report:
@@ -44,7 +41,6 @@ def is_reportvt_complete(report: dict) -> bool:
         total_scanners = report.get("scan_summary", {}).get("total_scanners", 0)
 
     return total_scanners >= 10
-
 
 def write_raw_virustotal_report(report: dict, report_path: str | Path) -> str:
     path = Path(report_path)
@@ -83,9 +79,6 @@ def handle_virustotal(
         }
 
     if total_size > VIRUSTOTAL_MAX_SIZE:
-        # Permanent, non-retryable condition (file will never shrink) -
-        # skip immediately rather than burning retry attempts that can
-        # never succeed.
         return {
             "status": "skipped",
             "report_path": str(report_path),
@@ -127,13 +120,11 @@ def calculate_threat_scoreVT(report: dict | str | Path) -> int:
         return 100
     return 0
 
-
 def _clamp_score(value: float) -> float:
     value = float(value)
     if not math.isfinite(value):
         raise ValueError("Score must be finite")
     return round(max(0.0, min(value, 100.0)), 2)
-
 
 def calculate_mobsf_danger_score(report: dict) -> float | None:
     security_score = report.get("appsec", {}).get("security_score")
@@ -145,7 +136,6 @@ def calculate_mobsf_danger_score(report: dict) -> float | None:
         return _clamp_score(100 - float(security_score))
     except (TypeError, ValueError):
         return None
-
 
 def calculate_cape_danger_score(report: dict | str | Path) -> float | None:
     if isinstance(report, dict):
@@ -164,14 +154,12 @@ def calculate_cape_danger_score(report: dict | str | Path) -> float | None:
     except (TypeError, ValueError):
         return None
 
-
 def _write_report(reports_dir: Path, name: str, report: dict) -> str:
     reports_dir.mkdir(parents=True, exist_ok=True)
     path = reports_dir / name
     with path.open("w", encoding="utf-8") as file:
         json.dump(report, file, ensure_ascii=False)
     return str(path)
-
 
 def handle_mobsf(
     file_path: str,
@@ -203,8 +191,6 @@ def handle_mobsf(
             "retry_in": 30,
         }
 
-    # MobSF only analyses mobile apps (APK/IPA). If the file type isn't
-    # supported, skip immediately instead of uploading and finding out later.
     MOBSF_SUPPORTED_EXTS = {".apk", ".ipa", ".xapk", ".jex", ".dex", ".apks", ".aab"}
     ext = Path(file_path).suffix.lower()
     if ext not in MOBSF_SUPPORTED_EXTS:
@@ -245,7 +231,6 @@ def handle_mobsf(
         "retry_in": 30,
     }
 
-
 def calculate_rampart_ai_score(report: dict) -> float | None:
     """0-100 danger score derived from RampartAI's malware_probability (0-1)."""
     probability = report.get("malware_probability")
@@ -255,7 +240,6 @@ def calculate_rampart_ai_score(report: dict) -> float | None:
         return _clamp_score(float(probability) * 100)
     except (TypeError, ValueError):
         return None
-
 
 def handle_rampart_ai(
     mobsf_report_path: str,
@@ -276,9 +260,6 @@ def handle_rampart_ai(
     report_path = Path(report_path or Path("reports") / f"rampartai-{md5}.json")
     result = client.predict(mobsf_report_path)
     if not result.get("success"):
-        # A missing/misconfigured RampartAI service should never block the
-        # rest of the pipeline (Gemini synthesis still runs without it) -
-        # treat any failure as "skipped", not "failed".
         return {
             "status": "skipped",
             "report_path": str(report_path),
@@ -289,7 +270,6 @@ def handle_rampart_ai(
         "status": True,
         "report_path": _write_report(report_path.parent, report_path.name, data),
     }
-
 
 def handle_cape(
     file_path: str,
@@ -302,17 +282,11 @@ def handle_cape(
 ) -> dict:
     client = client or CAPEAnalyzer()
     report_path = Path(report_path or reports_dir / f"cape-{md5}.json")
-    # Explicit CAPE package per file type. Without this CAPE auto-detects and
-    # can pick a wrong package (e.g. an APK run as "jar"/"exe" on a Windows
-    # machine with no Java), which fails the analysis. Package names use
-    # CAPE/Cuckoo's own package names.
     CAPE_PACKAGE_MAP = {
-        # --- Mobile / Android ---
         ".apk": "apk",
         ".xapk": "apk",
         ".dex": "android",
         ".jex": "android",
-        # --- PE executables ---
         ".exe": "exe",
         ".scr": "exe",
         ".com": "exe",
@@ -321,7 +295,6 @@ def handle_cape(
         ".msi": "msi",
         ".msp": "msi",
         ".cab": "emulation",
-        # --- Archives ---
         ".zip": "emulation",
         ".rar": "emulation",
         ".7z": "7z",
@@ -331,7 +304,6 @@ def handle_cape(
         ".tgz": "emulation",
         ".bz2": "emulation",
         ".iso": "emulation",
-        # --- Documents ---
         ".doc": "doc",
         ".docm": "docm",
         ".docx": "docx",
@@ -342,14 +314,12 @@ def handle_cape(
         ".sway": "sway",
         ".wsf": "generic",
         ".vsdx": "generic",
-        # --- Office spreadsheets ---
         ".xls": "xls",
         ".xlsb": "xlsb",
         ".xlsm": "xlsm",
         ".xlsx": "xlsx",
         ".xltm": "xlsm",
         ".xltx": "xlsm",
-        # --- Presentations ---
         ".ppt": "ppt",
         ".ppam": "ppt",
         ".ppa": "ppt",
@@ -362,9 +332,7 @@ def handle_cape(
         ".potm": "ppt",
         ".potx": "ppt",
         ".pub": "pub",
-        # --- PDF ---
         ".pdf": "pdf",
-        # --- Scripts / code ---
         ".js": "js",
         ".jsx": "js",
         ".hta": "hta",
@@ -377,23 +345,15 @@ def handle_cape(
         ".sh": "sh",
         ".jar": "jar",
         ".java": "java",
-        # --- Email ---
         ".msg": "msg",
         ".eml": "msg",
         ".tnef": "tnef",
-        # --- Misc ---
         ".lnk": "lnk",
         ".elf": "elf",
         ".swf": "generic",
     }
     package = CAPE_PACKAGE_MAP.get(Path(file_path).suffix.lower())
     if task_id is None:
-        # The upload no longer being readable (deleted, moved, locked) is a
-        # permanent condition, not a transient CAPE-server hiccup - retrying
-        # it every 30s would poll forever without ever resolving, unlike a
-        # genuine network error against the CAPE API which can legitimately
-        # recover. Fail fast instead so it's governed by
-        # MAX_TOOL_ERROR_RETRIES like VirusTotal/MobSF.
         if not Path(file_path).is_file():
             return {
                 "status": "failed",

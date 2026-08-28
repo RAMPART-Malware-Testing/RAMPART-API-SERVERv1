@@ -35,36 +35,27 @@ from cores.Schema.schema_class import User
 AVATAR_DIR = Path("avatars")
 AVATAR_DIR.mkdir(parents=True, exist_ok=True)
 
-# Cheap pre-filter only - fully attacker-controlled multipart metadata, never
-# trusted on its own. See `_decode_and_normalize_image` for the real check.
 ALLOWED_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
 
-# Canonical format -> extension, keyed off what Pillow actually detected
-# after decoding the bytes (not the client's claimed Content-Type/filename).
 ALLOWED_IMAGE_FORMATS = {
     "PNG": ".png",
     "JPEG": ".jpg",
     "WEBP": ".webp",
 }
 
-MAX_AVATAR_SIZE = 5 * 1024 * 1024  # 5MB
+MAX_AVATAR_SIZE = 5 * 1024 * 1024
 AVATAR_CHUNK_SIZE = 1024 * 1024
 
-# Guards against decompression-bomb style images (huge pixel dimensions in a
-# tiny file) - OWASP A04, Unrestricted Resource Consumption.
 MAX_AVATAR_DIMENSION = 4096
 MAX_AVATAR_PIXELS = MAX_AVATAR_DIMENSION * MAX_AVATAR_DIMENSION
 
-# 16 random bytes -> 32 hex chars: unguessable, does not leak the uid.
 AVATAR_TOKEN_BYTES = 16
-
 
 async def get_user_or_404(session: AsyncSession, uid: uuid.UUID) -> User:
     user = await session.get(User, uid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
-
 
 async def update_username(session: AsyncSession, uid: uuid.UUID, username: str) -> User:
     user = await get_user_or_404(session, uid)
@@ -80,12 +71,10 @@ async def update_username(session: AsyncSession, uid: uuid.UUID, username: str) 
     await session.refresh(user)
     return user
 
-
 def _assert_within_size_cap(total_size: int) -> None:
     """Raises 413 the moment the running total crosses the size cap."""
     if total_size > MAX_AVATAR_SIZE:
         raise HTTPException(status_code=413, detail="Avatar image exceeds the 5MB limit.")
-
 
 def _decode_and_normalize_image(raw: bytes) -> tuple[bytes, str]:
     """Decodes `raw` as a real raster image and re-encodes it from scratch.
@@ -109,8 +98,6 @@ def _decode_and_normalize_image(raw: bytes) -> tuple[bytes, str]:
             detail="Unsupported image type. Allowed: PNG, JPEG, WEBP.",
         )
 
-    # `verify()` leaves the image unusable for further ops (Pillow's own
-    # documented behaviour) - re-open a fresh handle on the same bytes.
     try:
         with Image.open(io.BytesIO(raw)) as img:
             image_format = (img.format or "").upper()
@@ -130,7 +117,7 @@ def _decode_and_normalize_image(raw: bytes) -> tuple[bytes, str]:
             if width * height > MAX_AVATAR_PIXELS:
                 raise HTTPException(status_code=400, detail="Image resolution is too large.")
 
-            img.load()  # fully decode now, while we still control the size cap
+            img.load()
 
             output = io.BytesIO()
             if image_format == "JPEG":
@@ -152,7 +139,6 @@ def _decode_and_normalize_image(raw: bytes) -> tuple[bytes, str]:
             detail="Unsupported image type. Allowed: PNG, JPEG, WEBP.",
         )
 
-
 def _generate_avatar_token() -> str:
     """Unguessable filename stem, independent of the user's uid.
 
@@ -164,7 +150,6 @@ def _generate_avatar_token() -> str:
     is not guessable from anything else the API exposes.
     """
     return secrets.token_hex(AVATAR_TOKEN_BYTES)
-
 
 def _delete_stored_avatar(avatar_url: str | None) -> None:
     """Best-effort removal of a previously stored avatar file.
@@ -184,14 +169,9 @@ def _delete_stored_avatar(avatar_url: str | None) -> None:
     if candidate.is_file():
         candidate.unlink(missing_ok=True)
 
-
 async def update_avatar(session: AsyncSession, uid: uuid.UUID, file: UploadFile) -> User:
     user = await get_user_or_404(session, uid)
 
-    # Cheap pre-filter on the client-supplied Content-Type: rejects obvious
-    # non-image uploads early, before spending any I/O on them. This is
-    # NOT the security boundary - it's fully attacker-controlled multipart
-    # metadata - so it never grants trust by itself.
     content_type = (file.content_type or "").lower()
     if content_type and content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
@@ -212,8 +192,6 @@ async def update_avatar(session: AsyncSession, uid: uuid.UUID, file: UploadFile)
     raw = b"".join(chunks)
     del chunks
 
-    # The real validation: decode as a genuine image and re-encode it,
-    # ignoring whatever the client claimed about content type/filename.
     encoded, extension = _decode_and_normalize_image(raw)
     del raw
 
@@ -234,14 +212,10 @@ async def update_avatar(session: AsyncSession, uid: uuid.UUID, file: UploadFile)
     try:
         await session.commit()
     except Exception:
-        # DB write failed after the file was already placed on disk - clean
-        # up the orphaned new file rather than leaking it, then re-raise.
         target_path.unlink(missing_ok=True)
         raise
     await session.refresh(user)
 
-    # Only delete the old file once the new one is durably committed, so a
-    # failed upload never destroys a user's existing picture.
     _delete_stored_avatar(previous_avatar_url)
 
     return user

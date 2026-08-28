@@ -15,7 +15,6 @@ from fastapi import HTTPException
 from controller.Analysis import CheckHash_controller as controller
 from services.analy import analy_service
 
-
 class FakeSession:
     def __init__(self):
         self.rollback_called = False
@@ -34,12 +33,6 @@ class FakeSession:
     async def refresh(self, value):
         return None
 
-
-# --------------------------------------------------------------------------
-# attempt_attach_to_existing_analysis
-# --------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_attach_returns_none_when_no_existing_analysis(monkeypatch):
     session = FakeSession()
@@ -52,7 +45,6 @@ async def test_attach_returns_none_when_no_existing_analysis(monkeypatch):
 
     assert outcome == "none"
     assert analysis is None
-
 
 @pytest.mark.asyncio
 async def test_attach_reports_dispatching_without_touching_db(monkeypatch):
@@ -70,7 +62,6 @@ async def test_attach_reports_dispatching_without_touching_db(monkeypatch):
 
     assert outcome == "dispatching"
     assert analysis is None
-
 
 @pytest.mark.asyncio
 async def test_attach_reuses_existing_success_task(monkeypatch):
@@ -107,10 +98,7 @@ async def test_attach_reuses_existing_success_task(monkeypatch):
     assert inserted["task_id"] == "task-1"
     assert inserted["rid"] == "report-1"
     assert inserted["md5"] == "deadbeef"
-    # Falls back to the existing row's real size, not the (possibly
-    # mismatched/unknown) size the hash-only caller reported.
     assert inserted["file_size"] == 999
-
 
 @pytest.mark.asyncio
 async def test_attach_falls_through_to_none_when_existing_task_failed(monkeypatch):
@@ -135,12 +123,6 @@ async def test_attach_falls_through_to_none_when_existing_task_failed(monkeypatc
     assert outcome == "none"
     assert analysis is None
 
-
-# --------------------------------------------------------------------------
-# attempt_gap_fill_redispatch
-# --------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_gap_fill_returns_none_when_no_existing_analysis(monkeypatch):
     session = FakeSession()
@@ -153,7 +135,6 @@ async def test_gap_fill_returns_none_when_no_existing_analysis(monkeypatch):
 
     assert outcome == "none"
     assert analysis is None
-
 
 @pytest.mark.asyncio
 async def test_gap_fill_returns_none_when_success_but_no_tool_notes(monkeypatch, tmp_path):
@@ -179,7 +160,6 @@ async def test_gap_fill_returns_none_when_success_but_no_tool_notes(monkeypatch,
     assert outcome == "none"
     assert analysis is None
 
-
 @pytest.mark.asyncio
 async def test_gap_fill_does_not_apply_to_in_flight_analysis(monkeypatch):
     session = FakeSession()
@@ -199,12 +179,8 @@ async def test_gap_fill_does_not_apply_to_in_flight_analysis(monkeypatch):
         session, uid="user-1", file_hash="a" * 64, file_name="f.apk", file_size=10, privacy=True,
     )
 
-    # Not a completed "success" row yet - gap-fill only applies to
-    # completed success rows; caller falls through to the normal reuse
-    # path instead.
     assert outcome == "none"
     assert analysis is None
-
 
 @pytest.mark.asyncio
 async def test_gap_fill_dispatches_fresh_task_carrying_forward_succeeded_tools(monkeypatch, tmp_path):
@@ -217,7 +193,6 @@ async def test_gap_fill_dispatches_fresh_task_carrying_forward_succeeded_tools(m
     md5 = "deadbeef"
     (reports_dir / f"virustotal-{md5}.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
     (reports_dir / f"mobsf-{md5}.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
-    # cape-{md5}.json intentionally absent - this is the force-skipped gap.
 
     monkeypatch.setattr(analy_service, "REPORTS_DIR", reports_dir)
     monkeypatch.setattr(analy_service, "acquire_analysis_hash_lock", _noop)
@@ -268,23 +243,14 @@ async def test_gap_fill_dispatches_fresh_task_carrying_forward_succeeded_tools(m
     assert call["task_id"] != "old-task"
     assert call["args"] == (str(file_path), md5, "a" * 64, 7)
 
-    # Already-succeeded tools carried forward with their report paths...
     assert call["kwargs"]["vt_status"] is True
     assert call["kwargs"]["vt_report_path"] == str(reports_dir / f"virustotal-{md5}.json")
     assert call["kwargs"]["mobsf_status"] is True
     assert call["kwargs"]["mobsf_report_path"] == str(reports_dir / f"mobsf-{md5}.json")
-    # ...and the force-skipped tool (CAPE, no report file on disk) is left
-    # unset so analyze_malware_task treats it as needing a fresh attempt.
     assert "cape_status" not in call["kwargs"]
     assert "cape_report_path" not in call["kwargs"]
 
     assert update_calls == [(analysis.task_id, {"status": "queued", "from_statuses": ("dispatching",)})]
-
-
-# --------------------------------------------------------------------------
-# check_hash_controller (HTTP-facing)
-# --------------------------------------------------------------------------
-
 
 @pytest.mark.asyncio
 async def test_check_hash_controller_rejects_malformed_sha256():
@@ -292,13 +258,11 @@ async def test_check_hash_controller_rejects_malformed_sha256():
         await controller.check_hash_controller("user-1", "not-a-hash", "f.apk", 10, True)
     assert raised.value.status_code == 400
 
-
 @pytest.mark.asyncio
 async def test_check_hash_controller_rejects_invalid_uid(monkeypatch):
     with pytest.raises(HTTPException) as raised:
         await controller.check_hash_controller("not-a-uuid", "a" * 64, "f.apk", 10, True)
     assert raised.value.status_code == 401
-
 
 class _DbSession:
     """Minimal SessionLocal() context stand-in for check_hash_controller's
@@ -319,7 +283,6 @@ class _DbSession:
 
     async def rollback(self):
         pass
-
 
 @pytest.mark.asyncio
 async def test_check_hash_controller_surfaces_gap_filled_outcome(monkeypatch):
@@ -351,7 +314,6 @@ async def test_check_hash_controller_surfaces_gap_filled_outcome(monkeypatch):
     assert response["gap_filled"] is True
     assert response["task_id"] == "new-task-id"
     assert response["status"] == "queued"
-
 
 @pytest.mark.asyncio
 async def test_check_hash_controller_falls_back_to_attach_when_no_gap_to_fill(monkeypatch):
@@ -387,16 +349,13 @@ async def test_check_hash_controller_falls_back_to_attach_when_no_gap_to_fill(mo
     assert "gap_filled" not in response
     assert response["task_id"] == "existing-task"
 
-
 def _noop(*args, **kwargs):
     return _AwaitableNone()
-
 
 def _returns(value):
     def factory(*args, **kwargs):
         return _Awaitable(value)
     return factory
-
 
 class _Awaitable:
     def __init__(self, value):
@@ -406,7 +365,6 @@ class _Awaitable:
         async def _inner():
             return self.value
         return _inner().__await__()
-
 
 class _AwaitableNone(_Awaitable):
     def __init__(self):

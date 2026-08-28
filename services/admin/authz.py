@@ -28,15 +28,9 @@ ROLE_USER = "user"
 ROLE_ADMIN = "admin"
 ROLE_MASTER = "master"
 
-# The only role values a role-change endpoint may ever *assign*. "master"
-# is deliberately excluded - it can only ever be granted by the ROOT_EMAIL
-# OAuth login branch in services/oauth/oauth_service.py, never through any
-# API call, no matter who is making the request (OWASP A04 - Insecure
-# Design: closing off every privilege-escalation path at its source).
 ASSIGNABLE_ROLES = {ROLE_USER, ROLE_ADMIN}
 
 ADMIN_ROLES = {ROLE_ADMIN, ROLE_MASTER}
-
 
 class AuthError(Exception):
     """Raised by every function in this module on any auth/authz failure.
@@ -53,13 +47,11 @@ class AuthError(Exception):
         self.code = code
         self.message = message
 
-
 def _resolve_uid(payload: dict) -> uuid.UUID:
     try:
         return parse_uuid(payload.get("sub"))
     except (TypeError, ValueError, KeyError):
         raise AuthError(401, "TOKEN_INVALID", "ข้อมูลผู้ใช้ในโทเค็นไม่ถูกต้อง")
-
 
 async def get_current_user(session, token: str) -> User:
     """Verifies `token` as an access token, then re-fetches the
@@ -80,7 +72,6 @@ async def get_current_user(session, token: str) -> User:
         raise AuthError(401, "USER_NOT_FOUND", "ไม่พบบัญชีผู้ใช้")
     return user
 
-
 def ensure_not_banned(user: User) -> None:
     """Hard-blocks any banned account, including a master somehow left
     marked banned by a stale/manual DB edit - the check is unconditional,
@@ -92,11 +83,9 @@ def ensure_not_banned(user: User) -> None:
             "บัญชีของคุณถูกระงับการใช้งาน" + (f": {user.banned_reason}" if user.banned_reason else ""),
         )
 
-
 def ensure_role(user: User, allowed: set[str]) -> None:
     if user.role not in allowed:
         raise AuthError(403, "INSUFFICIENT_ROLE", "คุณไม่มีสิทธิ์เข้าถึงส่วนนี้")
-
 
 def ensure_can_manage_target(actor: User, target: User) -> None:
     """The single source of truth for "can `actor` perform a mutating (or
@@ -120,14 +109,9 @@ def ensure_can_manage_target(actor: User, target: User) -> None:
         raise AuthError(403, "ADMIN_TARGET_FORBIDDEN", "ผู้ดูแลไม่สามารถดำเนินการกับผู้ดูแลด้วยกันได้")
 
     if actor.role not in ADMIN_ROLES:
-        # Defensive - callers are expected to have already called
-        # ensure_role(actor, ADMIN_ROLES) before reaching here, but this
-        # keeps the function safe to call standalone too.
         raise AuthError(403, "INSUFFICIENT_ROLE", "คุณไม่มีสิทธิ์เข้าถึงส่วนนี้")
 
-    # actor is master targeting admin/user, or actor is admin targeting user.
     return None
-
 
 def ensure_can_manage_file_owner(actor: User, owner: User) -> None:
     """Same permission rule as ensure_can_manage_target, with one addition:

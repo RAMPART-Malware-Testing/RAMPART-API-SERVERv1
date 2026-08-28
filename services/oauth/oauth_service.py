@@ -29,37 +29,26 @@ from cores.Schema.schema_class import OAuthAccount, User
 from utils.email_normalize import normalize_email, normalized_email_expr
 from utils.jwt import create_token
 
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days, same lifetime as before
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
 _USERNAME_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9_.-]")
 
-# Whoever authenticates with this e-mail (set via ROOT_EMAIL in .env) is the
-# master admin - the highest privilege tier in the app. There is no separate
-# pre-seeded "master" account and no API/UI path that can ever assign this
-# role: the very first OAuth login matching this address creates the user
-# with role="master" directly, and every later login re-confirms/repairs it
-# (including un-banning it, since master accounts can never be banned).
 ROOT_EMAIL = os.getenv("ROOT_EMAIL", "").strip().lower()
-
 
 @dataclass(frozen=True)
 class OAuthProfile:
-    provider: str          # "google" | "github"
-    provider_uid: str      # stable id from the provider, e.g. Google "sub" or GitHub numeric id
+    provider: str
+    provider_uid: str
     email: str
     email_verified: bool
     display_name: str | None
 
-
 class OAuthError(Exception):
     """Raised when the provider callback can't be trusted (e.g. no verified e-mail)."""
-
 
 async def fetch_google_profile(token: dict) -> OAuthProfile:
     userinfo = token.get("userinfo")
     if not userinfo:
-        # authlib normally parses the id_token into token["userinfo"]; fall back
-        # to the userinfo endpoint if that didn't happen for any reason.
         from cores.oauth import oauth
 
         userinfo = await oauth.google.userinfo(token=token)
@@ -75,7 +64,6 @@ async def fetch_google_profile(token: dict) -> OAuthProfile:
         email_verified=bool(userinfo.get("email_verified", False)),
         display_name=userinfo.get("name") or userinfo.get("given_name"),
     )
-
 
 async def fetch_github_profile(token: dict) -> OAuthProfile:
     from cores.oauth import oauth
@@ -107,7 +95,6 @@ async def fetch_github_profile(token: dict) -> OAuthProfile:
         display_name=profile.get("name") or profile.get("login"),
     )
 
-
 async def _generate_unique_username(session: AsyncSession, seed: str) -> str:
     base = _USERNAME_SANITIZE_RE.sub("", seed.split("@")[0]).strip(".-_") or "user"
     base = base[:40] or "user"
@@ -118,7 +105,6 @@ async def _generate_unique_username(session: AsyncSession, seed: str) -> str:
         if result.scalar_one_or_none() is None:
             return candidate
         candidate = f"{base}-{secrets.token_hex(3)}"[:50]
-
 
 async def find_or_create_user(session: AsyncSession, profile: OAuthProfile) -> User:
     """Resolve a provider profile to a durable `users` row.
@@ -181,14 +167,6 @@ async def find_or_create_user(session: AsyncSession, profile: OAuthProfile) -> U
         session.add(user)
         await session.flush()
     else:
-        # Auto-linking a new OAuth identity into an ALREADY-EXISTING account
-        # purely because the e-mail matches is only safe if the provider
-        # itself vouches that the address is verified - otherwise anyone
-        # could register an OAuth identity with someone else's unverified
-        # e-mail address and get silently merged into that person's
-        # account. Brand-new account creation (the `user is None` branch
-        # above) is unaffected by this - it never merges into anyone
-        # else's data regardless of verification state.
         if not profile.email_verified:
             raise OAuthError(
                 "This e-mail is already registered with a different sign-in "
@@ -209,7 +187,6 @@ async def find_or_create_user(session: AsyncSession, profile: OAuthProfile) -> U
     await session.refresh(user)
     return user
 
-
 def issue_access_token(user: User) -> str:
     return create_token(
         subject=str(user.uid),
@@ -221,15 +198,7 @@ def issue_access_token(user: User) -> str:
         },
     )
 
-
-# Same 7-day lifetime and (uid, email) binding as the password-auth flow's
-# device token (see services/auth/auth_service.py::_issue_device_token) -
-# kept as a separate copy rather than a shared import to avoid a circular
-# import between services/oauth and services/auth (neither currently
-# depends on the other), and because the two flows are allowed to diverge
-# independently later without coordinating a shared helper's signature.
-DEVICE_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
-
+DEVICE_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
 def issue_device_token(user: User) -> str:
     return create_token(
@@ -238,7 +207,6 @@ def issue_device_token(user: User) -> str:
         expires_minutes=DEVICE_TOKEN_EXPIRE_MINUTES,
         extra_payload={"email": user.email},
     )
-
 
 def user_public_dict(user: User) -> dict:
     return {

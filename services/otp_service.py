@@ -15,7 +15,6 @@ MAX_OTP_ATTEMPTS = 5
 
 VerifyOutcome = Literal["ok", "wrong", "locked", "expired"]
 
-
 class OTPService:
 
     @staticmethod
@@ -54,11 +53,6 @@ class OTPService:
         if redis_client is not None:
             try:
                 redis_client.setex(OTPService._key(action, token), OTP_TTL_SECONDS, otp)
-                # Reset any stale attempt counter from a prior session that
-                # happened to reuse this exact token (practically
-                # impossible given tokens are fresh JWTs, but cheap
-                # insurance against ever starting a new session already
-                # "half locked out").
                 redis_client.delete(OTPService._attempts_key(action, token))
             except Exception as exc:
                 print(f"[OTP] unable to store session {action}:{token}: {exc}")

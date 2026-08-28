@@ -26,37 +26,19 @@ from cores.redis import redis_client
 from calling.GeminiAPI import GeminiAPI
 from bgProcessing.notifications import notify_analysis_failed, notify_analysis_success
 
-
 REPORTS_DIR = Path("reports")
 ACTIVE_STATUSES = ("dispatching", "queued", "processing")
 FINALIZABLE_STATUSES = ("processing", "success")
 PROGRESS_TTL_SECONDS = 86400
 
-# Per-tool graceful-degradation policy for VirusTotal/MobSF/CAPE: a hard
-# error (e.g. rate limiting, transient API failure) gets retried up to
-# this many times; a "pending" result (the tool is legitimately still
-# working) gets polled up to this many times. Either cap being exceeded
-# force-skips *just that tool* - it is recorded in Reports/Analysis as a
-# NULL score plus a human-readable note, and the rest of the pipeline
-# (including Gemini's final synthesis) proceeds without it. No single
-# optional tool being unavailable should ever abort the whole analysis.
 MAX_TOOL_ERROR_RETRIES = 3
 MAX_TOOL_POLL_ATTEMPTS = 10
-# CAPE runs real dynamic sandbox analysis (boot a VM, execute the sample,
-# wait for behavioral timeout, then generate the report) - this routinely
-# takes several minutes even when everything is working correctly, unlike
-# VirusTotal/MobSF's much faster static/hash-lookup-driven polling. A
-# poll cap tuned for those two would force-skip CAPE while it's still
-# legitimately working. At the default 30s retry_in this allows ~20
-# minutes before giving up.
 MAX_CAPE_POLL_ATTEMPTS = 40
 
 TOOL_LABELS = {"virustotal": "VirusTotal", "mobsf": "MobSF", "cape": "CAPE"}
 
-
 class TaskFinalizationError(RuntimeError):
     pass
-
 
 def publish_progress(task_id: str, stage: str, message: str, **values) -> None:
     payload = {
@@ -74,7 +56,6 @@ def publish_progress(task_id: str, stage: str, message: str, **values) -> None:
     except Exception as error:
         print(f"[Progress] Unable to publish task {task_id}: {error}")
 
-
 def update_task_rows(db, task_id: str, status: str, from_statuses: tuple[str, ...], **values) -> int:
     statement = update(Analysis).where(
         Analysis.task_id == task_id,
@@ -82,7 +63,6 @@ def update_task_rows(db, task_id: str, status: str, from_statuses: tuple[str, ..
     )
     result = db.execute(statement.values(status=status, **values))
     return result.rowcount
-
 
 def fail_task(db, task_id: str, error, *, report_paths=(), tool_notes: dict | None = None) -> dict:
     message = str(error)
@@ -109,11 +89,9 @@ def fail_task(db, task_id: str, error, *, report_paths=(), tool_notes: dict | No
         print(f"[Notify] Failed to send failure email for {task_id}: {notify_error}")
     return {"success": False, "task_id": task_id, "error": message}
 
-
 def read_report(path: str | Path) -> dict:
     with Path(path).open("r", encoding="utf-8") as file:
         return json.load(file)
-
 
 def virustotal_report_values(report: dict) -> tuple[list[str], bool]:
     attributes = report.get("data", {}).get("attributes", {})
@@ -128,7 +106,6 @@ def virustotal_report_values(report: dict) -> tuple[list[str], bool]:
     ]
     return signatures, bool(malicious_results)
 
-
 def read_sandbox_score(path: str | None, calculator):
     if not path:
         return None
@@ -137,13 +114,11 @@ def read_sandbox_score(path: str | None, calculator):
     except (OSError, json.JSONDecodeError, AttributeError, TypeError, ValueError):
         return None
 
-
 def task_is_complete(db, task_id: str) -> bool:
     statuses = db.execute(
         select(Analysis.status).where(Analysis.task_id == task_id)
     ).scalars().all()
     return bool(statuses) and all(status == "success" for status in statuses)
-
 
 def evaluate_tool_progress(
     *,
@@ -199,7 +174,6 @@ def evaluate_tool_progress(
             "note": None,
         }
 
-    # Any other status (including "failed") is a retryable error.
     attempts += 1
     error = str(result.get("error", f"{label} analysis failed"))
     if attempts >= max_attempts:
@@ -214,7 +188,6 @@ def evaluate_tool_progress(
         "retry_countdown": 30 * attempts,
         "note": None,
     }
-
 
 def finalize_analysis_report(
     db,
@@ -251,8 +224,6 @@ def finalize_analysis_report(
             signatures, malicious = virustotal_report_values(vt_report)
             del vt_report
         else:
-            # VirusTotal was force-skipped (rate limit / repeated errors) -
-            # there is simply no VT-derived signal for this analysis.
             virustotal_score = None
             signatures, malicious = [], False
         scores = {
@@ -261,9 +232,6 @@ def finalize_analysis_report(
             "cape_score": read_sandbox_score(cape_report_path, calculate_cape_danger_score),
             "rampart_ai_score": read_sandbox_score(rampart_ai_report_path, calculate_rampart_ai_score),
         }
-        # Full RampartAI /predict response, stored verbatim into
-        # rampart_ai_score (a JSONB column). Score keeps the numeric value
-        # for the transient progress payload only.
         rampartai_prediction = None
         if rampart_ai_report_path:
             try:
@@ -325,7 +293,6 @@ def finalize_analysis_report(
         db.rollback()
         raise
 
-
 def finalize_virustotal_report(db, task_id: str, file_path: str, report_data: dict):
     report_path = REPORTS_DIR / f"virustotal-{task_id}.json"
     write_raw_virustotal_report(report_data, report_path)
@@ -333,7 +300,6 @@ def finalize_virustotal_report(db, task_id: str, file_path: str, report_data: di
         db, task_id, file_path, str(report_path), tools="virustotal"
     )
     return report, scores["virustotal_score"]
-
 
 @celery_app.task(bind=True, max_retries=60)
 def analyze_malware_task(
@@ -376,11 +342,6 @@ def analyze_malware_task(
         ):
             return {"success": True, "task_id": task_id, "state": "already_started"}
 
-        # --- VirusTotal phase -------------------------------------------
-        # VT is resolved to a terminal state (success or force-skip)
-        # before MobSF/CAPE even start - it's fast (usually a hash
-        # lookup) and its malicious-detection short-circuit below only
-        # makes sense once VT itself is done.
         if vt_status is True:
             if not (vt_report_path and Path(vt_report_path).is_file()):
                 return fail_task(db, task_id, "VirusTotal report file not found", tool_notes=tool_notes)
@@ -442,9 +403,6 @@ def analyze_malware_task(
                 tools={"virustotal": {"status": "success", "score": vt_score}},
             )
             if vt_score == 100:
-                # VirusTotal is dangerous (> 0) -> skip Stage 2
-                # (MobSF / CAPE / RampartAI) and go straight to Stage 3
-                # (Gemini) to conclude the risk.
                 try:
                     evidence = build_gemini_evidence(vt_report_path, None, None)
                 except Exception as error:
@@ -486,9 +444,6 @@ def analyze_malware_task(
                     "virustotal_report_path": vt_report_path,
                 }
         else:
-            # vt_status == "skipped" (force-skipped after exhausting
-            # retries) - no VT signal, but the rest of the pipeline must
-            # still proceed normally.
             publish_progress(
                 task_id,
                 "virustotal",
@@ -496,13 +451,6 @@ def analyze_malware_task(
                 tools={"virustotal": {"status": "skipped", "note": tool_notes.get("virustotal")}},
             )
 
-        # --- MobSF phase ---------------------------------------------------
-        # Only treat a tool as "already done, skip re-calling the handler"
-        # when THIS task's own tracked status says so (status is True) -
-        # not merely because a same-named report file happens to already
-        # exist on disk (report files are keyed by content md5, not
-        # task_id, so a leftover from an earlier analysis of the same
-        # content could otherwise be mistaken for this task's own output).
         mobsf_ready = bool(mobsf_status is True and mobsf_report_path and Path(mobsf_report_path).is_file())
         mobsf_countdown = None
         if mobsf_status not in (True, "skipped") and not mobsf_ready:
@@ -524,13 +472,6 @@ def analyze_malware_task(
             if outcome["note"]:
                 tool_notes["mobsf"] = outcome["note"]
 
-        # --- RampartAI: eligible as soon as MobSF is terminal ------------
-        # RampartAI only ever consumes a MobSF report, so it becomes
-        # eligible the moment MobSF resolves - it must never sit blocked
-        # behind CAPE just because they happen to run in the same task
-        # pass. Once resolved (True or "skipped"), its state is carried
-        # through any later retries (still gated behind CAPE below) so it
-        # is never re-invoked.
         rampart_ai_ready = rampart_ai_status in (True, "skipped") and (
             rampart_ai_status != True or bool(rampart_ai_report_path and Path(rampart_ai_report_path).is_file())
         )
@@ -556,12 +497,8 @@ def analyze_malware_task(
                 rampart_ai_status = rai_result.get("status")
                 rampart_ai_report_path = rai_result.get("report_path", rampart_ai_report_path)
             else:
-                # MobSF itself was skipped (unsupported file type, or
-                # force-skipped after retries) - there's nothing for
-                # RampartAI to classify.
                 rampart_ai_status = "skipped"
 
-        # --- CAPE phase ------------------------------------------------
         cape_ready = bool(cape_status is True and cape_report_path and Path(cape_report_path).is_file())
         cape_countdown = None
         if cape_status not in (True, "skipped") and not cape_ready:
@@ -595,17 +532,6 @@ def analyze_malware_task(
             cape_countdown = outcome["retry_countdown"]
             if outcome["note"]:
                 tool_notes["cape"] = outcome["note"]
-            # Publish again right after the call resolves (not just the
-            # "processing" snapshot above) so a poll landing between this
-            # call and the shared sandboxes/gemini gate further down still
-            # sees CAPE's just-updated status/task_id instead of a stale
-            # "processing" - this was the actual bug: CAPE could run to
-            # completion across several Celery retries with NO Redis
-            # update in between (MobSF/RampartAI publish their own
-            # progress, but nothing published one specifically for CAPE),
-            # so the frontend poll saw CAPE stuck at "waiting" the whole
-            # time even though it was genuinely working and eventually
-            # succeeded.
             publish_progress(
                 task_id,
                 "sandboxes",
@@ -618,10 +544,6 @@ def analyze_malware_task(
                 },
             )
 
-        # --- Retry gate: only for tools still genuinely resolving -------
-        # A tool that just got force-skipped is terminal ("skipped") and
-        # does NOT block this gate - only "pending" (still legitimately
-        # working, or mid error-backoff under its own retry budget) does.
         pending_countdowns = [
             countdown
             for status, countdown in ((mobsf_status, mobsf_countdown), (cape_status, cape_countdown))
@@ -663,10 +585,6 @@ def analyze_malware_task(
                     },
                 )
             except MaxRetriesExceededError:
-                # Celery's own overall retry ceiling was hit while a tool
-                # was still actively resolving (not yet at its own
-                # per-tool cap) - this is exceptionally rare and treated
-                # as a genuine task failure rather than a silent skip.
                 print(f"[Analysis] Sandbox polling exhausted for {file_path}")
                 return fail_task(
                     db, task_id, "Sandbox polling exhausted",
@@ -689,11 +607,6 @@ def analyze_malware_task(
         if rampart_ai_status is True:
             successful_tools.append("rampart_ai")
 
-        # --- Gemini synthesis --------------------------------------------
-        # RampartAI's score is stored directly on Reports (below, via
-        # finalize_analysis_report) and never fed into Gemini's evidence -
-        # it's RAMPART's own in-house model, not a third-party signal, and
-        # is intentionally kept out of what an external LLM sees/cites.
         evidence = build_gemini_evidence(
             vt_report_path if vt_status is True else None,
             successful_mobsf_path,
@@ -715,10 +628,6 @@ def analyze_malware_task(
             assessment = GeminiAPI().AnalysisGemini(evidence)
         except Exception as error:
             print(f"[Gemini] Analysis failed for {file_path}: {error}")
-            # Republish progress to reflect the retry/backoff explicitly -
-            # otherwise the last-seen Redis payload stays stuck showing
-            # "processing" for the entire 60s backoff window, which looks
-            # like a hang from the UI's point of view.
             publish_progress(
                 task_id,
                 "gemini",

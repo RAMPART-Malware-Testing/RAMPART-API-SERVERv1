@@ -16,7 +16,6 @@ HEALTH_TIMEOUT_SECONDS = 4
 HEALTH_CACHE_TTL_SECONDS = 15
 HEALTH_CACHE_NAMESPACE = "admin:system_health"
 
-
 def _check_external_service(name: str, url: str | None, path: str = "/") -> dict[str, Any]:
     if not url:
         return {"name": name, "status": "unconfigured", "latency_ms": None, "detail": "URL is not configured"}
@@ -35,7 +34,6 @@ def _check_external_service(name: str, url: str | None, path: str = "/") -> dict
         latency_ms = round((time.monotonic() - started) * 1000, 1)
         return {"name": name, "status": "down", "latency_ms": latency_ms, "detail": str(exc)[:200]}
 
-
 async def _check_database(session: AsyncSession) -> dict[str, Any]:
     started = time.monotonic()
     try:
@@ -45,7 +43,6 @@ async def _check_database(session: AsyncSession) -> dict[str, Any]:
     except Exception as exc:
         latency_ms = round((time.monotonic() - started) * 1000, 1)
         return {"name": "postgresql", "status": "down", "latency_ms": latency_ms, "detail": str(exc)[:200]}
-
 
 def _check_redis() -> dict[str, Any]:
     started = time.monotonic()
@@ -57,7 +54,6 @@ def _check_redis() -> dict[str, Any]:
     except Exception as exc:
         latency_ms = round((time.monotonic() - started) * 1000, 1)
         return {"name": "redis", "status": "down", "latency_ms": latency_ms, "detail": str(exc)[:200]}
-
 
 def _check_celery_workers() -> dict[str, Any]:
     started = time.monotonic()
@@ -83,7 +79,6 @@ def _check_celery_workers() -> dict[str, Any]:
         latency_ms = round((time.monotonic() - started) * 1000, 1)
         return {"name": "celery_workers", "status": "down", "latency_ms": latency_ms, "detail": str(exc)[:200], "workers": []}
 
-
 def _check_disk_space() -> dict[str, Any]:
     try:
         total, used, free = shutil.disk_usage(".")
@@ -101,7 +96,6 @@ def _check_disk_space() -> dict[str, Any]:
     except Exception as exc:
         return {"name": "disk_space", "status": "down", "detail": str(exc)[:200]}
 
-
 def _check_memory() -> dict[str, Any]:
     try:
         import psutil
@@ -118,15 +112,7 @@ def _check_memory() -> dict[str, Any]:
     except Exception as exc:
         return {"name": "memory", "status": "down", "detail": str(exc)[:200]}
 
-
 async def _compute_system_health(session: AsyncSession) -> dict[str, Any]:
-    # Every check used to run sequentially - each network-bound check
-    # (celery/mobsf/cape/rampart_ai) can take up to HEALTH_TIMEOUT_SECONDS
-    # on its own when that service is down, so a page load with several
-    # dead services could block for 15-20s+ before any response reached
-    # the client. Running them concurrently means the whole call now takes
-    # roughly as long as the single slowest check, not the sum of all of
-    # them.
     checks = await asyncio.gather(
         _check_database(session),
         run_in_threadpool(_check_redis),
@@ -154,7 +140,6 @@ async def _compute_system_health(session: AsyncSession) -> dict[str, Any]:
             "checks": checks,
         },
     }
-
 
 async def get_system_health(session: AsyncSession, *, force_refresh: bool = False) -> dict[str, Any]:
     if force_refresh:

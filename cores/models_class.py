@@ -7,9 +7,6 @@ from sqlalchemy import String
 class Base(DeclarativeBase):
     pass
 
-# ======================
-# Users
-# ======================
 class User(Base):
     __tablename__ = "users"
 
@@ -31,9 +28,6 @@ class User(Base):
     audit_logs_as_actor = relationship("AuditLog", foreign_keys="AuditLog.actor_uid", back_populates="actor")
     audit_logs_as_target = relationship("AuditLog", foreign_keys="AuditLog.target_uid", back_populates="target")
 
-# ======================
-# Analysis
-# ======================
 class Analysis(Base):
     __tablename__ = "analysis"
 
@@ -60,9 +54,6 @@ class Analysis(Base):
     user = relationship("User", foreign_keys=[uid], back_populates="analyses")
     report = relationship("Reports", back_populates="analyses")
 
-# ======================
-# Reports
-# ======================
 class Reports(Base):
     __tablename__ = "reports"
 
@@ -82,9 +73,6 @@ class Reports(Base):
 
     analyses = relationship("Analysis", foreign_keys="[Analysis.rid]", back_populates="report")
 
-# ======================
-# Audit Logs
-# ======================
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 

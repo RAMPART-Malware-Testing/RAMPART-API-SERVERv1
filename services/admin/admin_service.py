@@ -47,7 +47,6 @@ REPORT_LIST_CACHE_TTL_SECONDS = 5
 DASHBOARD_CACHE_NAMESPACE = "admin:dashboard"
 DASHBOARD_CACHE_TTL_SECONDS = 20
 
-
 def _invalidate_user_caches(target_uid: uuid.UUID | None = None) -> None:
     invalidate_cached(USER_LIST_CACHE_NAMESPACE)
     invalidate_cached(DASHBOARD_CACHE_NAMESPACE)
@@ -55,18 +54,11 @@ def _invalidate_user_caches(target_uid: uuid.UUID | None = None) -> None:
     if target_uid:
         invalidate_cached(USER_HISTORY_CACHE_NAMESPACE, str(target_uid))
 
-
 def _invalidate_file_caches() -> None:
     invalidate_cached(FILE_LIST_CACHE_NAMESPACE)
     invalidate_cached(REPORT_LIST_CACHE_NAMESPACE)
     invalidate_cached(DASHBOARD_CACHE_NAMESPACE)
     invalidate_cached(AUDIT_LOG_CACHE_NAMESPACE)
-
-
-# ---------------------------------------------------------------------------
-# Audit log
-# ---------------------------------------------------------------------------
-
 
 async def write_audit_log(
     session: AsyncSession,
@@ -88,7 +80,6 @@ async def write_audit_log(
             detail=detail,
         )
     )
-
 
 async def _fetch_audit_logs(
     session: AsyncSession,
@@ -148,7 +139,6 @@ async def _fetch_audit_logs(
         },
     }
 
-
 async def list_audit_logs(
     session: AsyncSession,
     *,
@@ -170,12 +160,6 @@ async def list_audit_logs(
         suffix=suffix,
     )
 
-
-# ---------------------------------------------------------------------------
-# User listing / detail
-# ---------------------------------------------------------------------------
-
-
 def serialize_user(user: User) -> dict[str, Any]:
     return {
         "uid": str(user.uid),
@@ -190,7 +174,6 @@ def serialize_user(user: User) -> dict[str, Any]:
         "banned_by": str(user.banned_by) if user.banned_by else None,
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }
-
 
 async def _fetch_users(
     session: AsyncSession,
@@ -247,7 +230,6 @@ async def _fetch_users(
         },
     }
 
-
 async def list_users(
     session: AsyncSession,
     *,
@@ -271,10 +253,8 @@ async def list_users(
         suffix=suffix,
     )
 
-
 async def get_user_admin_view(session: AsyncSession, target_uid: uuid.UUID) -> User | None:
     return await session.get(User, target_uid)
-
 
 async def _fetch_user_login_history(
     session: AsyncSession,
@@ -322,7 +302,6 @@ async def _fetch_user_login_history(
         },
     }
 
-
 async def get_user_login_history_admin(
     session: AsyncSession,
     target_uid: uuid.UUID,
@@ -337,7 +316,6 @@ async def get_user_login_history_admin(
         lambda: _fetch_user_login_history(session, target_uid, page=page, limit=limit),
         suffix=suffix,
     )
-
 
 async def _fetch_user_download_history(
     session: AsyncSession,
@@ -384,7 +362,6 @@ async def _fetch_user_download_history(
         },
     }
 
-
 async def get_user_download_history_admin(
     session: AsyncSession,
     target_uid: uuid.UUID,
@@ -399,7 +376,6 @@ async def get_user_download_history_admin(
         lambda: _fetch_user_download_history(session, target_uid, page=page, limit=limit),
         suffix=suffix,
     )
-
 
 async def get_user_analysis_history_admin(
     session: AsyncSession,
@@ -519,12 +495,6 @@ async def get_user_analysis_history_admin(
         },
     }
 
-
-# ---------------------------------------------------------------------------
-# System-wide file management (all users) and reports (completed only)
-# ---------------------------------------------------------------------------
-
-
 def _serialize_file_row(analysis: Analysis, owner: User | None, report: Reports | None) -> dict[str, Any]:
     item: dict[str, Any] = {
         "aid": str(analysis.aid),
@@ -552,7 +522,6 @@ def _serialize_file_row(analysis: Analysis, owner: User | None, report: Reports 
             "cape_score": float(report.cape_score) if report.cape_score is not None else None,
         }
     return item
-
 
 async def list_all_files(
     session: AsyncSession,
@@ -613,7 +582,6 @@ async def list_all_files(
             "has_prev": page > 1,
         },
     }
-
 
 async def list_reports(
     session: AsyncSession,
@@ -682,7 +650,6 @@ async def list_reports(
         },
     }
 
-
 async def _purge_temp_file_if_unreferenced(session: AsyncSession, file_path: str | None) -> None:
     """Deletes the on-disk upload under temps_files/ ONLY if no other
     (non-soft-deleted) Analysis row still points at the same file_path.
@@ -710,10 +677,7 @@ async def _purge_temp_file_if_unreferenced(session: AsyncSession, file_path: str
     try:
         Path(file_path).unlink(missing_ok=True)
     except OSError:
-        # Best-effort - a locked/already-gone file must never fail the
-        # surrounding soft-delete transaction.
         pass
-
 
 async def soft_delete_file(
     session: AsyncSession,
@@ -744,8 +708,6 @@ async def soft_delete_file(
 
     owner = analysis.user
     if owner is None:
-        # Should not happen (uid is NOT NULL / FK), but fail closed rather
-        # than allow a delete with no ownership check.
         raise AuthError(404, "TARGET_NOT_FOUND", "ไม่พบเจ้าของไฟล์")
 
     ensure_can_manage_file_owner(actor, owner)
@@ -764,7 +726,6 @@ async def soft_delete_file(
     await session.commit()
     await session.refresh(analysis)
     return analysis
-
 
 async def bulk_soft_delete_files(
     session: AsyncSession,
@@ -802,13 +763,6 @@ async def bulk_soft_delete_files(
         except AuthError as exc:
             failed.append({"aid": str(aid), "reason": exc.message})
 
-    # Purge on-disk files only after every row's deleted_at is set (but
-    # still pre-commit within this same transaction) so
-    # _purge_temp_file_if_unreferenced's "any other still-referencing row"
-    # count correctly sees every file in THIS batch as already deleted too
-    # - otherwise two rows in the same bulk request sharing a file_path
-    # would each see the other as "still referencing it" and neither would
-    # ever get purged.
     for aid_str in succeeded:
         analysis = await session.get(Analysis, uuid.UUID(aid_str))
         if analysis is not None:
@@ -816,12 +770,6 @@ async def bulk_soft_delete_files(
 
     await session.commit()
     return {"success": True, "data": {"succeeded": succeeded, "failed": failed}}
-
-
-# ---------------------------------------------------------------------------
-# Ban / unban / role change
-# ---------------------------------------------------------------------------
-
 
 async def ban_user(
     session: AsyncSession,
@@ -851,7 +799,6 @@ async def ban_user(
     await session.commit()
     await session.refresh(target)
     return target
-
 
 async def bulk_ban_users(
     session: AsyncSession,
@@ -887,7 +834,6 @@ async def bulk_ban_users(
     await session.commit()
     return {"success": True, "data": {"succeeded": succeeded, "failed": failed}}
 
-
 async def unban_user(
     session: AsyncSession,
     *,
@@ -915,7 +861,6 @@ async def unban_user(
     await session.commit()
     await session.refresh(target)
     return target
-
 
 async def change_user_role(
     session: AsyncSession,
@@ -952,12 +897,6 @@ async def change_user_role(
     await session.refresh(target)
     return target
 
-
-# ---------------------------------------------------------------------------
-# Dashboard
-# ---------------------------------------------------------------------------
-
-
 async def get_admin_dashboard_summary(session: AsyncSession, *, trend_days: int = 14) -> dict[str, Any]:
     """Aggregate stats for the admin/master backend dashboard: user/role
     counts, ban count, analysis totals, malicious count, a daily upload
@@ -993,7 +932,6 @@ async def get_admin_dashboard_summary(session: AsyncSession, *, trend_days: int 
         )
     ).scalar_one()
 
-    # --- Daily upload trend (last `trend_days` days, oldest first) ---
     trend_rows = (
         await session.execute(
             select(func.date(Analysis.created_at).label("day"), func.count())
@@ -1008,19 +946,16 @@ async def get_admin_dashboard_summary(session: AsyncSession, *, trend_days: int 
         day = today - _timedelta(days=offset)
         upload_trend.append({"date": day.isoformat(), "count": trend_map.get(day.isoformat(), 0)})
 
-    # --- Analysis status breakdown (pending/processing/success/failed/...) ---
     status_rows = (
         await session.execute(select(Analysis.status, func.count()).group_by(Analysis.status))
     ).all()
     status_breakdown = [{"status": s or "unknown", "count": c} for s, c in status_rows]
 
-    # --- Risk level breakdown (from Reports; Low/Caution/High/Critical) ---
     risk_rows = (
         await session.execute(select(Reports.risk_level, func.count()).group_by(Reports.risk_level))
     ).all()
     risk_level_breakdown = [{"risk_level": r or "N/A", "count": c} for r, c in risk_rows]
 
-    # --- File type breakdown (top 8, rest bucketed as "other") ---
     file_type_rows = (
         await session.execute(
             select(Analysis.file_type, func.count())
@@ -1035,8 +970,6 @@ async def get_admin_dashboard_summary(session: AsyncSession, *, trend_days: int 
     if other_count:
         file_type_breakdown.append({"file_type": "other", "count": other_count})
 
-    # --- Per-tool usage (tools column is a comma-separated string, e.g.
-    #     "virustotal,mobsf,cape,rampart_ai,gemini") ---
     tools_rows = (
         await session.execute(select(Analysis.tools).where(Analysis.tools.isnot(None)))
     ).scalars().all()
@@ -1091,7 +1024,6 @@ async def get_admin_dashboard_summary(session: AsyncSession, *, trend_days: int 
         },
     }
 
-
 async def export_users_csv(session: AsyncSession) -> str:
     import csv
     import io
@@ -1106,7 +1038,6 @@ async def export_users_csv(session: AsyncSession) -> str:
             u.banned_reason or "", u.created_at.isoformat() if u.created_at else "",
         ])
     return buffer.getvalue()
-
 
 async def export_files_csv(session: AsyncSession) -> str:
     import csv
@@ -1132,7 +1063,6 @@ async def export_files_csv(session: AsyncSession) -> str:
         ])
     return buffer.getvalue()
 
-
 async def export_audit_logs_csv(session: AsyncSession) -> str:
     import csv
     import io
@@ -1157,7 +1087,6 @@ async def export_audit_logs_csv(session: AsyncSession) -> str:
             log.created_at.isoformat() if log.created_at else "",
         ])
     return buffer.getvalue()
-
 
 async def broadcast_email(
     session: AsyncSession,

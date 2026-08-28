@@ -20,10 +20,6 @@ from utils.jwt import create_token
 from utils.uuid import parse_uuid
 import json
 
-# Status-poll endpoint (POST /api/analy/v1/task_id) is hit repeatedly by the
-# frontend while a task is running, and can be polled by several admins
-# viewing the same task at once - a short TTL means concurrent/rapid polls
-# reuse the same DB read instead of re-querying Postgres every time.
 TASK_STATUS_CACHE_NAMESPACE = "analy:task_status"
 TASK_STATUS_CACHE_TTL_SECONDS = 3
 
@@ -34,15 +30,13 @@ RESULTS_DIR = Path("results")
 for directory in [UPLOAD_DIR, REPORTS_DIR, RESULTS_DIR]:
     directory.mkdir(parents=True, exist_ok=True)
 
-MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024  # 1GB
+MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024
 CHUNK_SIZE = 1024 * 1024
 VIRUSTOTAL_MAX_SIZE = 32 * 1024 * 1024
 
 BASE_REPORT_PATH = Path("reports").resolve()
 FILENAME_REGEX = re.compile(r"^(virustotal|mobsf|cape|rampartai)-([a-fA-F0-9]{32})\.json$")
 
-# Which report-file prefix each tool's raw JSON is stored under (see
-# bgProcessing/task_handlers.py - every handler writes reports/<prefix>-{md5}.json).
 TOOL_REPORT_PREFIX = {
     "virustotal": "virustotal",
     "mobsf": "mobsf",
@@ -54,7 +48,6 @@ def decode_redis_data(data):
     if not data:
         return None
     return {k.decode('utf-8'): v.decode('utf-8') for k, v in data.items()}
-
 
 def _parse_tool_notes(raw: str | None) -> dict | None:
     """Best-effort decode of Analysis.tool_notes (JSON-encoded dict of
@@ -159,7 +152,6 @@ def _read_task_progress(task_id: str) -> dict | None:
     except (TypeError, ValueError, json.JSONDecodeError):
         return None
 
-
 async def analysisReport_controller(uid: str, task_id: str):
     suffix = build_suffix(task_id=task_id, uid=uid)
     return await cached_async(
@@ -168,7 +160,6 @@ async def analysisReport_controller(uid: str, task_id: str):
         lambda: _compute_analysis_report(uid, task_id),
         suffix=suffix,
     )
-
 
 async def _compute_analysis_report(uid: str, task_id: str):
     try:
@@ -213,9 +204,6 @@ async def _compute_analysis_report(uid: str, task_id: str):
                 "message": "Analysis is not completed yet"
                 if analysis.status != "failed"
                 else "Analysis failed",
-                # Always included (even when None) so the frontend has a
-                # stable key to check while polling, not just once the
-                # analysis reaches "success".
                 "tool_notes": _parse_tool_notes(analysis.tool_notes),
             }
             if progress:
@@ -320,13 +308,6 @@ async def get_file_by_hash_controller(task_id: str, uid: str, tool: str = "virus
         path = (BASE_REPORT_PATH / f"{prefix}-{analysis.md5}.json").resolve()
         try:
             if path.parent == BASE_REPORT_PATH.resolve() and path.is_file():
-                # Reports are always written as UTF-8 (see
-                # write_raw_virustotal_report / _write_report in
-                # bgProcessing/task_handlers.py). Without an explicit
-                # encoding here, aiofiles falls back to the OS locale
-                # encoding (e.g. Windows cp1252), which raises
-                # UnicodeDecodeError on any non-ASCII byte a report
-                # legitimately contains (app names, MobSF findings, etc.).
                 async with aiofiles.open(path, "r", encoding="utf-8") as f:
                     content = await f.read()
                     data = json.loads(content)
@@ -334,7 +315,6 @@ async def get_file_by_hash_controller(task_id: str, uid: str, tool: str = "virus
                 data = {"error": "file not found", "tool": tool}
         except Exception as e:
             data = {"error": str(e), "tool": tool}
-
 
         return{
             "success": True,
@@ -385,7 +365,6 @@ async def update_privacy_controller(task_id: str, token: str, privacy: bool):
             "privacy": analysis.privacy,
             "message": "อัปเดตความเป็นส่วนตัวของรายงานสำเร็จ",
         }
-
 
 async def history_controller(body: AnalysisHistoryParams):
     from services.analy.analy_service import (

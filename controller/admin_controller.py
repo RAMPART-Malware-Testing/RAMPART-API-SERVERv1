@@ -47,10 +47,8 @@ from utils.response import error, success
 from utils.status_code import AuthStatus
 from utils.uuid import parse_uuid
 
-
 def _auth_error_response(exc: AuthError):
     return error(exc.code, exc.message)
-
 
 async def _resolve_admin_actor(session, token: str):
     """Shared gate 1-3. Raises AuthError on any failure - callers must be
@@ -60,13 +58,11 @@ async def _resolve_admin_actor(session, token: str):
     ensure_role(actor, ADMIN_ROLES)
     return actor
 
-
 def _parse_target_uid(raw: str):
     try:
         return parse_uuid(raw)
     except (TypeError, ValueError):
         raise AuthError(400, "INVALID_ROLE_TARGET", "target_uid ไม่ถูกต้อง")
-
 
 async def list_users_controller(body: AdminListUsersParams):
     async with SessionLocal() as session:
@@ -83,7 +79,6 @@ async def list_users_controller(body: AdminListUsersParams):
         except AuthError as exc:
             return _auth_error_response(exc)
 
-
 async def get_user_detail_controller(body: AdminTargetUserParams):
     async with SessionLocal() as session:
         try:
@@ -93,9 +88,6 @@ async def get_user_detail_controller(body: AdminTargetUserParams):
             if target is None:
                 return error(AuthStatus.TARGET_NOT_FOUND, "ไม่พบผู้ใช้เป้าหมาย")
 
-            # Viewing another user's full profile (including whatever
-            # private files they have) is itself a privileged action worth
-            # an audit trail entry, per explicit product requirement.
             await admin_service.write_audit_log(
                 session,
                 actor_uid=actor.uid,
@@ -113,7 +105,6 @@ async def get_user_detail_controller(body: AdminTargetUserParams):
         except AuthError as exc:
             return _auth_error_response(exc)
 
-
 async def get_user_history_controller(body: AdminUserHistoryParams):
     async with SessionLocal() as session:
         try:
@@ -125,9 +116,6 @@ async def get_user_history_controller(body: AdminUserHistoryParams):
 
             history = await admin_service.get_user_analysis_history_admin(session, target_uid, body)
 
-            # Reading another user's upload history - including private
-            # files - is exactly the "view private data" action the product
-            # spec requires an audit trail for.
             await admin_service.write_audit_log(
                 session,
                 actor_uid=actor.uid,
@@ -145,7 +133,6 @@ async def get_user_history_controller(body: AdminUserHistoryParams):
         except Exception:
             raise HTTPException(status_code=500, detail="Internal server error")
 
-
 async def ban_user_controller(body: AdminBanUserParams):
     async with SessionLocal() as session:
         try:
@@ -162,7 +149,6 @@ async def ban_user_controller(body: AdminBanUserParams):
         except AuthError as exc:
             return _auth_error_response(exc)
 
-
 async def unban_user_controller(body: AdminUnbanUserParams):
     async with SessionLocal() as session:
         try:
@@ -176,7 +162,6 @@ async def unban_user_controller(body: AdminUnbanUserParams):
             )
         except AuthError as exc:
             return _auth_error_response(exc)
-
 
 async def change_role_controller(body: AdminChangeRoleParams):
     async with SessionLocal() as session:
@@ -194,7 +179,6 @@ async def change_role_controller(body: AdminChangeRoleParams):
         except AuthError as exc:
             return _auth_error_response(exc)
 
-
 async def admin_dashboard_summary_controller(body: AdminDashboardParams):
     async with SessionLocal() as session:
         try:
@@ -202,7 +186,6 @@ async def admin_dashboard_summary_controller(body: AdminDashboardParams):
             return await admin_service.get_admin_dashboard_summary(session, trend_days=body.trend_days)
         except AuthError as exc:
             return _auth_error_response(exc)
-
 
 async def audit_logs_controller(body: AdminAuditLogParams):
     async with SessionLocal() as session:
@@ -219,7 +202,6 @@ async def audit_logs_controller(body: AdminAuditLogParams):
         except AuthError as exc:
             return _auth_error_response(exc)
 
-
 async def list_files_controller(body: AdminListFilesParams):
     async with SessionLocal() as session:
         try:
@@ -235,7 +217,6 @@ async def list_files_controller(body: AdminListFilesParams):
             )
         except AuthError as exc:
             return _auth_error_response(exc)
-
 
 async def delete_file_controller(body: AdminDeleteFileParams):
     async with SessionLocal() as session:
@@ -256,7 +237,6 @@ async def delete_file_controller(body: AdminDeleteFileParams):
         except AuthError as exc:
             return _auth_error_response(exc)
 
-
 async def list_reports_controller(body: AdminListReportsParams):
     async with SessionLocal() as session:
         try:
@@ -272,7 +252,6 @@ async def list_reports_controller(body: AdminListReportsParams):
         except AuthError as exc:
             return _auth_error_response(exc)
 
-
 async def get_user_login_history_controller(body: AdminUserSubHistoryParams):
     async with SessionLocal() as session:
         try:
@@ -286,7 +265,6 @@ async def get_user_login_history_controller(body: AdminUserSubHistoryParams):
             )
         except AuthError as exc:
             return _auth_error_response(exc)
-
 
 async def get_user_download_history_controller(body: AdminUserSubHistoryParams):
     async with SessionLocal() as session:
@@ -302,7 +280,6 @@ async def get_user_download_history_controller(body: AdminUserSubHistoryParams):
         except AuthError as exc:
             return _auth_error_response(exc)
 
-
 async def bulk_ban_users_controller(body: AdminBulkBanUsersParams):
     async with SessionLocal() as session:
         try:
@@ -315,7 +292,6 @@ async def bulk_ban_users_controller(body: AdminBulkBanUsersParams):
             )
         except AuthError as exc:
             return _auth_error_response(exc)
-
 
 async def bulk_delete_files_controller(body: AdminBulkDeleteFilesParams):
     async with SessionLocal() as session:
@@ -333,7 +309,6 @@ async def bulk_delete_files_controller(body: AdminBulkDeleteFilesParams):
         except AuthError as exc:
             return _auth_error_response(exc)
 
-
 async def export_users_csv_controller(token: str):
     async with SessionLocal() as session:
         try:
@@ -341,7 +316,6 @@ async def export_users_csv_controller(token: str):
             return await admin_service.export_users_csv(session)
         except AuthError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message)
-
 
 async def export_files_csv_controller(token: str):
     async with SessionLocal() as session:
@@ -351,7 +325,6 @@ async def export_files_csv_controller(token: str):
         except AuthError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
-
 async def export_audit_logs_csv_controller(token: str):
     async with SessionLocal() as session:
         try:
@@ -359,7 +332,6 @@ async def export_audit_logs_csv_controller(token: str):
             return await admin_service.export_audit_logs_csv(session)
         except AuthError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message)
-
 
 async def broadcast_email_controller(body: AdminBroadcastEmailParams):
     async with SessionLocal() as session:
@@ -375,7 +347,6 @@ async def broadcast_email_controller(body: AdminBroadcastEmailParams):
         except AuthError as exc:
             return _auth_error_response(exc)
 
-
 async def system_health_controller(body: AdminTokenParams):
     async with SessionLocal() as session:
         try:
@@ -385,7 +356,6 @@ async def system_health_controller(body: AdminTokenParams):
     from services.admin.health_service import get_system_health
     async with SessionLocal() as session:
         return await get_system_health(session)
-
 
 async def task_queue_list_controller(body: AdminTaskQueueParams):
     async with SessionLocal() as session:
@@ -398,7 +368,6 @@ async def task_queue_list_controller(body: AdminTaskQueueParams):
         except AuthError as exc:
             return _auth_error_response(exc)
 
-
 async def task_queue_depth_controller(body: AdminTokenParams):
     async with SessionLocal() as session:
         try:
@@ -407,7 +376,6 @@ async def task_queue_depth_controller(body: AdminTokenParams):
             return _auth_error_response(exc)
     from services.admin.task_queue_service import get_queue_depth
     return get_queue_depth()
-
 
 async def task_retry_controller(body: AdminTaskActionParams):
     async with SessionLocal() as session:
@@ -424,7 +392,6 @@ async def task_retry_controller(body: AdminTaskActionParams):
         except AuthError as exc:
             return _auth_error_response(exc)
 
-
 async def task_cancel_controller(body: AdminTaskActionParams):
     async with SessionLocal() as session:
         try:
@@ -440,7 +407,6 @@ async def task_cancel_controller(body: AdminTaskActionParams):
         except AuthError as exc:
             return _auth_error_response(exc)
 
-
 async def rate_limit_snapshot_controller(body: AdminTokenParams):
     async with SessionLocal() as session:
         try:
@@ -449,7 +415,6 @@ async def rate_limit_snapshot_controller(body: AdminTokenParams):
             return _auth_error_response(exc)
     from services.admin.rate_limit_monitor_service import get_rate_limit_snapshot
     return get_rate_limit_snapshot()
-
 
 async def rate_limit_clear_controller(body: AdminClearLockoutParams):
     async with SessionLocal() as session:

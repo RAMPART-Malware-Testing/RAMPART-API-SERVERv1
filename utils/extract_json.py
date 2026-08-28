@@ -14,25 +14,18 @@ def normalize_attributes(attributes):
         key = key.strip()
         value = value.strip()
 
-        # Normalize volume units
         if key == "volume":
-            # Remove ALL spaces and convert units
-            value = re.sub(r'\s+', '', value)  # Remove all spaces
-            # Convert to lowercase
+            value = re.sub(r'\s+', '', value)
             value = value.replace('ML', 'ml').replace('มล.', 'ml').replace('G', 'g')
 
-        # Normalize PA values (remove extra spaces)
         if key == "pa":
             value = re.sub(r'PA\s+', 'PA', value)
 
-        # Store normalized attribute
         normalized_attr = f"{key}: {value}"
 
-        # Track unique keys to avoid duplicates
         if key not in seen_keys:
             seen_keys[key] = []
 
-        # Add only if not duplicate
         if value not in seen_keys[key]:
             seen_keys[key].append(value)
             normalized.append(normalized_attr)
@@ -41,7 +34,6 @@ def normalize_attributes(attributes):
 
 def extract_json(text):
     """Extract and normalize JSON from text response"""
-    # Try to find JSON in code blocks (both array and object)
     pattern_array = r"```(?:json)?\s*(\[.*?\])\s*```"
     pattern_object = r"```(?:json)?\s*(\{.*?\})\s*```"
 
@@ -58,10 +50,8 @@ def extract_json(text):
             return None
 
     try:
-        # Parse JSON
         data = json.loads(json_str)
 
-        # Normalize attributes in each item
         if isinstance(data, list):
             for item in data:
                 if "attributes" in item and isinstance(item["attributes"], list):
@@ -70,10 +60,8 @@ def extract_json(text):
             if "attributes" in data and isinstance(data["attributes"], list):
                 data["attributes"] = normalize_attributes(data["attributes"])
 
-        # Return normalized JSON string
         return json.dumps(data, ensure_ascii=False, indent=2)
     except json.JSONDecodeError:
-        # If parsing fails, return original string
         return json_str
     
 

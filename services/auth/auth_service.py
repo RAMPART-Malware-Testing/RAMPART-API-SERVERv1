@@ -16,7 +16,6 @@ def verify_access_token(token: str) -> str:
 
     return uid
 
-
 from sqlalchemy import select
 from cores.async_pg_db import SessionLocal
 from cores.Schema.schema_class import LoginHistory, OAuthAccount, User
@@ -25,8 +24,7 @@ from utils.email_normalize import normalize_email, normalized_email_expr
 from utils.jwt import create_token
 from services.otp_service import OTPService, MAX_OTP_ATTEMPTS
 
-DEVICE_TOKEN_TTL_MINUTES = 60 * 24 * 7  # 7 days
-
+DEVICE_TOKEN_TTL_MINUTES = 60 * 24 * 7
 
 def _issue_device_token(uid, email: str) -> str:
     """A device token is bound to BOTH the account uid and its email at
@@ -45,7 +43,6 @@ def _issue_device_token(uid, email: str) -> str:
         extra_payload={"email": email},
     )
 
-
 async def _record_login_history(session, *, uid, provider: str, ip, user_agent, status: str) -> None:
     """Best-effort audit trail row. Never raises - a logging failure must
     never block an otherwise-successful login."""
@@ -61,7 +58,6 @@ async def _record_login_history(session, *, uid, provider: str, ip, user_agent, 
         )
     except Exception as exc:  # pragma: no cover - defensive
         print(f"[login_history] failed to queue row for {uid}: {exc}")
-
 
 def _otp_error_response(outcome: str, detail: int | None):
     if outcome == "wrong":
@@ -84,7 +80,6 @@ def _otp_error_response(outcome: str, detail: int | None):
         "รหัส OTP หมดอายุหรือไม่ถูกต้อง กรุณาเริ่มดำเนินการใหม่อีกครั้ง",
     )
 
-
 class AuthService:
 
     @staticmethod
@@ -103,10 +98,6 @@ class AuthService:
             if not user.password or not verify_password(user.password, body.password):
                 return error(AuthStatus.INVALID_CREDENTIALS, "ข้อมูลการเข้าสู่ระบบไม่ถูกต้อง")
 
-            # Accounts that also have any linked OAuth identity always
-            # require OTP on password login, regardless of device-token
-            # state - a stricter posture for higher-value/higher-risk
-            # accounts capable of two different sign-in paths.
             oauth_link = await session.execute(
                 select(OAuthAccount.id).where(OAuthAccount.uid == user.uid).limit(1)
             )
@@ -114,19 +105,12 @@ class AuthService:
 
             if deviceToken and not has_linked_oauth:
                 payload, err = TokenService.verify_token(deviceToken, "device")
-                # Device token only bypasses OTP when it was issued for THIS
-                # exact account (uid) AND the email it was bound to at
-                # issuance still matches the email being logged into right
-                # now - changing email always forces a fresh OTP challenge.
                 if not err and payload.get("sub") == str(user.uid) and payload.get("email") == user.email:
                     access_token = create_token(
                         subject=str(user.uid),
                         token_type="access",
                         expires_minutes=60 * 24 * 7
                     )
-                    # Rolling renewal: every successful bypass extends trust
-                    # another 7 days rather than counting down from the
-                    # original issuance.
                     refreshed_device_token = _issue_device_token(user.uid, user.email)
 
                     await _record_login_history(
@@ -137,7 +121,6 @@ class AuthService:
 
                     user_dict = user.__dict__.copy()
                     user_dict.pop("password", None)
-                    # remove SQLAlchemy internal state before returning
                     user_dict.pop("_sa_instance_state", None)
                     return success(
                         AuthStatus.LOGIN_SUCCESS,
@@ -210,11 +193,6 @@ class AuthService:
             )
             await session.commit()
 
-        # Device token embeds the account's email at issuance (see
-        # _issue_device_token) - this is the one path a brand-new device
-        # ever establishes trust through, since login()'s bypass check
-        # requires a token that was already minted here or by an OAuth
-        # callback.
         deiveToken = _issue_device_token(user.uid, user.email)
 
         access_token = create_token(
@@ -236,8 +214,6 @@ class AuthService:
             "ยืนยันการเข้าสู่ระบบสำเร็จ",
             {"access_token": access_token, "data": {k: user[k] for k in user.keys()}, "deiveToken": deiveToken, "refresh_token": refresh_token}
         )
-
-# ================= REGISTER =================
 
     @staticmethod
     async def register(body: RegisterParame):
@@ -294,8 +270,6 @@ class AuthService:
             AuthStatus.REGISTER_SUCCESS,
             "ลงทะเบียนผู้ใช้งานสำเร็จ"
         )
-
-# ================= RESET =================
 
     @staticmethod
     async def reset(body: ResetPasswdParame):

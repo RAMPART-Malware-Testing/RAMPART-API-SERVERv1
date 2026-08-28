@@ -19,12 +19,8 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID", "")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "")
 
-# Base URL this API is reachable at, used to build the OAuth callback URLs
-# registered with each provider (e.g. http://localhost:8006).
 OAUTH_REDIRECT_BASE_URL = os.getenv("OAUTH_REDIRECT_BASE_URL", "http://localhost:8006").rstrip("/")
 
-# The Next.js web app. The OAuth callback redirects the browser back here
-# (see controller/oauth_controller.py) instead of returning raw JSON.
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 
 oauth = OAuth()
@@ -47,14 +43,12 @@ oauth.register(
     client_kwargs={"scope": "read:user user:email"},
 )
 
-
 def oauth_configured(provider: str) -> bool:
     if provider == "google":
         return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
     if provider == "github":
         return bool(GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET)
     return False
-
 
 def redirect_uri_for(provider: str) -> str:
     return f"{OAUTH_REDIRECT_BASE_URL}/api/auth/{provider}/callback"

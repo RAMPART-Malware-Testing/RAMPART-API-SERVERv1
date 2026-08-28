@@ -19,10 +19,6 @@ class User(Base):
     status: Mapped[str] = mapped_column(String(50), server_default=text("'active'"))
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.uid"), nullable=True)
     fcm_token: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Ban state. This is the source of truth for access control - `status`
-    # above is legacy free-text and is NOT authoritative for authorization
-    # decisions. Master accounts can never have is_banned=True (enforced at
-    # the service layer in services/admin/authz.py, not by a DB constraint).
     is_banned: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("FALSE"))
     banned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     banned_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -43,7 +39,6 @@ class User(Base):
     analyses = relationship("Analysis", foreign_keys="[Analysis.uid]", back_populates="user", cascade="all, delete-orphan")
     audit_logs_as_actor = relationship("AuditLog", foreign_keys="AuditLog.actor_uid", back_populates="actor")
     audit_logs_as_target = relationship("AuditLog", foreign_keys="AuditLog.target_uid", back_populates="target")
-
 
 class OAuthAccount(Base):
     """Links a user to one external OAuth identity (Google or GitHub).
@@ -80,12 +75,6 @@ class Analysis(Base):
     file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     tools: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # JSON-encoded dict of {tool_name: reason} for any tool that was force-
-    # skipped after exhausting its error/rate-limit retry budget (see
-    # bgProcessing/tasks.py). NULL when every attempted tool either
-    # succeeded outright or was skipped because the file type is simply
-    # unsupported by that tool - this column is never populated for that
-    # case, only for the retry-exhausted case.
     tool_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str | None] = mapped_column(Text, server_default=text("'pending'"))
     blocked_by: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -116,8 +105,6 @@ class Reports(Base):
     virustotal_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mobsf_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     cape_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
-    # RampartAI full /predict response (malware_probability, benign_probability,
-    # prediction, confidence, ...) stored verbatim as JSON.
     rampart_ai_score: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     rampart_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     gemini_recommendation: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -145,7 +132,6 @@ class AuditLog(Base):
     actor = relationship("User", foreign_keys=[actor_uid], back_populates="audit_logs_as_actor")
     target = relationship("User", foreign_keys=[target_uid], back_populates="audit_logs_as_target")
 
-
 class LoginHistory(Base):
     __tablename__ = "login_history"
 
@@ -159,7 +145,6 @@ class LoginHistory(Base):
         DateTime(timezone=True),
         server_default=text("CURRENT_TIMESTAMP")
     )
-
 
 class DownloadHistory(Base):
     __tablename__ = "download_history"

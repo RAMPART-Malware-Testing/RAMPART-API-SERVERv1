@@ -23,7 +23,6 @@ from services.analy.analy_service import (
 )
 from utils.uuid import parse_uuid
 
-
 UPLOAD_DIR = Path("temps_files")
 REPORTS_DIR = Path("reports")
 RESULTS_DIR = Path("results")
@@ -34,7 +33,6 @@ for directory in [UPLOAD_DIR, REPORTS_DIR, RESULTS_DIR]:
 MAX_FILE_SIZE = 1024 * 1024 * 1024
 CHUNK_SIZE = 1024 * 1024
 REUSABLE_STATUSES = {"queued", "processing", "analyzing", "success"}
-
 
 def upload_response(filename, md5, sha256, task_id, task_status, deduplicated, queue_state):
     return {
@@ -47,7 +45,6 @@ def upload_response(filename, md5, sha256, task_id, task_status, deduplicated, q
         "deduplicated": deduplicated,
         "queue_state": queue_state,
     }
-
 
 async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool):
     try:
@@ -62,12 +59,6 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={"success": False, "code": "USER_NOT_FOUND", "message": "User not found."},
             )
-        # Source of truth for the ban check is `is_banned`, not the legacy
-        # `status` string - re-checked fresh from the DB on every upload so
-        # a user banned mid-session can never sneak one more file through
-        # (OWASP A01/A07). Error shape kept identical to before this
-        # change (USER_NOT_ACTIVE) so the frontend's existing handling of
-        # this specific endpoint doesn't need to change.
         if user_record.is_banned:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -101,20 +92,6 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
             final_md5 = md5_hash.hexdigest()
             final_sha256 = sha256_hash.hexdigest()
 
-            # Gap-fill takes precedence over plain reuse: if the most
-            # recent analysis for this hash finished "success" but had
-            # one or more tools force-skipped after exhausting their
-            # retry budget (non-null tool_notes), re-dispatch a fresh
-            # task that only retries the gap instead of silently
-            # returning the same permanently-incomplete result forever.
-            # Naturally falls through to "none" for a "dispatching" row
-            # (still in-flight - the dispatching-conflict check below
-            # still applies) or a "success" row with no tool_notes
-            # (nothing to gap-fill), leaving the reusable-attach logic
-            # below unchanged for those cases. The freshly-uploaded temp
-            # file is unused here (gap-fill reuses the OLD analysis's
-            # already-stored file_path) and is cleaned up by the
-            # `finally` block below since temp_file_path is left set.
             gap_outcome, gap_analysis = await attempt_gap_fill_redispatch(
                 db_session,
                 uid=user_id,

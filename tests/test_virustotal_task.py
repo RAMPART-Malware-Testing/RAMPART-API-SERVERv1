@@ -13,7 +13,6 @@ from bgProcessing import task_handlers, tasks
 from controller import analysis_controller
 from schemas.analy import AnalysisReportParamsTarget
 
-
 class ScalarResult:
     def __init__(self, value=None, rows=None):
         self.value = value
@@ -24,7 +23,6 @@ class ScalarResult:
 
     def scalars(self):
         return FinalizeScalars(self.rows)
-
 
 class FakeSession:
     def __init__(self, report=None):
@@ -74,10 +72,8 @@ class FakeSession:
     def close(self):
         self.closed = True
 
-
 def update_values(session):
     return [statement.compile().params for statement in session.statements if str(statement).lstrip().startswith("UPDATE")]
-
 
 def run_task(monkeypatch, tmp_path, vt_result, retries=0, retry_error=None, report=None, **extra_kwargs):
     session = FakeSession(report)
@@ -120,13 +116,6 @@ def run_task(monkeypatch, tmp_path, vt_result, retries=0, retry_error=None, repo
     monkeypatch.setattr(tasks.analyze_malware_task, "retry", retry)
     tasks.analyze_malware_task.push_request(id="task-1", retries=retries)
     try:
-        # A single "failed"/"error" VT result no longer terminally fails
-        # the task on its own - it's counted against the per-tool retry
-        # budget (MAX_TOOL_ERROR_RETRIES=3) and retried like any other
-        # transient error, so it raises Retry() unless the caller is
-        # simulating retry-budget exhaustion (via retry_error) or has
-        # pre-seeded vt_attempts high enough that THIS attempt is the one
-        # that force-skips VT instead of retrying again.
         about_to_exhaust = vt_result["state"] == "error" and extra_kwargs.get("vt_attempts", 0) + 1 >= 3
         expect_retry = retry_error is None and not about_to_exhaust and (
             vt_result["state"] == "pending" or vt_result["state"] == "error"
@@ -141,7 +130,6 @@ def run_task(monkeypatch, tmp_path, vt_result, retries=0, retry_error=None, repo
         tasks.analyze_malware_task.pop_request()
     return result, session, retry_calls
 
-
 def complete_report(malicious=0):
     return {
         "scan_summary": {
@@ -153,7 +141,6 @@ def complete_report(malicious=0):
         "threats_found": {"malicious": ["Engine: Trojan"] if malicious else [], "suspicious": []},
         "security_analysis": {"sigma_rules": {}},
     }
-
 
 def raw_report(*, malicious_engines=0, undetected_engines=0):
     results = {
@@ -179,13 +166,11 @@ def raw_report(*, malicious_engines=0, undetected_engines=0):
         }
     }
 
-
 def test_single_malicious_engine_completes_immediately_with_maximum_score():
     report = raw_report(malicious_engines=1)
 
     assert task_handlers.is_reportvt_complete(report) is True
     assert task_handlers.calculate_threat_scoreVT(report) == 100
-
 
 def test_handler_prefers_sha256_hash_hit(monkeypatch, tmp_path):
     calls = []
@@ -201,7 +186,6 @@ def test_handler_prefers_sha256_hash_hit(monkeypatch, tmp_path):
     assert result == {"status": True, "report_path": str(path)}
     assert json.loads(path.read_text(encoding="utf-8")) == complete_report()
     assert calls == ["sha256"]
-
 
 def test_handler_uploads_missing_eligible_file_once(monkeypatch, tmp_path):
     calls = []
@@ -220,7 +204,6 @@ def test_handler_uploads_missing_eligible_file_once(monkeypatch, tmp_path):
     assert result == {"status": "pending", "report_path": str(path), "retry_in": 300}
     assert calls == ["sample.bin"]
 
-
 def test_handler_rejects_upload_without_analysis_id(tmp_path):
     class VT:
         def get_report_by_hash(self, value):
@@ -232,7 +215,6 @@ def test_handler_rejects_upload_without_analysis_id(tmp_path):
     assert task_handlers.handle_virustotal(
         "sample.bin", "md5", "sha256", 10, client=VT(), report_path=tmp_path / "vt.json"
     )["status"] == "failed"
-
 
 def test_handler_does_not_reupload_while_polling(monkeypatch, tmp_path):
     class VT:
@@ -246,7 +228,6 @@ def test_handler_does_not_reupload_while_polling(monkeypatch, tmp_path):
         "sample.bin", "md5", "sha256", 10, is_retry=True, client=VT(), report_path=tmp_path / "vt.json"
     )["status"] == "pending"
 
-
 def test_incomplete_hash_report_is_pending(monkeypatch, tmp_path):
     class VT:
         def get_report_by_hash(self, value):
@@ -255,7 +236,6 @@ def test_incomplete_hash_report_is_pending(monkeypatch, tmp_path):
     assert task_handlers.handle_virustotal(
         "sample.bin", "md5", "sha256", 10, client=VT(), report_path=tmp_path / "vt.json"
     )["status"] == "pending"
-
 
 @pytest.mark.parametrize("malicious", [0, 5])
 def test_completed_report_persists_score_and_succeeds_all_rows(monkeypatch, tmp_path, malicious):
@@ -278,7 +258,6 @@ def test_completed_report_persists_score_and_succeeds_all_rows(monkeypatch, tmp_
     assert json.loads((tmp_path / "virustotal-md5.json").read_text()) == report
     assert retry_calls == []
 
-
 def test_pending_report_retries_without_marking_failed(monkeypatch, tmp_path):
     _, session, retry_calls = run_task(
         monkeypatch, tmp_path, {"state": "pending", "retry_in": 17}, retries=1
@@ -287,7 +266,6 @@ def test_pending_report_retries_without_marking_failed(monkeypatch, tmp_path):
     assert retry_calls[0]["countdown"] == 17
     assert retry_calls[0]["kwargs"]["vt_status"] == "pending"
     assert not any("failed" in params.values() for params in update_values(session))
-
 
 def test_retry_exhaustion_marks_all_rows_failed(monkeypatch, tmp_path):
     result, session, _ = run_task(
@@ -301,7 +279,6 @@ def test_retry_exhaustion_marks_all_rows_failed(monkeypatch, tmp_path):
     assert result == {"success": False, "task_id": "task-1", "error": "VirusTotal polling exhausted"}
     assert any("failed" in params.values() for params in update_values(session))
 
-
 def test_single_vt_error_retries_instead_of_failing_immediately(monkeypatch, tmp_path):
     """A lone VirusTotal error (rate limit, transient API failure, etc.)
     must not abort the whole pipeline anymore - it's counted against a
@@ -310,11 +287,10 @@ def test_single_vt_error_retries_instead_of_failing_immediately(monkeypatch, tmp
         monkeypatch, tmp_path, {"state": "error", "error": RuntimeError("VT unavailable")}
     )
 
-    assert result is None  # task raised Retry(), did not return yet
+    assert result is None
     assert retry_calls[0]["kwargs"]["vt_status"] == "pending"
     assert retry_calls[0]["kwargs"]["vt_attempts"] == 1
     assert not any("failed" in params.values() for params in update_values(session))
-
 
 def test_vt_error_force_skips_after_exhausting_retry_budget_without_failing_task(monkeypatch, tmp_path):
     """After MAX_TOOL_ERROR_RETRIES (3) consecutive VirusTotal errors,
@@ -335,7 +311,6 @@ def test_vt_error_force_skips_after_exhausting_retry_budget_without_failing_task
     assert result["virustotal_score"] is None
     assert not any("failed" in params.values() for params in update_values(session))
 
-
 def test_vt_client_returns_string_errors(monkeypatch, tmp_path):
     from calling.VirusTotal import VirusToTalAPI
 
@@ -347,7 +322,6 @@ def test_vt_client_returns_string_errors(monkeypatch, tmp_path):
     assert client.get_report_by_hash("sha256") == {"state": "error", "error": "safe error"}
     assert client.upload_file(str(sample)) == {"state": "error", "error": "safe error"}
 
-
 def test_vt_base64_error_is_json_safe_string():
     from calling.VirusTotal import VirusToTalAPI
 
@@ -357,7 +331,6 @@ def test_vt_base64_error_is_json_safe_string():
     result = client.get_report_by_base64("bWQ1OjE=")
 
     assert result == {"success": False, "message": "safe error"}
-
 
 def test_vt_base64_decode_error_is_json_safe_string():
     from calling.VirusTotal import VirusToTalAPI
@@ -369,7 +342,6 @@ def test_vt_base64_decode_error_is_json_safe_string():
     assert result["success"] is False
     assert isinstance(result["message"], str)
 
-
 def test_vt_client_distinguishes_missing_hash():
     from calling.VirusTotal import VirusToTalAPI
 
@@ -380,7 +352,6 @@ def test_vt_client_distinguishes_missing_hash():
         "state": "missing",
         "error": "HTTP Error 404: not found",
     }
-
 
 def test_vt_request_preserves_falsey_http_error_status():
     from calling.VirusTotal import VirusToTalAPI
@@ -396,7 +367,6 @@ def test_vt_request_preserves_falsey_http_error_status():
 
     with pytest.raises(RuntimeError, match="HTTP Error 404"):
         client._make_request("GET", response.url)
-
 
 @pytest.mark.asyncio
 async def test_status_uses_string_uid_and_current_report_schema(monkeypatch):
@@ -441,7 +411,6 @@ async def test_status_uses_string_uid_and_current_report_schema(monkeypatch):
     assert response["report"]["rampart_ai_score"] == 55
     assert response["report"]["malware_signatures"] == ["Trojan"]
 
-
 @pytest.mark.asyncio
 async def test_success_without_report_is_defensive(monkeypatch):
     analysis = SimpleNamespace(status="success")
@@ -473,7 +442,6 @@ async def test_success_without_report_is_defensive(monkeypatch):
         "message": "Analysis completed without a report",
     }
 
-
 @pytest.mark.asyncio
 async def test_raw_report_status_uses_string_uid(monkeypatch):
     captured = {}
@@ -501,7 +469,6 @@ async def test_raw_report_status_uses_string_uid(monkeypatch):
 
     assert str(captured["uid"]) == "00000000-0000-4000-8000-000000000001"
     assert response["status"] == "processing"
-
 
 @pytest.mark.asyncio
 async def test_raw_report_reads_persisted_virustotal_name(monkeypatch, tmp_path):
@@ -532,7 +499,6 @@ async def test_raw_report_reads_persisted_virustotal_name(monkeypatch, tmp_path)
 
     assert response["report"] == report
 
-
 @pytest.mark.asyncio
 async def test_download_accepts_exact_persisted_virustotal_basename(monkeypatch, tmp_path):
     name = f"virustotal-{'a' * 32}.json"
@@ -541,7 +507,6 @@ async def test_download_accepts_exact_persisted_virustotal_basename(monkeypatch,
     monkeypatch.setattr(analysis_controller, "BASE_REPORT_PATH", tmp_path)
 
     assert await analysis_controller.downloadReport_controller(name) == expected.resolve()
-
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("name", [
@@ -558,7 +523,6 @@ async def test_download_accepts_all_known_tool_basenames(name, monkeypatch, tmp_
 
     assert await analysis_controller.downloadReport_controller(name) == expected.resolve()
 
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize("name", [
     f"virustotal-{'a' * 32}",
@@ -570,16 +534,13 @@ async def test_download_rejects_malformed_or_unknown_tool_names(name):
         await analysis_controller.downloadReport_controller(name)
     assert raised.value.status_code == 400
 
-
 def test_raw_report_request_accepts_known_tool_selector():
     params = AnalysisReportParamsTarget(task_id="task-1", token="token", tool="cape")
     assert params.tool == "cape"
 
-
 def test_raw_report_request_rejects_unknown_tool_selector():
     with pytest.raises(ValidationError):
         AnalysisReportParamsTarget(task_id="task-1", token="token", tool="not-a-real-tool")
-
 
 class FinalizeScalars:
     def __init__(self, rows):
@@ -588,7 +549,6 @@ class FinalizeScalars:
     def all(self):
         return self.rows
 
-
 class FinalizeResult:
     def __init__(self, rows=None, rowcount=0):
         self.rows = rows or []
@@ -596,7 +556,6 @@ class FinalizeResult:
 
     def scalars(self):
         return FinalizeScalars(self.rows)
-
 
 class FinalizeSession:
     def __init__(self, rows, reports=None, update_rowcount=None):
@@ -639,10 +598,8 @@ class FinalizeSession:
     def rollback(self):
         self.rollbacks += 1
 
-
 def analysis_row(status="processing", rid=None):
     return SimpleNamespace(status=status, rid=rid)
-
 
 def test_finalization_acquires_task_advisory_lock_before_reading_rows():
     session = FinalizeSession([analysis_row()])
@@ -653,7 +610,6 @@ def test_finalization_acquires_task_advisory_lock_before_reading_rows():
     assert "pg_advisory_xact_lock" in str(lock)
     assert parameters == {"task_id": "task-1"}
     assert str(session.statements[1][0]).lstrip().startswith("SELECT")
-
 
 def test_duplicate_delivery_reuses_associated_report_without_orphan():
     existing = SimpleNamespace(
@@ -672,7 +628,6 @@ def test_duplicate_delivery_reuses_associated_report_without_orphan():
     assert score > 0
     assert session.added == []
 
-
 def test_missing_task_rolls_back_and_does_not_create_report():
     session = FinalizeSession([])
 
@@ -681,7 +636,6 @@ def test_missing_task_rolls_back_and_does_not_create_report():
 
     assert session.rollbacks == 1
     assert session.added == []
-
 
 def test_inconsistent_existing_report_association_rolls_back():
     session = FinalizeSession([
@@ -694,7 +648,6 @@ def test_inconsistent_existing_report_association_rolls_back():
     assert session.rollbacks == 1
     assert session.added == []
 
-
 def test_finalization_requires_terminal_update_rowcount():
     session = FinalizeSession([analysis_row()], update_rowcount=0)
 
@@ -702,7 +655,6 @@ def test_finalization_requires_terminal_update_rowcount():
         tasks.finalize_virustotal_report(session, "task-1", "sample.bin", complete_report())
 
     assert session.rollbacks == 1
-
 
 def test_finalization_verifies_every_task_row_is_success_and_associated():
     session = FinalizeSession(

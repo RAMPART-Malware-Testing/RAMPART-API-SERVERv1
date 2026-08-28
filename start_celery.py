@@ -19,13 +19,11 @@ IGNORED_DIR_NAMES = {
 }
 DEBOUNCE_SECONDS = 1.5
 
-
 def _is_watchable(path: str) -> bool:
     p = Path(path)
     if p.suffix.lower() not in WATCH_EXTENSIONS:
         return False
     return not any(part in IGNORED_DIR_NAMES for part in p.parts)
-
 
 class _RestartOnChangeHandler(FileSystemEventHandler):
     def __init__(self, on_change):
@@ -58,10 +56,8 @@ class _RestartOnChangeHandler(FileSystemEventHandler):
         if not event.is_directory:
             self._maybe_trigger(event.dest_path)
 
-
 def _pool_type() -> str:
     return "solo" if platform.system() == "Windows" else "prefork"
-
 
 def _build_worker_command() -> list[str]:
     return [
@@ -73,11 +69,9 @@ def _build_worker_command() -> list[str]:
         f"--pool={_pool_type()}",
     ]
 
-
 def _spawn_worker() -> subprocess.Popen:
     print(f"\n[RAMPART-AI] Starting Celery worker: {' '.join(_build_worker_command())}\n")
     return subprocess.Popen(_build_worker_command(), cwd=str(PROJECT_ROOT))
-
 
 def _terminate_worker(proc: subprocess.Popen) -> None:
     if proc.poll() is not None:
@@ -90,7 +84,6 @@ def _terminate_worker(proc: subprocess.Popen) -> None:
         print("[RAMPART-AI] Worker did not exit in time, killing...")
         proc.kill()
         proc.wait()
-
 
 def main() -> None:
     print("\n[RAMPART-AI] Celery Worker Starter (auto-reload)")
@@ -117,10 +110,6 @@ def main() -> None:
             time.sleep(1)
             proc = state["proc"]
             if proc.poll() is not None and not state["crashed_logged"]:
-                # The worker exited on its own (crash, or a fatal import
-                # error from the last change) - don't spin-restart it in a
-                # tight loop. Report once and wait for the next code change
-                # (or Ctrl+C) instead.
                 print(f"[RAMPART-AI] Worker exited (code {proc.returncode}). Waiting for a code change to restart...")
                 state["crashed_logged"] = True
     except KeyboardInterrupt:
@@ -129,7 +118,6 @@ def main() -> None:
         observer.stop()
         observer.join()
         _terminate_worker(state["proc"])
-
 
 if __name__ == "__main__":
     main()

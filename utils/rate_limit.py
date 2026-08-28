@@ -17,7 +17,6 @@ from cores.redis import redis_client
 
 _KEY_PREFIX = "ratelimit"
 
-
 def is_rate_limited(bucket: str, identity: str, limit: int, window_seconds: int) -> bool:
     """Returns True if `identity` has exceeded `limit` calls to `bucket`
     within the current `window_seconds`-long fixed window.
@@ -32,6 +31,4 @@ def is_rate_limited(bucket: str, identity: str, limit: int, window_seconds: int)
             redis_client.expire(key, window_seconds)
         return current > limit
     except Exception:
-        # Redis down/unreachable: don't let a cache outage take the whole
-        # feature down with it.
         return False

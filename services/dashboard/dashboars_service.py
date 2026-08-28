@@ -24,9 +24,7 @@ RECENT_ACTIVITIES_CACHE_TTL_SECONDS = 5
 REPORTS_HISTORY_CACHE_NAMESPACE = "dashboard:reports_history"
 REPORTS_HISTORY_CACHE_TTL_SECONDS = 5
 
-
 async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role: str) -> dict:
-    # ── 1. Total files (ทั้งระบบ) ──────────────────────────────────────
     total_q = await session.execute(
         select(
             func.count().label("total"),
@@ -37,7 +35,6 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
     )
     total_files = total_q.mappings().one()
 
-    # ── 2. User files (เฉพาะของตัวเอง) ───────────────────────────────
     user_q = await session.execute(
         select(
             func.count().label("total"),
@@ -51,14 +48,12 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
     )
     user_files = user_q.mappings().one()
 
-    # ── 3. Total users (admin เท่านั้น) ───────────────────────────────
     total_users = 0
     user_count_q = await session.execute(
         select(func.count()).select_from(User).where(User.status == "active", User.role=="user")
     )
     total_users = user_count_q.scalar()
 
-    # ── 4. Top 5 malware types รายวัน/รายเดือน ────────────────────────
     now = datetime.now(timezone.utc)
     day_start   = now.replace(hour=0, minute=0, second=0, microsecond=0)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -83,7 +78,6 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
     daily_q   = await session.execute(malware_query(day_start))
     monthly_q = await session.execute(malware_query(month_start))
 
-    # ── 5. Risk scores เฉลี่ยแยกตาม file_type ────────────────────────
     risk_q = await session.execute(
         select(
             Analysis.file_type.label("fileType"),
@@ -114,7 +108,6 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
         ],
     }
 
-
 async def get_dashboard_summary(session: AsyncSession, uid: UUID | str, role: str) -> dict:
     suffix = build_suffix(uid=str(uid), role=role)
     return await cached_async(
@@ -124,14 +117,12 @@ async def get_dashboard_summary(session: AsyncSession, uid: UUID | str, role: st
         suffix=suffix,
     )
 
-
 async def _fetch_recent_activities(
     session: AsyncSession,
     uid: UUID | str,
     role: str,
     limit: int = 10
 ) -> list[dict]:
-    # admin เห็นทั้งหมด, user เห็นเฉพาะตัวเอง
     filters = [Analysis.deleted_at.is_(None)]
     if role != "admin":
         filters.append(Analysis.uid == uid)
@@ -160,7 +151,6 @@ async def _fetch_recent_activities(
         for r in q.mappings()
     ]
 
-
 async def get_recent_activities(
     session: AsyncSession,
     uid: UUID | str,
@@ -174,7 +164,6 @@ async def get_recent_activities(
         lambda: _fetch_recent_activities(session, uid, role, limit),
         suffix=suffix,
     )
-
 
 async def _fetch_reports_history(
     session: AsyncSession,
@@ -243,7 +232,6 @@ async def _fetch_reports_history(
     else:
         stmt = stmt.options(joinedload(Analysis.report))
     analyses = (await session.execute(stmt)).scalars().unique().all()
-    # Map analysis.uid -> user (for owner name + avatar on public reports)
     uids = [a.uid for a in analyses if a.uid]
     owners: dict = {}
     if uids:
@@ -276,16 +264,8 @@ async def _fetch_reports_history(
         if a.report:
             r = a.report
             item["report"] = {
-                # "rid":              r.rid,
                 "score":            float(r.score) if r.score is not None else None,
                 "rampart_score":    float(r.rampart_score) if r.rampart_score is not None else None,
-                # "risk_level":       r.risk_level,
-                # "package":          r.package,
-                # "type":             r.type,
-                # "recommendation":   r.recommendation,
-                # "analysis_summary": r.analysis_summary,
-                # "risk_indicators":  r.risk_indicators,
-                # "created_at":       r.created_at.isoformat() if r.created_at else None,
             }
         return item
     total_pages = max(1, -(-total // params.limit))
@@ -301,7 +281,6 @@ async def _fetch_reports_history(
             "has_prev":    params.page > 1,
         }
     }
-
 
 async def get_reports_history(
     session: AsyncSession,

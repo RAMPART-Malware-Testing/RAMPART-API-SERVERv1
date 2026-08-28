@@ -11,7 +11,6 @@ class ReportsHistoryParams(BaseModel):
     s: str | None = None
     status: str | None = None
     file_type: str | None = None
-    # sort: 1 = asc, -1 = desc, 0 = no sort
     created_at: int = -1
     file_name: int = 0
     file_size: int = 0
@@ -45,7 +44,6 @@ class ReportsHistoryParams(BaseModel):
             return None
         if len(v) > MAX_SEARCH_LENGTH:
             raise ValueError(f"Search query too long (max {MAX_SEARCH_LENGTH})")
-        # Block SQL injection patterns
         dangerous = ["'", '"', ";", "--", "/*", "*/", "xp_", "exec", "drop", "union", "select", "insert", "update", "delete"]
         v_lower = v.lower()
         for pattern in dangerous:
@@ -82,7 +80,6 @@ class ReportsHistoryParams(BaseModel):
 
     @model_validator(mode="after")
     def validate_sort_conflict(self) -> "ReportsHistoryParams":
-        # ป้องกันการ sort หลายคอลัมน์พร้อมกันเกิน 2
         active_sorts = sum(1 for v in [self.created_at, self.file_name, self.file_size, self.score] if v != 0)
         if active_sorts > 2:
             raise ValueError("Cannot sort by more than 2 columns simultaneously")

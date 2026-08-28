@@ -13,26 +13,14 @@ from uuid import UUID, uuid4
 
 REPORTS_DIR = Path("reports")
 
-# Self-service analysis history listing (/api/analy/v1/history) - mirrors
-# the admin equivalent (services.admin.admin_service.get_user_analysis_history_admin),
-# which already carries the same short TTL cache.
 ANALYSIS_HISTORY_CACHE_NAMESPACE = "analy:history"
 ANALYSIS_HISTORY_CACHE_TTL_SECONDS = 5
 
-# Maps a tool name to the (status_kwarg, report_path_kwarg) pair
-# analyze_malware_task accepts to be told "this tool already succeeded,
-# don't re-call its handler" (see bgProcessing/tasks.py). Used by
-# attempt_gap_fill_redispatch to carry forward already-successful tools
-# into a fresh re-dispatch and leave only the force-skipped tool(s) unset
-# so the task attempts them fresh. Gemini (and RampartAI) are
-# intentionally NOT in this map - they must always re-run so the final
-# verdict reflects whatever additional evidence the retried tool(s) bring.
 _GAP_FILL_TOOL_KWARGS: dict[str, tuple[str, str]] = {
     "virustotal": ("vt_status", "vt_report_path"),
     "mobsf": ("mobsf_status", "mobsf_report_path"),
     "cape": ("cape_status", "cape_report_path"),
 }
-
 
 async def acquire_analysis_hash_lock(session: AsyncSession, file_hash: str) -> None:
     lock_key = int.from_bytes(bytes.fromhex(file_hash)[:8], byteorder="big", signed=True)
@@ -41,13 +29,11 @@ async def acquire_analysis_hash_lock(session: AsyncSession, file_hash: str) -> N
         {"lock_key": lock_key},
     )
 
-
 async def acquire_analysis_task_lock(session: AsyncSession, task_id: str) -> None:
     await session.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:task_id, 0))"),
         {"task_id": task_id},
     )
-
 
 async def update_analysis_rows_by_task_id(
     session: AsyncSession,
@@ -105,9 +91,7 @@ async def get_file_by_hash(
     )
     return result.mappings().one_or_none()
 
-
 REUSABLE_ANALYSIS_STATUSES = ("queued", "processing", "analyzing", "success")
-
 
 async def attempt_attach_to_existing_analysis(
     session: AsyncSession,
@@ -168,7 +152,6 @@ async def attempt_attach_to_existing_analysis(
     )
     return "attached", analysis
 
-
 async def attempt_gap_fill_redispatch(
     session: AsyncSession,
     *,
@@ -210,15 +193,8 @@ async def attempt_gap_fill_redispatch(
     existing_md5 = existing.get("md5")
     existing_file_path = existing.get("file_path")
     if not existing_md5 or not existing_file_path or not Path(existing_file_path).is_file():
-        # Source file no longer on disk - nothing safe to reuse without a
-        # brand-new upload, so there's nothing to gap-fill here.
         return "none", None
 
-    # Ground truth for "this tool already succeeded" is a readable report
-    # file on disk (reports/{tool}-{md5}.json) - the `tools` column is
-    # only cross-checked as an extra sanity guard against a stale report
-    # left behind by some unrelated earlier analysis of the same content,
-    # never trusted on its own.
     tools_column = {t.strip() for t in (existing.get("tools") or "").split(",") if t.strip()}
     gap_fill_kwargs: dict[str, Any] = {}
     for tool, (status_kwarg, path_kwarg) in _GAP_FILL_TOOL_KWARGS.items():
@@ -238,12 +214,6 @@ async def attempt_gap_fill_redispatch(
     new_task_id = str(uuid4())
     final_file_size = existing.get("file_size") or file_size
 
-    # Deliberately NOT calling insert_table_analy here: that helper
-    # upserts-in-place on (uid, file_name, file_hash), which would very
-    # likely match *this same* "success" row we just read (same user
-    # re-uploading the same file under the same name) and clobber it -
-    # exactly the old row this function must leave untouched. A gap-fill
-    # re-dispatch always gets its own brand-new row.
     analysis = Analysis(
         uid=uid,
         task_id=new_task_id,
@@ -290,7 +260,6 @@ async def attempt_gap_fill_redispatch(
 
     return "gap_filled", analysis
 
-
 async def get_file_by_task_id(session: AsyncSession, task_id: str):
     """Re-verification lookup used right after get_file_by_hash picks a
     reuse/gap-fill candidate (under the per-hash/per-task advisory lock).
@@ -316,8 +285,6 @@ async def get_file_by_task_id(session: AsyncSession, task_id: str):
     )
     return result.mappings().one_or_none()
 
-
-
 async def insert_table_analy(
     session: AsyncSession,
     *,
@@ -334,17 +301,6 @@ async def insert_table_analy(
     privacy: bool,
     md5: str,
 ) -> Analysis:
-    # Only upsert onto a still-active row for this (uid, file_name,
-    # file_hash) triple. Excluding soft-deleted rows here matters just as
-    # much as it does for get_file_by_hash/get_file_by_task_id above: this
-    # is the write side of the same dedup path, called both when reusing
-    # an existing analysis AND for a brand-new upload. Without this
-    # filter, re-uploading previously-deleted content would silently
-    # resurrect (UPDATE) the old, soft-deleted row in place - task_id and
-    # status get overwritten with the fresh values, but deleted_at is
-    # never cleared, so the row keeps failing every deleted_at IS NULL
-    # check everywhere else (report viewing, history, dashboard stats)
-    # while still LOOKING like a normal insert to this function's caller.
     stmt = select(Analysis).where(
         Analysis.uid == uid,
         Analysis.file_name == file_name,
@@ -412,7 +368,6 @@ async def get_analysis_with_report(
         return None
     return row.Analysis, row.Reports
 
-
 async def get_public_analysis_with_report(
     session: AsyncSession,
     task_id: str
@@ -432,7 +387,6 @@ async def get_public_analysis_with_report(
     if row is None:
         return None
     return row.Analysis, row.Reports
-
 
 async def get_analysis_with_report_admin(
     session: AsyncSession,
@@ -455,17 +409,12 @@ async def get_analysis_with_report_admin(
         return None
     return row.Analysis, row.Reports
 
-
-
 async def get_analysis_history(
     session: AsyncSession,
     uid: UUID | str,
     params: AnalysisHistoryParams
 ) -> dict[str, Any]:
 
-    # ======================
-    # Build WHERE conditions
-    # ======================
     conditions = [
         Analysis.uid == uid,
         Analysis.deleted_at.is_(None),
@@ -492,9 +441,6 @@ async def get_analysis_history(
 
     where_clause = and_(*conditions)
 
-    # ======================
-    # Count total
-    # ======================
     total: int = (
         await session.execute(
             select(func.count())
@@ -503,9 +449,6 @@ async def get_analysis_history(
         )
     ).scalar_one()
 
-    # ======================
-    # Build ORDER BY
-    # ======================
     sort_map = {
         "created_at": Analysis.created_at,
         "file_name":  Analysis.file_name,
@@ -525,9 +468,6 @@ async def get_analysis_history(
         if direction != 0
     ] or [desc(Analysis.created_at)]
 
-    # ======================
-    # Main query
-    # ======================
     needs_join = params.score != 0
 
     stmt = (
@@ -550,9 +490,6 @@ async def get_analysis_history(
 
     analyses = (await session.execute(stmt)).scalars().unique().all()
 
-    # ======================
-    # Serialize
-    # ======================
     def serialize(a: Analysis) -> dict[str, Any]:
         item: dict[str, Any] = {
             "aid":        str(a.aid),
@@ -572,16 +509,8 @@ async def get_analysis_history(
         if a.report:
             r = a.report
             item["report"] = {
-                # "rid":              r.rid,
                 "score":            float(r.score) if r.score is not None else None,
                 "rampart_score":    float(r.rampart_score) if r.rampart_score is not None else None,
-                # "risk_level":       r.risk_level,
-                # "package":          r.package,
-                # "type":             r.type,
-                # "recommendation":   r.recommendation,
-                # "analysis_summary": r.analysis_summary,
-                # "risk_indicators":  r.risk_indicators,
-                # "created_at":       r.created_at.isoformat() if r.created_at else None,
             }
 
         return item

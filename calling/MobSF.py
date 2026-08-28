@@ -104,10 +104,6 @@ def clean_mobsf_report(raw_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             elif isinstance(findings, dict) and findings.get("metadata", {}).get("severity") == "high": cleaned["high_risk_components"].append(key_str)
     return cleaned
 
-# ==========================================
-# Main Class
-# ==========================================
-
 class MobSFCall:
     def __init__(self):
         self.api_key = os.getenv("MOB_API_KEY")

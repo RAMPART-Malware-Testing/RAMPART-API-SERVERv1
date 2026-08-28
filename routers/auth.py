@@ -22,8 +22,6 @@ from schemas.auth import (
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
-
-# ── OAuth (Google / GitHub) ───────────────────────────────────────────────
 @router.get("/{provider}/login")
 async def oauth_login(provider: str, request: Request):
     """Redirects the browser to Google/GitHub's consent screen.
@@ -31,7 +29,6 @@ async def oauth_login(provider: str, request: Request):
     provider: "google" | "github"
     """
     return await oauth_login_controller(request, provider)
-
 
 @router.get("/{provider}/callback")
 async def oauth_callback(provider: str, request: Request):
@@ -43,14 +40,11 @@ async def oauth_callback(provider: str, request: Request):
     """
     return await oauth_callback_controller(request, provider)
 
-
-# ── Password auth (kept alongside OAuth) ──────────────────────────────────
 @router.post("/login")
 async def login(body: LoginParame, request: Request, deviceToken: str = Header("")):
     ua = request.headers.get("user-agent")
     ip = request.client.host if request.client else None
     return await login_controller(body, ua, ip, deviceToken)
-
 
 @router.post("/login/confirm")
 async def login_confirm(body: LoginConfirmParame, request: Request):
@@ -58,26 +52,21 @@ async def login_confirm(body: LoginConfirmParame, request: Request):
     ip = request.client.host if request.client else None
     return await login_confirm_controller(body, ua, ip)
 
-
 @router.post("/register")
 async def register(body: RegisterParame):
     return await register_controller(body)
-
 
 @router.post("/register/confirm")
 async def register_confirm(body: RegisterConfirmParame):
     return await register_confirm_controller(body)
 
-
 @router.post("/reset-passwd")
 async def reset_passwd(body: ResetPasswdParame):
     return await resetPasswd_controller(body)
 
-
 @router.post("/reset-passwd/confirm")
 async def reset_passwd_confirm(body: ResetPasswdConfirmParame):
     return await resetPasswd_confirm_controller(body)
-
 
 @router.post("/refresh")
 async def refresh(body: RefreshTokenParame):

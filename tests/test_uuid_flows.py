@@ -4,7 +4,6 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-
 @pytest.mark.asyncio
 async def test_access_dependency_returns_uuid(monkeypatch):
     from deps import auth
@@ -13,7 +12,6 @@ async def test_access_dependency_returns_uuid(monkeypatch):
     monkeypatch.setattr(auth, "verify_access_token", lambda token: str(user_id))
 
     assert await auth.require_access_token("token") == user_id
-
 
 @pytest.mark.asyncio
 async def test_access_dependency_rejects_malformed_subject(monkeypatch):
@@ -24,7 +22,6 @@ async def test_access_dependency_rejects_malformed_subject(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         await auth.require_access_token("token")
     assert exc.value.status_code == 401
-
 
 @pytest.mark.asyncio
 async def test_access_dependency_converts_verifier_error_to_401(monkeypatch):
@@ -39,7 +36,6 @@ async def test_access_dependency_converts_verifier_error_to_401(monkeypatch):
         await auth.require_access_token("token")
     assert exc.value.status_code == 401
 
-
 def test_server_mounts_auth_and_dashboard_routes():
     import start_server
 
@@ -50,7 +46,6 @@ def test_server_mounts_auth_and_dashboard_routes():
     assert "/api/profile/avatar" in paths
     assert "/api/analy/v1/dashboard/summary" in paths
     assert "/api/analy/v1/dashboard/recent-activities" in paths
-
 
 @pytest.mark.asyncio
 async def test_analysis_history_passes_uuid_to_service(monkeypatch):
@@ -82,7 +77,6 @@ async def test_analysis_history_passes_uuid_to_service(monkeypatch):
     assert await analysis_controller.history_controller(body) == {"success": True}
     assert captured["uid"] == user_id
 
-
 @pytest.mark.asyncio
 async def test_analysis_report_rejects_malformed_uuid():
     from controller import analysis_controller
@@ -90,7 +84,6 @@ async def test_analysis_report_rejects_malformed_uuid():
     with pytest.raises(HTTPException) as exc:
         await analysis_controller.analysisReport_controller("not-a-uuid", "task")
     assert exc.value.status_code == 401
-
 
 @pytest.mark.asyncio
 async def test_upload_token_boundary_rejects_malformed_subject(monkeypatch):
@@ -102,7 +95,6 @@ async def test_upload_token_boundary_rejects_malformed_subject(monkeypatch):
         await analysis_controller.require_upload_token("token")
     assert exc.value.status_code == 401
 
-
 @pytest.mark.asyncio
 async def test_generate_upload_token_rejects_malformed_subject(monkeypatch):
     from controller import analysis_controller
@@ -112,7 +104,6 @@ async def test_generate_upload_token_rejects_malformed_subject(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         await analysis_controller.generateToken_controller("token")
     assert exc.value.status_code == 401
-
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("controller_name,service_name", [
@@ -148,7 +139,6 @@ async def test_dashboard_controllers_pass_uuid(monkeypatch, controller_name, ser
     assert result == {"success": True}
     assert captured["uid"] == user_id
 
-
 @pytest.mark.asyncio
 async def test_find_or_create_user_reuses_uid_on_repeat_login(monkeypatch):
     """A second login from the same provider account must resolve to the
@@ -183,7 +173,6 @@ async def test_find_or_create_user_reuses_uid_on_repeat_login(monkeypatch):
     assert user is existing_user
     assert user.uid == existing_uid
 
-
 @pytest.mark.asyncio
 async def test_find_or_create_user_creates_new_account_on_first_login():
     from services.oauth.oauth_service import OAuthProfile, find_or_create_user
@@ -197,8 +186,6 @@ async def test_find_or_create_user_creates_new_account_on_first_login():
             self.added = []
 
         async def execute(self, statement):
-            # No linked oauth_account, no existing user by e-mail, and every
-            # candidate username is free - all resolve to "not found".
             return EmptyResult()
 
         def add(self, obj):
@@ -229,7 +216,6 @@ async def test_find_or_create_user_creates_new_account_on_first_login():
     assert user.avatar_url is None
     assert user.username.startswith("NewUser")
 
-
 @pytest.mark.asyncio
 async def test_find_or_create_user_rejects_unverified_email_linking_into_existing_account(monkeypatch):
     """A NEW OAuth identity (no existing OAuthAccount row) whose e-mail
@@ -256,21 +242,18 @@ async def test_find_or_create_user_rejects_unverified_email_linking_into_existin
 
         async def execute(self, statement):
             self._call += 1
-            # 1st call: OAuthAccount(provider, provider_uid) lookup -> miss.
-            # 2nd call: User.email lookup -> hits the existing account.
             return NoLinkedAccountResult() if self._call == 1 else ExistingUserByEmailResult()
 
     profile = OAuthProfile(
         provider="github",
         provider_uid="gh-attacker-999",
         email="victim@example.com",
-        email_verified=False,  # provider did NOT verify this address
+        email_verified=False,
         display_name="Attacker",
     )
 
     with pytest.raises(OAuthError):
         await find_or_create_user(Session(), profile)
-
 
 @pytest.mark.asyncio
 async def test_find_or_create_user_links_verified_email_into_existing_account(monkeypatch):
@@ -321,6 +304,5 @@ async def test_find_or_create_user_links_verified_email_into_existing_account(mo
     user = await find_or_create_user(session, profile)
     assert user is existing_user
     assert user.uid == existing_uid
-    # A new OAuthAccount row was linked to the existing user.
     assert len(session.added) == 1
     assert session.added[0].uid == existing_uid

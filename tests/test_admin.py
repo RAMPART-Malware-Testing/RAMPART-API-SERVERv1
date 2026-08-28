@@ -21,7 +21,6 @@ from services.admin.authz import (
     get_current_user,
 )
 
-
 def make_user(role="user", is_banned=False, uid=None):
     return SimpleNamespace(
         uid=uid or uuid.uuid4(),
@@ -37,15 +36,8 @@ def make_user(role="user", is_banned=False, uid=None):
         created_at=None,
     )
 
-
-# ---------------------------------------------------------------------------
-# ensure_not_banned
-# ---------------------------------------------------------------------------
-
-
 def test_ensure_not_banned_allows_active_user():
-    ensure_not_banned(make_user(is_banned=False))  # no raise
-
+    ensure_not_banned(make_user(is_banned=False))
 
 def test_ensure_not_banned_rejects_banned_user():
     with pytest.raises(AuthError) as exc:
@@ -53,15 +45,8 @@ def test_ensure_not_banned_rejects_banned_user():
     assert exc.value.status_code == 403
     assert exc.value.code == "ACCOUNT_BANNED"
 
-
-# ---------------------------------------------------------------------------
-# ensure_role
-# ---------------------------------------------------------------------------
-
-
 def test_ensure_role_allows_matching_role():
-    ensure_role(make_user(role="admin"), ADMIN_ROLES)  # no raise
-
+    ensure_role(make_user(role="admin"), ADMIN_ROLES)
 
 def test_ensure_role_rejects_plain_user_from_admin_endpoints():
     with pytest.raises(AuthError) as exc:
@@ -69,43 +54,29 @@ def test_ensure_role_rejects_plain_user_from_admin_endpoints():
     assert exc.value.status_code == 403
     assert exc.value.code == "INSUFFICIENT_ROLE"
 
-
-# ---------------------------------------------------------------------------
-# ensure_can_manage_target - the single source of truth for the
-# admin-vs-admin and master-protection rules.
-# ---------------------------------------------------------------------------
-
-
 def test_admin_can_manage_plain_user():
-    ensure_can_manage_target(make_user(role="admin"), make_user(role="user"))  # no raise
-
+    ensure_can_manage_target(make_user(role="admin"), make_user(role="user"))
 
 def test_admin_cannot_manage_another_admin():
     with pytest.raises(AuthError) as exc:
         ensure_can_manage_target(make_user(role="admin"), make_user(role="admin"))
     assert exc.value.code == "ADMIN_TARGET_FORBIDDEN"
 
-
 def test_admin_cannot_manage_master():
     with pytest.raises(AuthError) as exc:
         ensure_can_manage_target(make_user(role="admin"), make_user(role="master"))
-    # Master protection takes precedence over the generic admin-target rule.
     assert exc.value.code == "MASTER_PROTECTED"
 
-
 def test_master_can_manage_admin():
-    ensure_can_manage_target(make_user(role="master"), make_user(role="admin"))  # no raise
-
+    ensure_can_manage_target(make_user(role="master"), make_user(role="admin"))
 
 def test_master_can_manage_plain_user():
-    ensure_can_manage_target(make_user(role="master"), make_user(role="user"))  # no raise
-
+    ensure_can_manage_target(make_user(role="master"), make_user(role="user"))
 
 def test_master_cannot_manage_another_master():
     with pytest.raises(AuthError) as exc:
         ensure_can_manage_target(make_user(role="master"), make_user(role="master"))
     assert exc.value.code == "MASTER_PROTECTED"
-
 
 def test_master_cannot_manage_self():
     same_master = make_user(role="master")
@@ -113,27 +84,14 @@ def test_master_cannot_manage_self():
         ensure_can_manage_target(same_master, same_master)
     assert exc.value.code == "MASTER_PROTECTED"
 
-
 def test_plain_user_actor_is_rejected_defensively():
     with pytest.raises(AuthError) as exc:
         ensure_can_manage_target(make_user(role="user"), make_user(role="user"))
     assert exc.value.code == "INSUFFICIENT_ROLE"
 
-
-# ---------------------------------------------------------------------------
-# Role assignment: master can never be assigned via the API surface.
-# ---------------------------------------------------------------------------
-
-
 def test_master_is_not_an_assignable_role():
     assert "master" not in ASSIGNABLE_ROLES
     assert ASSIGNABLE_ROLES == {"user", "admin"}
-
-
-# ---------------------------------------------------------------------------
-# get_current_user - fresh-from-DB, never trusts JWT claims
-# ---------------------------------------------------------------------------
-
 
 class _FakeSession:
     def __init__(self, user):
@@ -152,7 +110,6 @@ class _FakeSession:
     def add(self, value):
         pass
 
-
 @pytest.mark.asyncio
 async def test_get_current_user_rejects_invalid_token(monkeypatch):
     from services.admin import authz
@@ -164,7 +121,6 @@ async def test_get_current_user_rejects_invalid_token(monkeypatch):
         await get_current_user(_FakeSession(None), "bad-token")
     assert exc.value.status_code == 401
 
-
 @pytest.mark.asyncio
 async def test_get_current_user_rejects_missing_user(monkeypatch):
     from services.admin import authz
@@ -175,7 +131,6 @@ async def test_get_current_user_rejects_missing_user(monkeypatch):
     with pytest.raises(AuthError) as exc:
         await get_current_user(_FakeSession(None), "token")
     assert exc.value.code == "USER_NOT_FOUND"
-
 
 @pytest.mark.asyncio
 async def test_get_current_user_returns_fresh_db_row_not_jwt_claims(monkeypatch):
@@ -191,18 +146,12 @@ async def test_get_current_user_returns_fresh_db_row_not_jwt_claims(monkeypatch)
     monkeypatch.setattr(
         authz.TokenService,
         "verify_token",
-        lambda token, kind: ({"sub": str(uid), "role": "user"}, None),  # stale claim
+        lambda token, kind: ({"sub": str(uid), "role": "user"}, None),
     )
 
     result = await get_current_user(_FakeSession(fresh_user), "token")
-    assert result.role == "admin"  # reflects fresh DB state, not the stale "user" claim
+    assert result.role == "admin"
     assert result.is_banned is True
-
-
-# ---------------------------------------------------------------------------
-# Controller-level: every /api/admin/* endpoint rejects a plain user
-# ---------------------------------------------------------------------------
-
 
 class _SessionCtx:
     """Minimal SessionLocal() async-context stand-in."""
@@ -216,13 +165,11 @@ class _SessionCtx:
     async def __aexit__(self, *args):
         return False
 
-
 def _patch_current_user(monkeypatch, user):
     async def fake_get_current_user(session, token):
         return user
 
     monkeypatch.setattr(admin_controller, "get_current_user", fake_get_current_user)
-
 
 @pytest.mark.asyncio
 async def test_plain_user_cannot_list_users(monkeypatch):
@@ -235,7 +182,6 @@ async def test_plain_user_cannot_list_users(monkeypatch):
     response = await admin_controller.list_users_controller(AdminListUsersParams(token="t"))
     assert response["success"] is False
     assert response["status"] == "INSUFFICIENT_ROLE"
-
 
 @pytest.mark.asyncio
 async def test_banned_admin_cannot_list_users(monkeypatch):
@@ -251,7 +197,6 @@ async def test_banned_admin_cannot_list_users(monkeypatch):
     response = await admin_controller.list_users_controller(AdminListUsersParams(token="t"))
     assert response["success"] is False
     assert response["status"] == "ACCOUNT_BANNED"
-
 
 @pytest.mark.asyncio
 async def test_admin_can_list_users(monkeypatch):
@@ -269,13 +214,6 @@ async def test_admin_can_list_users(monkeypatch):
     response = await admin_controller.list_users_controller(AdminListUsersParams(token="t"))
     assert response["success"] is True
 
-
-# ---------------------------------------------------------------------------
-# Ban / unban - admin-vs-admin and master-protection enforced end to end
-# through the controller, not just the bare authz function.
-# ---------------------------------------------------------------------------
-
-
 class _BanSession(_FakeSession):
     def __init__(self, target_user):
         super().__init__(None)
@@ -287,7 +225,6 @@ class _BanSession(_FakeSession):
 
     def add(self, value):
         self.added.append(value)
-
 
 @pytest.mark.asyncio
 async def test_admin_cannot_ban_another_admin_via_controller(monkeypatch):
@@ -304,10 +241,8 @@ async def test_admin_cannot_ban_another_admin_via_controller(monkeypatch):
     )
     assert response["success"] is False
     assert response["status"] == "ADMIN_TARGET_FORBIDDEN"
-    # No mutation happened.
     assert target.is_banned is False
     assert session.added == []
-
 
 @pytest.mark.asyncio
 async def test_nobody_can_ban_master_via_controller(monkeypatch):
@@ -317,7 +252,7 @@ async def test_nobody_can_ban_master_via_controller(monkeypatch):
     target = make_user(role="master", uid=target_uid)
     session = _BanSession(target)
     monkeypatch.setattr(admin_controller, "SessionLocal", lambda: _SessionCtx(session))
-    _patch_current_user(monkeypatch, make_user(role="master"))  # even another master
+    _patch_current_user(monkeypatch, make_user(role="master"))
 
     response = await admin_controller.ban_user_controller(
         AdminBanUserParams(token="t", target_uid=str(target_uid), reason="test")
@@ -325,7 +260,6 @@ async def test_nobody_can_ban_master_via_controller(monkeypatch):
     assert response["success"] is False
     assert response["status"] == "MASTER_PROTECTED"
     assert target.is_banned is False
-
 
 @pytest.mark.asyncio
 async def test_admin_can_ban_plain_user_via_controller(monkeypatch):
@@ -343,10 +277,8 @@ async def test_admin_can_ban_plain_user_via_controller(monkeypatch):
     assert response["success"] is True
     assert target.is_banned is True
     assert target.banned_reason == "ผิดกฎ"
-    # An audit_logs row was added to the session.
     assert len(session.added) == 1
     assert session.added[0].action == "ban_user"
-
 
 @pytest.mark.asyncio
 async def test_master_can_ban_admin_via_controller(monkeypatch):
@@ -363,12 +295,6 @@ async def test_master_can_ban_admin_via_controller(monkeypatch):
     )
     assert response["success"] is True
     assert target.is_banned is True
-
-
-# ---------------------------------------------------------------------------
-# Role change - master-only, and can never set "master" even if forced.
-# ---------------------------------------------------------------------------
-
 
 @pytest.mark.asyncio
 async def test_admin_cannot_call_role_change_endpoint(monkeypatch):
@@ -387,7 +313,6 @@ async def test_admin_cannot_call_role_change_endpoint(monkeypatch):
     assert response["status"] == "INSUFFICIENT_ROLE"
     assert target.role == "user"
 
-
 @pytest.mark.asyncio
 async def test_master_can_promote_user_to_admin(monkeypatch):
     from schemas.admin import AdminChangeRoleParams
@@ -403,7 +328,6 @@ async def test_master_can_promote_user_to_admin(monkeypatch):
     )
     assert response["success"] is True
     assert target.role == "admin"
-
 
 @pytest.mark.asyncio
 async def test_master_can_demote_admin_to_user(monkeypatch):
@@ -421,7 +345,6 @@ async def test_master_can_demote_admin_to_user(monkeypatch):
     assert response["success"] is True
     assert target.role == "user"
 
-
 def test_role_change_schema_rejects_master_as_new_role():
     """Even a hand-crafted request body cannot set new_role="master" -
     Pydantic validation rejects it before the controller ever runs."""
@@ -431,7 +354,6 @@ def test_role_change_schema_rejects_master_as_new_role():
 
     with pytest.raises(ValidationError):
         AdminChangeRoleParams(token="t", target_uid=str(uuid.uuid4()), new_role="master")
-
 
 @pytest.mark.asyncio
 async def test_master_cannot_change_own_or_another_masters_role(monkeypatch):
@@ -448,12 +370,6 @@ async def test_master_cannot_change_own_or_another_masters_role(monkeypatch):
     )
     assert response["success"] is False
     assert response["status"] == "MASTER_PROTECTED"
-
-
-# ---------------------------------------------------------------------------
-# list_users role_filter accepting a list (for /admin/admins)
-# ---------------------------------------------------------------------------
-
 
 @pytest.mark.asyncio
 async def test_list_users_role_filter_accepts_list_of_roles(monkeypatch):
@@ -489,10 +405,7 @@ async def test_list_users_role_filter_accepts_list_of_roles(monkeypatch):
         page=1,
         limit=20,
     )
-    # The generated SQL should use an IN clause, not a plain equality,
-    # when role_filter is a list.
     assert any("IN" in c for c in captured_conditions)
-
 
 def test_admin_list_users_schema_accepts_role_list():
     from schemas.admin import AdminListUsersParams
@@ -500,19 +413,12 @@ def test_admin_list_users_schema_accepts_role_list():
     params = AdminListUsersParams(token="t", role=["admin", "master"])
     assert params.role == ["admin", "master"]
 
-
 def test_admin_list_users_schema_rejects_invalid_role_in_list():
     from pydantic import ValidationError
     from schemas.admin import AdminListUsersParams
 
     with pytest.raises(ValidationError):
         AdminListUsersParams(token="t", role=["admin", "superuser"])
-
-
-# ---------------------------------------------------------------------------
-# File management: list_all_files / list_reports / soft_delete_file
-# ---------------------------------------------------------------------------
-
 
 def make_analysis(aid=None, uid=None, owner=None, deleted_at=None, file_name="f.apk"):
     return SimpleNamespace(
@@ -535,7 +441,6 @@ def make_analysis(aid=None, uid=None, owner=None, deleted_at=None, file_name="f.
         deleted_by=None,
     )
 
-
 class _FileDeleteSession:
     """Minimal session stand-in for soft_delete_file: only `.get()`,
     `.add()`, and `.commit()`/`.refresh()` are exercised."""
@@ -557,7 +462,6 @@ class _FileDeleteSession:
     async def refresh(self, value):
         return None
 
-
 @pytest.mark.asyncio
 async def test_admin_can_soft_delete_plain_users_file():
     owner = make_user(role="user")
@@ -573,7 +477,6 @@ async def test_admin_can_soft_delete_plain_users_file():
     assert session.added[0].action == "delete_file"
     assert "reason=ผิดกฎ" in session.added[0].detail
 
-
 @pytest.mark.asyncio
 async def test_admin_cannot_soft_delete_another_admins_file():
     owner = make_user(role="admin")
@@ -588,7 +491,6 @@ async def test_admin_cannot_soft_delete_another_admins_file():
     assert analysis.deleted_at is None
     assert session.added == []
 
-
 @pytest.mark.asyncio
 async def test_nobody_can_soft_delete_masters_file():
     owner = make_user(role="master")
@@ -602,7 +504,6 @@ async def test_nobody_can_soft_delete_masters_file():
     assert exc.value.code == "MASTER_PROTECTED"
     assert analysis.deleted_at is None
 
-
 @pytest.mark.asyncio
 async def test_master_can_soft_delete_admins_file():
     owner = make_user(role="admin")
@@ -612,7 +513,6 @@ async def test_master_can_soft_delete_admins_file():
 
     result = await admin_service.soft_delete_file(session, actor=actor, aid=analysis.aid, reason="test")
     assert result.deleted_at is not None
-
 
 @pytest.mark.asyncio
 async def test_soft_delete_rejects_already_deleted_file():
@@ -628,7 +528,6 @@ async def test_soft_delete_rejects_already_deleted_file():
 
     assert exc.value.code == "ALREADY_DELETED"
 
-
 @pytest.mark.asyncio
 async def test_soft_delete_rejects_missing_file():
     session = _FileDeleteSession(None)
@@ -638,12 +537,6 @@ async def test_soft_delete_rejects_missing_file():
         await admin_service.soft_delete_file(session, actor=actor, aid=uuid.uuid4(), reason="test")
 
     assert exc.value.code == "TARGET_NOT_FOUND"
-
-
-# ---------------------------------------------------------------------------
-# Controller-level: file delete endpoint enforces the same rules
-# ---------------------------------------------------------------------------
-
 
 @pytest.mark.asyncio
 async def test_delete_file_controller_rejects_plain_user(monkeypatch):
@@ -658,7 +551,6 @@ async def test_delete_file_controller_rejects_plain_user(monkeypatch):
     )
     assert response["success"] is False
     assert response["status"] == "INSUFFICIENT_ROLE"
-
 
 @pytest.mark.asyncio
 async def test_delete_file_controller_admin_deletes_plain_users_file(monkeypatch):
@@ -675,7 +567,6 @@ async def test_delete_file_controller_admin_deletes_plain_users_file(monkeypatch
     )
     assert response["success"] is True
     assert analysis.deleted_at is not None
-
 
 def test_delete_file_reason_required():
     from pydantic import ValidationError

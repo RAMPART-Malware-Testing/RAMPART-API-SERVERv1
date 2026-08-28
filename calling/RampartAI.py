@@ -14,7 +14,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-
 class RampartAICall:
     def __init__(self):
         self.base_url = os.getenv("RAMPARTAI_URL", "").rstrip("/")
@@ -44,5 +43,5 @@ class RampartAICall:
             }
         except requests.exceptions.RequestException as error:
             return {"success": False, "error": f"Request failed: {error}"}
-        except Exception as error:  # defensive: never let this bubble unhandled
+        except Exception as error:
             return {"success": False, "error": str(error)}
