@@ -11,15 +11,11 @@ docker network create rampart
 docker-compose up -d
 ```
 
-# 2 MobSF Setup
-```
-docker run -itd \
-  --name mobsf \
-  --restart always \
-  --network rampart \
-  -p 8001:8000 \
-  opensecurity/mobile-security-framework-mobsf:latest
-```
+# 2 MobSF / CAPE Setup
+
+MobSF and CAPE sandbox run on the remote analysis server (`10.212.51.8`), configured via `MOBSF_BASE_URL` and `CAPE_BASE_URL` in `.env`.
+
+**Do NOT run MobSF or CAPE containers on this machine.**
 # 3 create Table SQL !!!
 
 # 4 start process
