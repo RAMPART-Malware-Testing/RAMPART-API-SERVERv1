@@ -26,5 +26,5 @@ celery_app.conf.update(
     task_time_limit=3600,
     result_expires=86400,
     broker_connection_retry_on_startup=True,
-    imports=('bgProcessing.tasks',)
+    imports=('bgProcessing.tasks', 'bgProcessing.recovery')
 )
