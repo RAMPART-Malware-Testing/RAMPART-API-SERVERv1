@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from controller.analysis_controller import analysisReport_controller, downloadReport_controller, generateToken_controller,get_file_by_hash_controller, history_controller, require_upload_token, update_privacy_controller
 from schemas.analy import AnalysisHistoryParams, AnalysisReportParams, CheckHashParams, GenerateTokenParams,AnalysisReportParamsTarget, UpdatePrivacyParams
@@ -18,10 +18,14 @@ async def generateToken(body: GenerateTokenParams):
 
 @router.post("/upload")
 async def uploadFile(
-    token: str,
     file: UploadFile = File(...),
-    privacy: bool = Form(True)
+    privacy: bool = Form(True),
+    token: str | None = Query(default=None),
+    token_form: str | None = Form(default=None, alias="token"),
 ):
+    token = token or token_form
+    if not token:
+        raise HTTPException(status_code=422, detail="token is required (query string or form field)")
     uid = await require_upload_token(token)
     return await scan_file_controller(file, uid, privacy)
 
@@ -53,9 +57,14 @@ async def getAnalysisReport(body: AnalysisReportParamsTarget):
 
 
 @router.get("/download/report/{file_name}")
-async def download_report(file_name: str):
+async def download_report(file_name: str, request: Request, token: str | None = None):
+    # Access token comes from the Authorization: Bearer header first, with a
+    # `token` query parameter as fallback (the frontend triggers browser
+    # downloads via a plain URL, so the query string must keep working).
+    auth_header = request.headers.get("Authorization") or ""
+    bearer = auth_header[7:].strip() if auth_header.startswith("Bearer ") else None
     print(file_name)
-    file_path = await downloadReport_controller(file_name)
+    file_path = await downloadReport_controller(file_name, bearer or token)
     return FileResponse(
         path=file_path,
         media_type="application/json",

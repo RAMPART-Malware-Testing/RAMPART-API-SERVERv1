@@ -9,7 +9,7 @@ from cores.Schema.schema_class import User
 from schemas.analy import AnalysisHistoryParams 
 from services.admin.admin_service import write_audit_log
 from services.admin.authz import ADMIN_ROLES, AuthError, ensure_not_banned, get_current_user
-from services.analy.analy_service import get_analysis_history, get_analysis_with_report, get_analysis_with_report_admin, get_file_by_hash, get_public_analysis_with_report, insert_table_analy
+from services.analy.analy_service import get_analysis_access_rows_by_md5, get_analysis_history, get_analysis_with_report, get_analysis_with_report_admin, get_file_by_hash, get_public_analysis_with_report, insert_table_analy
 from services.token_service import TokenService
 import os
 from pathlib import Path
@@ -106,7 +106,7 @@ async def generateToken_controller(token):
         return {
             "success": True,
             "status": "TOKEN_ALREADY_EXISTS",
-            "message": "โทเคนสำหรับอัปโหลดไฟล์ถูกสร้างสำเร็จ",
+            "message": "โทเค็นสำหรับอัปโหลดไฟล์ถูกสร้างสำเร็จ",
             "data": {
                 "upload_token": existing_token,
                 "expires_in": ttl
@@ -125,7 +125,7 @@ async def generateToken_controller(token):
     return {
         "success": True,
         "status": "TOKEN_CREATED",
-        "message": "สร้างโทเคนสำหรับอัปโหลดไฟล์สำเร็จ",
+        "message": "สร้างโทเค็นสำหรับอัปโหลดไฟล์สำเร็จ",
         "data": {
             "upload_token": upload_token,
             "expires_in": UPLOAD_TOKEN_TTL
@@ -324,7 +324,7 @@ async def get_file_by_hash_controller(task_id: str, uid: str, tool: str = "virus
             "report":data
         }
 
-async def downloadReport_controller(file_name:str):
+async def downloadReport_controller(file_name:str, token: str | None = None):
     if not FILENAME_REGEX.fullmatch(file_name):
         raise HTTPException(status_code=400, detail="Invalid file name format")
 
@@ -332,6 +332,34 @@ async def downloadReport_controller(file_name:str):
 
     if file_path.parent != BASE_REPORT_PATH.resolve():
         raise HTTPException(status_code=403, detail="Access denied")
+
+    async with SessionLocal() as session:
+        try:
+            if not token:
+                raise AuthError(401, "TOKEN_MISSING", "ต้องเข้าสู่ระบบก่อนจึงจะดาวน์โหลดรายงานได้")
+            user = await get_current_user(session, token)
+            ensure_not_banned(user)
+        except AuthError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+        # The report file name only carries the md5; resolve which Analysis
+        # rows it belongs to and enforce owner/public/admin access on them.
+        md5 = FILENAME_REGEX.fullmatch(file_name).group(2)
+        rows = await get_analysis_access_rows_by_md5(session, md5)
+        if not rows:
+            raise HTTPException(status_code=404, detail="Report not found")
+        owner_or_public = any(row.uid == user.uid or row.privacy for row in rows)
+        if user.role in ADMIN_ROLES and not owner_or_public:
+            await write_audit_log(
+                session,
+                actor_uid=user.uid,
+                target_uid=rows[0].uid,
+                action="download_private_report",
+                detail=file_name,
+            )
+            await session.commit()
+        elif not owner_or_public:
+            raise HTTPException(status_code=403, detail="Access denied")
 
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="Report not found")
@@ -351,6 +379,14 @@ async def update_privacy_controller(task_id: str, token: str, privacy: bool):
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
     async with SessionLocal() as session:
+        user = await session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+        try:
+            ensure_not_banned(user)
+        except AuthError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
         row = await get_analysis_with_report(session, task_id, uid=uid)
         if not row:
             raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
