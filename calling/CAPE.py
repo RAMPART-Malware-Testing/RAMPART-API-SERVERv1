@@ -193,7 +193,7 @@ class CAPEAnalyzer:
             return {"error": str(e), "data": None}
         url = f"{self.base_url}/apiv2/tasks/search/{hash_type}/{file_hash}/"
         try:
-            response = requests.get(url, timeout=30)
+            response = requests.get(url, timeout=120)
             js = response.json()
             return js.get("data")
         except requests.exceptions.RequestException as e:
@@ -216,8 +216,9 @@ class CAPEAnalyzer:
         if is_pcap: data['pcap'] = '1'
 
         try:
-            response = requests.post(url, files=files, data=data, timeout=30)
-            response.raise_for_status()
+            response = requests.post(url, files=files, data=data, timeout=600)
+            if response.status_code != 200:
+                return {"status": "error", "error": f"CAPE API returned HTTP {response.status_code}: {response.text[:300]}"}
             result = response.json()
             return {
                 "status": "created",
@@ -232,7 +233,7 @@ class CAPEAnalyzer:
     def get_task_status(self, task_id: int) -> Dict[str, Any]:
         url = f"{self.base_url}/apiv2/tasks/status/{task_id}"
         try:
-            response = requests.get(url, timeout=30)
+            response = requests.get(url, timeout=60)
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -241,7 +242,7 @@ class CAPEAnalyzer:
     def get_task_report(self, task_id: int, report_format: str = "json"):
         url = f"{self.base_url}/apiv2/tasks/get/report/{task_id}/{report_format}/"
         try:
-            response = requests.get(url, timeout=30)
+            response = requests.get(url, timeout=60)
             response.raise_for_status()
             return {"status": "success", "data": response.json()}
         except Exception as e:

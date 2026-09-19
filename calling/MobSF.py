@@ -119,10 +119,12 @@ class MobSFCall:
         try:
             with open(file_path, 'rb') as file:
                 files = {'file': (filename, file, 'application/octet-stream')}
-                response = requests.post(url, headers=self._get_headers(), files=files, timeout=30)
+                response = requests.post(url, headers=self._get_headers(), files=files, timeout=300)
             if response.status_code == 200: return {"success": True, "data": response.json()}
-            elif response.status_code == 401: return {"success": False, "error": "Unauthorized"}
+            elif response.status_code == 401: return {"success": False, "error": "MobSF API key rejected (401) — ตรวจสอบ MOB_API_KEY ใน .env"}
             else: return {"success": False, "error": f"Error {response.status_code}: {response.text}"}
+        except ReadTimeout:
+            return {"success": False, "error": "Upload timed out (MobSF may still be scanning server-side)", "timed_out": True}
         except Exception as e: return {"success": False, "error": str(e)}
 
     def scan_uploaded_file(self, file_hash, timeout=None):
@@ -141,9 +143,12 @@ class MobSFCall:
         url = f"{self.base_url}/api/v1/report_json"
         data = {'hash': md5}
         try:
-            response = requests.post(url, headers=self._get_headers(), data=data, timeout=30)
+            response = requests.post(url, headers=self._get_headers(), data=data, timeout=120)
             if response.status_code == 200:
-                return {"status": True, "data": response.json()}
+                body = response.json()
+                if isinstance(body, dict) and body.get("error"):
+                    return {"status": "pending", "error": "Report not ready"}
+                return {"status": True, "data": body}
             if response.status_code == 401:
                 return {"status": "failed", "error": "Unauthorized"}
             return {"status": "pending", "error": "Report not ready"}

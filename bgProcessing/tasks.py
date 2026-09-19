@@ -35,7 +35,7 @@ MAX_TOOL_ERROR_RETRIES = 3
 MAX_TOOL_POLL_ATTEMPTS = 10
 MAX_CAPE_POLL_ATTEMPTS = 40
 
-TOOL_LABELS = {"virustotal": "VirusTotal", "mobsf": "MobSF", "cape": "CAPE"}
+TOOL_LABELS = {"virustotal": "VirusTotal", "mobsf": "MobSF", "cape": "CAPE", "rampart_ai": "RampartAI"}
 
 class TaskFinalizationError(RuntimeError):
     pass
@@ -425,6 +425,9 @@ def analyze_malware_task(
                 except Exception as error:
                     print(f"[Gemini] Analysis failed for {file_path}: {error}")
                     assessment = {}
+                tool_notes.setdefault("mobsf", "Skipped: VirusTotal already detected malware")
+                tool_notes.setdefault("cape", "Skipped: VirusTotal already detected malware")
+                tool_notes.setdefault("rampart_ai", "Skipped: VirusTotal already detected malware")
                 tools = "virustotal,gemini" if assessment else "virustotal"
                 report, scores = finalize_analysis_report(
                     db, task_id, file_path, vt_report_path, tools=tools, tool_notes=tool_notes or None
@@ -465,7 +468,7 @@ def analyze_malware_task(
             if result.get("status") is True:
                 mobsf_report_path = result.get("report_path", mobsf_report_path)
             mobsf_submitted = bool(result.get("submitted", mobsf_submitted))
-            outcome = evaluate_tool_progress(tool_key="mobsf", result=result, attempts=mobsf_attempts, polls=mobsf_polls)
+            outcome = evaluate_tool_progress(tool_key="mobsf", result=result, attempts=mobsf_attempts, polls=mobsf_polls, max_polls=30)
             mobsf_attempts, mobsf_polls = outcome["attempts"], outcome["polls"]
             mobsf_status = outcome["status"]
             mobsf_countdown = outcome["retry_countdown"]
@@ -566,7 +569,7 @@ def analyze_malware_task(
                 raise self.retry(
                     countdown=min(pending_countdowns) if pending_countdowns else 30,
                     kwargs={
-                        "vt_status": True,
+                        "vt_status": True if vt_status is True else "skipped",
                         "vt_report_path": vt_report_path,
                         "vt_submitted": vt_submitted,
                         "mobsf_status": mobsf_status,

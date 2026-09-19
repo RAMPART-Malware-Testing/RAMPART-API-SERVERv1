@@ -202,6 +202,14 @@ def handle_mobsf(
 
     upload = client.upload_file(file_path)
     if not upload.get("success"):
+        if upload.get("timed_out"):
+            return {
+                "status": "pending",
+                "report_path": str(report_path),
+                "submitted": True,
+                "retry_in": 30,
+                "error": "MobSF upload timed out; polling for server-side report",
+            }
         error = str(upload.get("error", "MobSF upload failed"))
         if "not supported" in error.lower() or "not support" in error.lower():
             return {
@@ -216,6 +224,11 @@ def handle_mobsf(
         }
 
     data = upload.get("data") or {}
+    if isinstance(data, dict) and ("appsec" in data or "package_name" in data or "security_score" in data):
+        return {
+            "status": True,
+            "report_path": _write_report(report_path.parent, report_path.name, data),
+        }
     file_hash = data.get("hash") or md5
     scan = client.scan_uploaded_file(file_hash, timeout=10)
     if not scan.get("success"):
@@ -375,6 +388,8 @@ def handle_cape(
             created = client.create_file_task(file_path, machine="win10", package=package)
             if created.get("status") == "error" or not created.get("task_id"):
                 error = str(created.get("error", "CAPE submission failed"))
+                if "machine" in error.lower():
+                    error = f"{error} — ตรวจสอบชื่อ machine (win10) กับ CAPE_BASE_URL ใน .env"
                 if "not supported" in error.lower() or "not support" in error.lower():
                     return {
                         "status": "skipped",
