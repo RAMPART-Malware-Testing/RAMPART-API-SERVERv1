@@ -81,16 +81,21 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
     risk_q = await session.execute(
         select(
             Analysis.file_type.label("fileType"),
-            func.round(func.avg(Reports.rampart_score), 2).label("riskScore")
+            func.round(func.avg(Reports.score), 2).label("riskScore"),
+            func.round(func.avg(Reports.virustotal_score), 2).label("virustotalScore"),
+            func.round(func.avg(Reports.mobsf_score), 2).label("mobsfScore"),
+            func.round(func.avg(Reports.cape_score), 2).label("capeScore"),
+            func.round(func.avg(Reports.rampart_score), 2).label("aiScore"),
         )
         .join(Reports, Analysis.rid == Reports.rid)
         .where(
             Analysis.file_type.isnot(None),
-            Reports.rampart_score.isnot(None),
+            Analysis.file_type != "",
+            Reports.score.isnot(None),
             Analysis.deleted_at.is_(None)
         )
         .group_by(Analysis.file_type)
-        .order_by(func.avg(Reports.rampart_score).desc())
+        .order_by(func.avg(Reports.score).desc())
         .limit(5)
     )
 
@@ -103,7 +108,14 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
             "monthly": [{"type": r.type, "count": r.count} for r in monthly_q],
         },
         "riskScores": [
-            {"fileType": r.fileType, "riskScore": float(r.riskScore)}
+            {
+                "fileType": r.fileType,
+                "riskScore": float(r.riskScore),
+                "virustotalScore": float(r.virustotalScore) if r.virustotalScore is not None else None,
+                "mobsfScore": float(r.mobsfScore) if r.mobsfScore is not None else None,
+                "capeScore": float(r.capeScore) if r.capeScore is not None else None,
+                "aiScore": float(r.aiScore) if r.aiScore is not None else None,
+            }
             for r in risk_q
         ],
     }
@@ -266,6 +278,11 @@ async def _fetch_reports_history(
             item["report"] = {
                 "score":            float(r.score) if r.score is not None else None,
                 "rampart_score":    float(r.rampart_score) if r.rampart_score is not None else None,
+                "risk_level":       r.risk_level,
+                "virustotal_score": r.virustotal_score,
+                "mobsf_score":      float(r.mobsf_score) if r.mobsf_score is not None else None,
+                "cape_score":       float(r.cape_score) if r.cape_score is not None else None,
+                "rampart_ai_score": r.rampart_ai_score,
             }
         return item
     total_pages = max(1, -(-total // params.limit))

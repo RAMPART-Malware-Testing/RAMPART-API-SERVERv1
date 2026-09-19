@@ -409,6 +409,29 @@ async def get_analysis_with_report_admin(
         return None
     return row.Analysis, row.Reports
 
+async def get_analysis_access_rows_by_md5(
+    session: AsyncSession,
+    md5: str,
+) -> list[tuple[UUID, bool]]:
+    """Backs the raw report-download path (downloadReport_controller) -
+    tool report files are stored as {tool}-{md5}.json, so the md5 parsed
+    from the file name is matched against Analysis.md5 (file_hash holds the
+    sha256, see ScanFile_controller). Returns the (uid, privacy) pair of
+    every non-deleted Analysis row sharing that md5 so the caller can apply
+    the owner/privacy/admin decision (owns any row OR any row is public;
+    admin bypass lives in the caller).
+
+    Must exclude soft-deleted rows for the same reason as
+    get_analysis_with_report - a deleted Analysis row must not keep
+    granting access to its report files."""
+    result = await session.execute(
+        select(Analysis.uid, Analysis.privacy).where(
+            Analysis.md5 == md5,
+            Analysis.deleted_at.is_(None),
+        )
+    )
+    return result.all()
+
 async def get_analysis_history(
     session: AsyncSession,
     uid: UUID | str,
@@ -511,6 +534,11 @@ async def get_analysis_history(
             item["report"] = {
                 "score":            float(r.score) if r.score is not None else None,
                 "rampart_score":    float(r.rampart_score) if r.rampart_score is not None else None,
+                "risk_level":       r.risk_level,
+                "virustotal_score": r.virustotal_score,
+                "mobsf_score":      float(r.mobsf_score) if r.mobsf_score is not None else None,
+                "cape_score":       float(r.cape_score) if r.cape_score is not None else None,
+                "rampart_ai_score": r.rampart_ai_score,
             }
 
         return item
