@@ -181,9 +181,16 @@ async def _fetch_recent_activities(
 ) -> list[dict]:
     # Unlike the aggregate panels, this feed is scoped to the caller: it is the
     # user's own activity, so file names never leak between accounts.
+    #
+    # id and taskId are both sent because they are different columns: aid is the
+    # analysis row's primary key, while task_id is the scan identifier the
+    # analysis page (/scan/analysis?taskId=) resolves against - every lookup in
+    # analy_service filters on Analysis.task_id, never on aid. Linking with aid
+    # lands on TASK_NOT_FOUND.
     q = await session.execute(
         select(
             Analysis.aid.label("id"),
+            Analysis.task_id.label("taskId"),
             Analysis.file_name.label("fileName"),
             Analysis.file_type.label("fileType"),
             Analysis.status,
@@ -200,6 +207,7 @@ async def _fetch_recent_activities(
     return [
         {
             "id":        str(r.id),
+            "taskId":    r.taskId,
             "fileName":  r.fileName,
             "fileType":  r.fileType,
             "status":    r.status,
