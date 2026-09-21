@@ -6,6 +6,9 @@ MAX_SEARCH_LENGTH   = 100
 MAX_LIMIT           = 100
 
 class ReportsHistoryParams(BaseModel):
+    # Optional: the reports listing only exposes analyses whose owner marked
+    # them public (privacy=True), so guests may read it without a token.
+    token: str | None = None
     page: int = 1
     limit: int = 10
     s: str | None = None
@@ -15,6 +18,8 @@ class ReportsHistoryParams(BaseModel):
     file_name: int = 0
     file_size: int = 0
     score: int = 0
+    score_min: float | None = None
+    score_max: float | None = None
 
     @field_validator("page")
     @classmethod

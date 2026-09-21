@@ -16,13 +16,28 @@ from cores.Schema.schema_class import Analysis, User, Reports
 from schemas.analy import AnalysisHistoryParams
 from uuid import UUID
 from utils.cache import build_suffix, cached_async
+from decimal import Decimal, ROUND_HALF_UP
 
 DASHBOARD_SUMMARY_CACHE_NAMESPACE = "dashboard:summary"
-DASHBOARD_SUMMARY_CACHE_TTL_SECONDS = 5
+DASHBOARD_SUMMARY_CACHE_TTL_SECONDS = 60
 RECENT_ACTIVITIES_CACHE_NAMESPACE = "dashboard:recent_activities"
-RECENT_ACTIVITIES_CACHE_TTL_SECONDS = 5
+RECENT_ACTIVITIES_CACHE_TTL_SECONDS = 30
 REPORTS_HISTORY_CACHE_NAMESPACE = "dashboard:reports_history"
-REPORTS_HISTORY_CACHE_TTL_SECONDS = 5
+REPORTS_HISTORY_CACHE_TTL_SECONDS = 60
+
+FILE_TYPE_LABELS = {
+    "apk": "แอป Android",
+    "exe": "โปรแกรม Windows",
+    "dll": "ไลบรารี Windows",
+    "jar": "แอป Java",
+    "js": "JavaScript",
+    "ps1": "PowerShell",
+    "bat": "Batch Script",
+    "vbs": "VBScript",
+}
+
+# Matches the "อันตราย" tier used by the web dashboard (dangerTier >= 60).
+HIGH_RISK_SCORE_THRESHOLD = 60
 
 async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role: str) -> dict:
     total_q = await session.execute(
@@ -54,29 +69,39 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
     )
     total_users = user_count_q.scalar()
 
+    high_risk_q = await session.execute(
+        select(func.count())
+        .select_from(Analysis)
+        .join(Reports, Analysis.rid == Reports.rid)
+        .where(
+            Analysis.deleted_at.is_(None),
+            Reports.score >= HIGH_RISK_SCORE_THRESHOLD,
+        )
+    )
+    high_risk_files = high_risk_q.scalar_one()
+
     now = datetime.now(timezone.utc)
-    day_start   = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start  = now - timedelta(days=7)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-    def malware_query(since: datetime):
-        return (
-            select(
-                Reports.type.label("type"),
-                func.count().label("count")
-            )
-            .join(Analysis, Analysis.rid == Reports.rid)
-            .where(
-                Reports.type.isnot(None),
-                Analysis.created_at >= since,
-                Analysis.deleted_at.is_(None)
-            )
-            .group_by(Reports.type)
-            .order_by(func.count().desc())
-            .limit(5)
-        )
+    # Group malware signatures directly from database
+    malware_query = text("""
+        SELECT sig.signature, COUNT(*) as count, AVG(r.score) as avg_score
+        FROM reports r
+        JOIN analysis a ON a.rid = r.rid
+        CROSS JOIN LATERAL unnest(r.malware_signatures) AS sig(signature)
+        WHERE r.malware_signatures IS NOT NULL
+        AND array_length(r.malware_signatures, 1) > 0
+        AND r.score >= 30
+        AND a.created_at >= :since
+        AND a.deleted_at IS NULL
+        GROUP BY sig.signature
+        ORDER BY count DESC, MAX(a.created_at) DESC
+        LIMIT 5
+    """)
 
-    daily_q   = await session.execute(malware_query(day_start))
-    monthly_q = await session.execute(malware_query(month_start))
+    weekly_q = (await session.execute(malware_query, {"since": week_start})).all()
+    monthly_q = (await session.execute(malware_query, {"since": month_start})).all()
 
     risk_q = await session.execute(
         select(
@@ -103,9 +128,28 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
         "totalFiles": dict(total_files),
         "userFiles":  dict(user_files),
         "totalUsers": total_users,
+        "highRiskFiles": high_risk_files,
         "topMalwareTypes": {
-            "daily":   [{"type": r.type, "count": r.count} for r in daily_q],
-            "monthly": [{"type": r.type, "count": r.count} for r in monthly_q],
+            "weekly": [
+                {
+                    "type": sig.lower()[:50] if sig else "unknown",
+                    "label": sig if sig else "Unknown",
+                    "icon": "fas fa-virus",
+                    "count": int(count),
+                    "avgScore": float(Decimal(str(avg_score)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)) if avg_score else None,
+                }
+                for sig, count, avg_score in weekly_q
+            ],
+            "monthly": [
+                {
+                    "type": sig.lower()[:50] if sig else "unknown",
+                    "label": sig if sig else "Unknown",
+                    "icon": "fas fa-virus",
+                    "count": int(count),
+                    "avgScore": float(Decimal(str(avg_score)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)) if avg_score else None,
+                }
+                for sig, count, avg_score in monthly_q
+            ],
         },
         "riskScores": [
             {
@@ -135,10 +179,8 @@ async def _fetch_recent_activities(
     role: str,
     limit: int = 10
 ) -> list[dict]:
-    filters = [Analysis.deleted_at.is_(None)]
-    if role != "admin":
-        filters.append(Analysis.uid == uid)
-
+    # Unlike the aggregate panels, this feed is scoped to the caller: it is the
+    # user's own activity, so file names never leak between accounts.
     q = await session.execute(
         select(
             Analysis.aid.label("id"),
@@ -147,7 +189,10 @@ async def _fetch_recent_activities(
             Analysis.status,
             Analysis.created_at.label("timestamp"),
         )
-        .where(and_(*filters))
+        .where(
+            Analysis.uid == uid,
+            Analysis.deleted_at.is_(None),
+        )
         .order_by(Analysis.created_at.desc())
         .limit(limit)
     )
@@ -192,6 +237,10 @@ async def _fetch_reports_history(
         conditions.append(
             Analysis.file_type.ilike(params.file_type.strip())
         )
+    if params.score_min is not None:
+        conditions.append(Reports.score >= params.score_min)
+    if params.score_max is not None:
+        conditions.append(Reports.score <= params.score_max)
     if params.s:
         search_term = f"%{params.s}%"
         conditions.append(
@@ -202,12 +251,16 @@ async def _fetch_reports_history(
             )
         )
     where_clause = and_(*conditions)
+    needs_reports_join = (
+        params.score != 0
+        or params.score_min is not None
+        or params.score_max is not None
+    )
+    count_stmt = select(func.count()).select_from(Analysis)
+    if needs_reports_join:
+        count_stmt = count_stmt.outerjoin(Reports, Analysis.rid == Reports.rid)
     total: int = (
-        await session.execute(
-            select(func.count())
-            .select_from(Analysis)
-            .where(where_clause)
-        )
+        await session.execute(count_stmt.where(where_clause))
     ).scalar_one()
     sort_map = {
         "created_at": Analysis.created_at,
@@ -226,7 +279,7 @@ async def _fetch_reports_history(
         for col, direction in sort_priority
         if direction != 0
     ] or [desc(Analysis.created_at)]
-    needs_join = params.score != 0
+    needs_join = needs_reports_join
     stmt = (
         select(Analysis)
         .options(joinedload(Analysis.report))
@@ -313,6 +366,8 @@ async def get_reports_history(
         file_name=params.file_name,
         file_size=params.file_size,
         score=params.score,
+        score_min=params.score_min,
+        score_max=params.score_max,
     )
     return await cached_async(
         REPORTS_HISTORY_CACHE_NAMESPACE,

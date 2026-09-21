@@ -38,6 +38,16 @@ async def recent_activities_controller(body: DashboardParams):
         
 async def reports_history_controller(body: ReportsHistoryParams):
     async with SessionLocal() as session:
+        # The public reports listing is readable without a session - every row
+        # it can return already has privacy=True. A token, when supplied, is
+        # still verified so banned or expired accounts are rejected.
+        if body.token:
+            try:
+                user = await get_current_user(session, body.token)
+                ensure_not_banned(user)
+            except AuthError as exc:
+                raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
         try:
             return await get_reports_history(session, body)
         except HTTPException:
