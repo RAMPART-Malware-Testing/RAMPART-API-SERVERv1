@@ -10,6 +10,7 @@ from controller.auth_controller import (
     resetPasswd_controller,
 )
 from controller.oauth_controller import oauth_callback_controller, oauth_login_controller
+from utils.client_ip import get_client_ip
 from schemas.auth import (
     LoginConfirmParame,
     LoginParame,
@@ -43,30 +44,34 @@ async def oauth_callback(provider: str, request: Request):
 @router.post("/login")
 async def login(body: LoginParame, request: Request, deviceToken: str = Header("")):
     ua = request.headers.get("user-agent")
-    ip = request.client.host if request.client else None
+    ip = get_client_ip(request)
     return await login_controller(body, ua, ip, deviceToken)
 
 @router.post("/login/confirm")
 async def login_confirm(body: LoginConfirmParame, request: Request):
     ua = request.headers.get("user-agent")
-    ip = request.client.host if request.client else None
+    ip = get_client_ip(request)
     return await login_confirm_controller(body, ua, ip)
 
 @router.post("/register")
-async def register(body: RegisterParame):
-    return await register_controller(body)
+async def register(body: RegisterParame, request: Request):
+    ip = get_client_ip(request)
+    return await register_controller(body, ip)
 
 @router.post("/register/confirm")
-async def register_confirm(body: RegisterConfirmParame):
-    return await register_confirm_controller(body)
+async def register_confirm(body: RegisterConfirmParame, request: Request):
+    ip = get_client_ip(request)
+    return await register_confirm_controller(body, ip)
 
 @router.post("/reset-passwd")
-async def reset_passwd(body: ResetPasswdParame):
-    return await resetPasswd_controller(body)
+async def reset_passwd(body: ResetPasswdParame, request: Request):
+    ip = get_client_ip(request)
+    return await resetPasswd_controller(body, ip)
 
 @router.post("/reset-passwd/confirm")
-async def reset_passwd_confirm(body: ResetPasswdConfirmParame):
-    return await resetPasswd_confirm_controller(body)
+async def reset_passwd_confirm(body: ResetPasswdConfirmParame, request: Request):
+    ip = get_client_ip(request)
+    return await resetPasswd_confirm_controller(body, ip)
 
 @router.post("/refresh")
 async def refresh(body: RefreshTokenParame):

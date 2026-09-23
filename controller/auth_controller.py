@@ -39,20 +39,20 @@ async def login_confirm_controller(body: LoginConfirmParame, user_agent: str, ip
     response = await AuthService.login_confirm(body, user_agent, ip)
     return response
 
-async def register_controller(body:RegisterParame):
-    response = await AuthService.register(body)
+async def register_controller(body:RegisterParame, ip:str = None):
+    response = await AuthService.register(body, ip)
     return response
 
-async def register_confirm_controller(body:RegisterConfirmParame):
-    response = await AuthService.register_confirm(body)
+async def register_confirm_controller(body:RegisterConfirmParame, ip:str = None):
+    response = await AuthService.register_confirm(body, ip)
     return response
 
-async def resetPasswd_controller(body: ResetPasswdParame):
-    response = await AuthService.reset(body)
+async def resetPasswd_controller(body: ResetPasswdParame, ip:str = None):
+    response = await AuthService.reset(body, ip)
     return response
 
-async def resetPasswd_confirm_controller(body: ResetPasswdConfirmParame):
-    response = await AuthService.reset_confirm(body)
+async def resetPasswd_confirm_controller(body: ResetPasswdConfirmParame, ip:str = None):
+    response = await AuthService.reset_confirm(body, ip)
     return response
 
 async def refresh_token_controller(refresh_token:str):

@@ -9,9 +9,11 @@ from tempfile import NamedTemporaryFile
 from fastapi import HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 
+from bgProcessing.task_handlers import SUPPORTED_FILE_EXTS
 from bgProcessing.tasks import analyze_malware_task
 from cores.Schema.schema_class import User
 from cores.async_pg_db import SessionLocal
+from services.admin.admin_service import write_audit_log
 from services.analy.analy_service import (
     acquire_analysis_hash_lock,
     acquire_analysis_task_lock,
@@ -68,6 +70,15 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
         original_filename = Path(file.filename or "upload").name
         suffix = Path(original_filename).suffix.lower()
         file_extension = suffix if re.fullmatch(r"\.[a-z0-9]{1,10}", suffix) else ""
+        if file_extension not in SUPPORTED_FILE_EXTS:
+            supported = ", ".join(sorted(SUPPORTED_FILE_EXTS))
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail=(
+                    "ไม่รองรับไฟล์ประเภทนี้ "
+                    f"ระบบรองรับเฉพาะนามสกุล: {supported}"
+                ),
+            )
         md5_hash = hashlib.md5()
         sha256_hash = hashlib.sha256()
         accumulated_size = 0
@@ -101,6 +112,14 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
                 privacy=is_private,
             )
             if gap_outcome == "gap_filled" and gap_analysis is not None:
+                await write_audit_log(
+                    db_session,
+                    actor_uid=user_id,
+                    target_uid=None,
+                    action="upload_file",
+                    detail=f"{original_filename} | task_id={gap_analysis.task_id}",
+                )
+                await db_session.commit()
                 return upload_response(
                     original_filename,
                     final_md5,
@@ -129,6 +148,13 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
                 if not existing or existing_status == "failed":
                     existing = None
                 else:
+                    await write_audit_log(
+                        db_session,
+                        actor_uid=user_id,
+                        target_uid=None,
+                        action="upload_file",
+                        detail=f"{original_filename} | task_id={existing_task_id}",
+                    )
                     await insert_table_analy(
                         session=db_session,
                         uid=user_id,
@@ -161,6 +187,13 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
                 shutil.move(str(temp_file_path), str(target_file_path))
             temp_file_path = None
             task_id = str(uuid.uuid4())
+            await write_audit_log(
+                db_session,
+                actor_uid=user_id,
+                target_uid=None,
+                action="upload_file",
+                detail=f"{original_filename} | task_id={task_id}",
+            )
             analysis = await insert_table_analy(
                 session=db_session,
                 uid=user_id,
@@ -189,6 +222,13 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
                     status="failed",
                     from_statuses=("dispatching",),
                 )
+                await write_audit_log(
+                    db_session,
+                    actor_uid=user_id,
+                    target_uid=None,
+                    action="analysis_status",
+                    detail=f"task_id={analysis.task_id} status=failed",
+                )
                 await db_session.commit()
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -201,6 +241,13 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
                 analysis.task_id,
                 status="queued",
                 from_statuses=("dispatching",),
+            )
+            await write_audit_log(
+                db_session,
+                actor_uid=user_id,
+                target_uid=None,
+                action="analysis_status",
+                detail=f"task_id={analysis.task_id} status=queued",
             )
             await db_session.commit()
 

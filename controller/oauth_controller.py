@@ -66,7 +66,7 @@ async def oauth_callback_controller(request: Request, provider: str):
         return _frontend_redirect(
             "/login",
             error=AuthStatus.OAUTH_PROVIDER_ERROR,
-            message=f"OAuth authorization failed: {exc}",
+            message="OAuth authorization failed. Please try signing in again.",
         )
 
     try:

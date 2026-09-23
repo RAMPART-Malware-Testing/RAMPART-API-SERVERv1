@@ -86,14 +86,28 @@ def patch_session(monkeypatch, value, *, has_linked_oauth=False):
         auth_service_module, "SessionLocal", lambda: FakeSession([value, oauth_link_result, value, value])
     )
 
+@pytest.fixture(autouse=True)
+def _no_redis(monkeypatch):
+    """Keep these smoke tests hermetic and repeatable: the auth throttles,
+    per-email wrong-password lockout, register-data staging and refresh
+    rotation helpers all talk to Redis. Stub the client out so they fail
+    open exactly as they would during a Redis outage, and so repeated runs
+    never trip the real lockouts."""
+    import utils.rate_limit as rate_limit_module
+    monkeypatch.setattr(auth_service_module, "redis_client", None)
+    monkeypatch.setattr(rate_limit_module, "redis_client", None)
+
 @pytest.mark.asyncio
 async def test_login_rejects_unknown_email(monkeypatch):
+    """Unknown email and wrong password must be indistinguishable (no
+    account enumeration): both return the generic INVALID_CREDENTIALS."""
     patch_session(monkeypatch, None)
     response = await AuthService.login(
         SimpleNamespace(email="nobody@example.com", password="whatever"), "ua", "127.0.0.1", ""
     )
     assert response["success"] is False
-    assert response["status"] == "USER_NOT_FOUND"
+    assert response["status"] == "INVALID_CREDENTIALS"
+    assert response["message"] == "ข้อมูลการเข้าสู่ระบบไม่ถูกต้อง"
 
 @pytest.mark.asyncio
 async def test_login_rejects_oauth_only_account_with_null_password(monkeypatch):
@@ -455,6 +469,11 @@ async def test_register_confirm_creates_user_with_hashed_password(monkeypatch):
     )
     monkeypatch.setattr(auth_service_module.OTPService, "verify_otp", lambda action, token, otp, **kwargs: ("ok", None))
     monkeypatch.setattr(auth_service_module.OTPService, "clear_otp_session", lambda *a, **k: None)
+    monkeypatch.setattr(
+        auth_service_module,
+        "_get_register_data",
+        lambda token: {"password": "Sup3rSecret!", "username": "newuser"},
+    )
 
     response = await AuthService.register_confirm(SimpleNamespace(token="tok", otp="123456", username=None))
     assert response["success"] is True
@@ -469,11 +488,14 @@ async def test_register_confirm_creates_user_with_hashed_password(monkeypatch):
     assert verify_password(created.password, "Sup3rSecret!") is True
 
 @pytest.mark.asyncio
-async def test_reset_rejects_unknown_email(monkeypatch):
+async def test_reset_hides_unknown_email_behind_generic_otp_response(monkeypatch):
+    """Anti-enumeration: an unknown email gets the same OTP_SENT-shaped
+    success as a known one (without any OTP session / email being sent)."""
     patch_session(monkeypatch, None)
     response = await AuthService.reset(SimpleNamespace(email="nobody@example.com", token=None, newPasswd=None))
-    assert response["success"] is False
-    assert response["status"] == "USER_NOT_FOUND"
+    assert response["success"] is True
+    assert response["status"] == "OTP_SENT"
+    assert response["data"] is None
 
 @pytest.mark.asyncio
 async def test_reset_sends_otp_for_known_email(monkeypatch):

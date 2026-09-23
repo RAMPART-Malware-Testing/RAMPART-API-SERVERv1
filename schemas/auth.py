@@ -25,6 +25,7 @@ class ResetPasswdParame(BaseModel):
     email: str | None = None
     token: str | None = None
     newPasswd: str | None = None
+    oldPasswd: str | None = None
 
 class ResetPasswdConfirmParame(BaseModel):
     token: str

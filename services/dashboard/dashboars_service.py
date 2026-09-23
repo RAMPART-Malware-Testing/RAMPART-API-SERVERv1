@@ -18,12 +18,23 @@ from uuid import UUID
 from utils.cache import build_suffix, cached_async
 from decimal import Decimal, ROUND_HALF_UP
 
+import asyncio
+import os
+
+from fastapi.concurrency import run_in_threadpool
+
+from services.admin.health_service import _check_external_service
+
 DASHBOARD_SUMMARY_CACHE_NAMESPACE = "dashboard:summary"
-DASHBOARD_SUMMARY_CACHE_TTL_SECONDS = 60
+DASHBOARD_SUMMARY_CACHE_TTL_SECONDS = 3
 RECENT_ACTIVITIES_CACHE_NAMESPACE = "dashboard:recent_activities"
-RECENT_ACTIVITIES_CACHE_TTL_SECONDS = 30
+RECENT_ACTIVITIES_CACHE_TTL_SECONDS = 3
 REPORTS_HISTORY_CACHE_NAMESPACE = "dashboard:reports_history"
-REPORTS_HISTORY_CACHE_TTL_SECONDS = 60
+REPORTS_HISTORY_CACHE_TTL_SECONDS = 3
+# Tool status pings remote sandboxes, so it keeps a longer cache of its own
+# instead of inheriting the 3-second summary TTL.
+TOOLS_STATUS_CACHE_NAMESPACE = "dashboard:tools_status"
+TOOLS_STATUS_CACHE_TTL_SECONDS = 60
 
 FILE_TYPE_LABELS = {
     "apk": "แอป Android",
@@ -35,6 +46,36 @@ FILE_TYPE_LABELS = {
     "bat": "Batch Script",
     "vbs": "VBScript",
 }
+
+TOOL_LABELS = {
+    "mobsf": "MobSF",
+    "cape": "CAPE Sandbox",
+    "rampart_ai": "Rampart AI",
+}
+
+async def _fetch_tools_status() -> list[dict[str, Any]]:
+    checks = await asyncio.gather(
+        run_in_threadpool(_check_external_service, "mobsf", os.getenv("MOBSF_BASE_URL"), "/"),
+        run_in_threadpool(_check_external_service, "cape", os.getenv("CAPE_BASE_URL"), "/"),
+        run_in_threadpool(_check_external_service, "rampart_ai", os.getenv("RAMPARTAI_URL"), "/"),
+        return_exceptions=True,
+    )
+    return [
+        {
+            "name": check["name"],
+            "label": TOOL_LABELS.get(check["name"], check["name"]),
+            "online": check.get("status") == "up",
+        }
+        for check in checks
+        if isinstance(check, dict)
+    ]
+
+async def _get_tools_status() -> list[dict[str, Any]]:
+    return await cached_async(
+        TOOLS_STATUS_CACHE_NAMESPACE,
+        TOOLS_STATUS_CACHE_TTL_SECONDS,
+        _fetch_tools_status,
+    )
 
 # Matches the "อันตราย" tier used by the web dashboard (dangerTier >= 60).
 HIGH_RISK_SCORE_THRESHOLD = 60
@@ -63,6 +104,19 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
     )
     user_files = user_q.mappings().one()
 
+    public_q = await session.execute(
+        select(
+            func.count().label("total"),
+            func.count(case((Analysis.status == "success", 1))).label("success"),
+            func.count(case((Analysis.status == "pending", 1))).label("pending"),
+            func.count(case((Analysis.status == "failed",  1))).label("failed"),
+        ).where(
+            Analysis.privacy == True,
+            Analysis.deleted_at.is_(None)
+        )
+    )
+    public_files = public_q.mappings().one()
+
     total_users = 0
     user_count_q = await session.execute(
         select(func.count()).select_from(User).where(User.status == "active", User.role=="user")
@@ -79,6 +133,20 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
         )
     )
     high_risk_files = high_risk_q.scalar_one()
+
+    malicious_q = await session.execute(
+        select(
+            func.avg(Reports.score).label("avgScore"),
+            func.count().label("count"),
+        )
+        .select_from(Analysis)
+        .join(Reports, Analysis.rid == Reports.rid)
+        .where(
+            Analysis.is_malicious == True,
+            Analysis.deleted_at.is_(None),
+        )
+    )
+    malicious_row = malicious_q.mappings().one()
 
     now = datetime.now(timezone.utc)
     week_start  = now - timedelta(days=7)
@@ -97,7 +165,7 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
         AND a.deleted_at IS NULL
         GROUP BY sig.signature
         ORDER BY count DESC, MAX(a.created_at) DESC
-        LIMIT 5
+        LIMIT 10
     """)
 
     weekly_q = (await session.execute(malware_query, {"since": week_start})).all()
@@ -124,11 +192,19 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
         .limit(5)
     )
 
+    tools = await _get_tools_status()
+
     return {
         "totalFiles": dict(total_files),
         "userFiles":  dict(user_files),
+        "publicFiles": dict(public_files),
         "totalUsers": total_users,
         "highRiskFiles": high_risk_files,
+        "maliciousRisk": {
+            "avgScore": float(Decimal(str(malicious_row.avgScore)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)) if malicious_row.avgScore is not None else None,
+            "count": int(malicious_row.count),
+        },
+        "tools": tools,
         "topMalwareTypes": {
             "weekly": [
                 {

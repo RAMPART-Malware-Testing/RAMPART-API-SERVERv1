@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 from datetime import datetime, timezone
@@ -9,6 +10,9 @@ from bgProcessing.celery_app import celery_app
 from bgProcessing.report_evidence import build_gemini_evidence
 from bgProcessing.task_utils import apply_gemini_assessment
 from bgProcessing.task_handlers import (
+    CAPE_PACKAGE_MAP,
+    MOBSF_SUPPORTED_EXTS,
+    SUPPORTED_FILE_EXTS,
     calculate_cape_danger_score,
     calculate_mobsf_danger_score,
     calculate_rampart_ai_score,
@@ -25,6 +29,7 @@ from cores.sync_pg_db import SyncSessionLocal
 from cores.redis import redis_client
 from calling.GeminiAPI import GeminiAPI
 from bgProcessing.notifications import notify_analysis_failed, notify_analysis_success
+from services.admin.admin_service import write_audit_log
 
 REPORTS_DIR = Path("reports")
 ACTIVE_STATUSES = ("dispatching", "queued", "processing")
@@ -36,6 +41,78 @@ MAX_TOOL_POLL_ATTEMPTS = 10
 MAX_CAPE_POLL_ATTEMPTS = 40
 
 TOOL_LABELS = {"virustotal": "VirusTotal", "mobsf": "MobSF", "cape": "CAPE", "rampart_ai": "RampartAI"}
+
+ANDROID_TOOLS = ("virustotal", "mobsf", "rampart_ai", "gemini")
+WINDOWS_TOOLS = ("virustotal", "cape", "gemini")
+LEGACY_TOOLS = ("virustotal", "mobsf", "rampart_ai", "cape", "gemini")
+
+MOBILE_EXTS = MOBSF_SUPPORTED_EXTS | {
+    ext for ext, package in CAPE_PACKAGE_MAP.items() if package in ("apk", "android")
+}
+
+TOOLS_BY_FILE_EXT = {
+    **{ext: ANDROID_TOOLS for ext in MOBILE_EXTS},
+    **{ext: WINDOWS_TOOLS for ext in SUPPORTED_FILE_EXTS if ext not in MOBILE_EXTS},
+}
+
+def tools_for_extension(file_path: str) -> tuple[str, ...]:
+    """Per-doc §22 framework selection: Android/mobile files get
+    VirusTotal + MobSF + RampartAI + Gemini; everything else supported
+    gets VirusTotal + CAPE + Gemini. Extensions outside the table (only
+    reachable via legacy queued tasks, since upload now rejects them)
+    keep the legacy all-tools dispatch as a safety net - each tool still
+    self-skips when the file type does not apply."""
+    ext = Path(file_path).suffix.lower()
+    return TOOLS_BY_FILE_EXT.get(ext, LEGACY_TOOLS)
+
+FRAMEWORK_UNAVAILABLE_MARKERS = (
+    "connection refused",
+    "failed to establish a new connection",
+    "max retries exceeded",
+    "connection reset",
+    "name or service not known",
+    "temporary failure in name resolution",
+    "network is unreachable",
+    "no route to host",
+    "newconnectionerror",
+    "nameresolutionerror",
+)
+
+def is_framework_unavailable_error(error) -> bool:
+    text = str(error or "").lower()
+    return any(marker in text for marker in FRAMEWORK_UNAVAILABLE_MARKERS)
+
+_AUDIT_ACTOR_UNRESOLVED = object()
+
+def record_status_audit(db, *, task_id: str, status: str, actor_uid=_AUDIT_ACTOR_UNRESOLVED) -> None:
+    """Best-effort append of an `analysis_status` row to audit_logs; the
+    caller commits. Auditing must never break the surrounding analysis
+    transaction and must never fire twice for one transition, so every
+    failure mode here (test doubles without execute/add, transient DB
+    errors) is swallowed and logged instead of raised."""
+    if actor_uid is _AUDIT_ACTOR_UNRESOLVED:
+        try:
+            rows = db.execute(
+                select(Analysis.uid).where(Analysis.task_id == task_id)
+            ).scalars().all()
+        except Exception as error:
+            print(f"[Audit] Unable to resolve owner for {task_id}: {error}")
+            return
+        actor_uid = getattr(rows[0], "uid", None) if rows else None
+    if not actor_uid:
+        return
+    try:
+        asyncio.run(
+            write_audit_log(
+                db,
+                actor_uid=actor_uid,
+                target_uid=None,
+                action="analysis_status",
+                detail=f"task_id={task_id} status={status}",
+            )
+        )
+    except Exception as error:
+        print(f"[Audit] Failed to record analysis_status for {task_id}: {error}")
 
 class TaskFinalizationError(RuntimeError):
     pass
@@ -75,13 +152,15 @@ def fail_task(db, task_id: str, error, *, report_paths=(), tool_notes: dict | No
         except OSError as cleanup_error:
             print(f"[Analysis] Failed to remove report {report_path}: {cleanup_error}")
     db.rollback()
-    update_task_rows(
+    changed = update_task_rows(
         db,
         task_id,
         "failed",
         ACTIVE_STATUSES,
         tool_notes=json.dumps(tool_notes, ensure_ascii=False) if tool_notes else None,
     )
+    if changed:
+        record_status_audit(db, task_id=task_id, status="failed")
     db.commit()
     try:
         notify_analysis_failed(db, task_id, message)
@@ -163,7 +242,10 @@ def evaluate_tool_progress(
     if status == "pending":
         polls += 1
         if polls > max_polls:
-            note = f"{label} skipped after {max_polls} status checks with no result"
+            if is_framework_unavailable_error(result.get("error")):
+                note = f"{label} framework unavailable: {result.get('error')}"
+            else:
+                note = f"{label} skipped after {max_polls} status checks with no result"
             print(f"[{label}] {note}")
             return {"status": "skipped", "attempts": attempts, "polls": polls, "retry_countdown": None, "note": note}
         return {
@@ -177,7 +259,10 @@ def evaluate_tool_progress(
     attempts += 1
     error = str(result.get("error", f"{label} analysis failed"))
     if attempts >= max_attempts:
-        note = f"{label} skipped after {max_attempts} failed attempts: {error}"
+        if is_framework_unavailable_error(result.get("error")):
+            note = f"{label} framework unavailable: {error}"
+        else:
+            note = f"{label} skipped after {max_attempts} failed attempts: {error}"
         print(f"[{label}] {note}")
         return {"status": "skipped", "attempts": attempts, "polls": polls, "retry_countdown": None, "note": note}
     print(f"[{label}] Attempt {attempts}/{max_attempts} failed, will retry: {error}")
@@ -288,6 +373,7 @@ def finalize_analysis_report(
             row.status != "success" or row.rid != report.rid for row in verified
         ):
             raise TaskFinalizationError("Task rows were not fully associated")
+        record_status_audit(db, task_id=task_id, status="success", actor_uid=getattr(rows[0], "uid", None))
         return report, scores
     except Exception:
         db.rollback()
@@ -332,9 +418,19 @@ def analyze_malware_task(
     task_id = self.request.id
     tool_notes = dict(tool_notes) if tool_notes else {}
 
+    dispatched_tools = tools_for_extension(file_path)
+    if "mobsf" not in dispatched_tools and mobsf_status is None:
+        mobsf_status = "skipped"
+    if "cape" not in dispatched_tools and cape_status is None:
+        cape_status = "skipped"
+    if "rampart_ai" not in dispatched_tools and rampart_ai_status is None:
+        rampart_ai_status = "skipped"
+
     try:
         publish_progress(task_id, "worker", "Celery worker accepted the task")
         started = update_task_rows(db, task_id, "processing", ("dispatching", "queued"))
+        if started:
+            record_status_audit(db, task_id=task_id, status="processing")
         db.commit()
         if not started and (
             task_is_complete(db, task_id)
@@ -365,6 +461,7 @@ def analyze_malware_task(
             vt_status = outcome["status"]
             if outcome["note"]:
                 tool_notes["virustotal"] = outcome["note"]
+                publish_progress(task_id, "virustotal", outcome["note"])
 
             if vt_status == "pending":
                 publish_progress(
@@ -474,6 +571,7 @@ def analyze_malware_task(
             mobsf_countdown = outcome["retry_countdown"]
             if outcome["note"]:
                 tool_notes["mobsf"] = outcome["note"]
+                publish_progress(task_id, "sandboxes", outcome["note"])
 
         rampart_ai_ready = rampart_ai_status in (True, "skipped") and (
             rampart_ai_status != True or bool(rampart_ai_report_path and Path(rampart_ai_report_path).is_file())
@@ -535,6 +633,7 @@ def analyze_malware_task(
             cape_countdown = outcome["retry_countdown"]
             if outcome["note"]:
                 tool_notes["cape"] = outcome["note"]
+                publish_progress(task_id, "sandboxes", outcome["note"])
             publish_progress(
                 task_id,
                 "sandboxes",

@@ -159,6 +159,7 @@ class DownloadHistory(Base):
         server_default=text("CURRENT_TIMESTAMP")
     )
 
+
 from cores.async_pg_db import engine
 
 async def init_db():

@@ -24,9 +24,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+_session_secret = os.getenv("SESSION_SECRET") or os.getenv("JWT_SECRET")
+if not _session_secret:
+    # Signing session cookies (OAuth state lives there) with an empty secret
+    # would let anyone forge them - refuse to boot instead.
+    raise RuntimeError("SESSION_SECRET or JWT_SECRET is required for session middleware")
+
 app.add_middleware(
     SessionMiddleware,
-    secret_key=os.getenv("SESSION_SECRET", os.getenv("JWT_SECRET", "")),
+    secret_key=_session_secret,
     same_site="lax",
     https_only=os.getenv("SESSION_COOKIE_HTTPS_ONLY", "FALSE").upper() == "TRUE",
 )
@@ -40,18 +46,13 @@ async def startup_event():
 from routers.auth import router as auth_router
 from routers.profile import router as profile_router
 from routers.analysis import router as analy_router
-from routers.test_route import router as test_router
-from utils.test_mode import test_mode_enabled
 from routers.dashboar_route import router as dashboard_route
-from routers.test_route import router as test_router
 from routers.admin import router as admin_router
 
 app.include_router(analy_router)
-app.include_router(test_router, include_in_schema=test_mode_enabled())
 app.include_router(auth_router)
 app.include_router(profile_router)
 app.include_router(dashboard_route)
-app.include_router(test_router)
 app.include_router(admin_router)
 
 from fastapi.exceptions import RequestValidationError

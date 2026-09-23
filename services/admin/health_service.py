@@ -2,6 +2,7 @@ import asyncio
 import os
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
 
@@ -12,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from utils.cache import cached_async, invalidate_cached
 
-HEALTH_TIMEOUT_SECONDS = 4
+EXTERNAL_CHECK_TIMEOUT_SECONDS = 4
+CELERY_INSPECT_TIMEOUT_SECONDS = 1.0
 HEALTH_CACHE_TTL_SECONDS = 15
 HEALTH_CACHE_NAMESPACE = "admin:system_health"
 
@@ -21,7 +23,7 @@ def _check_external_service(name: str, url: str | None, path: str = "/") -> dict
         return {"name": name, "status": "unconfigured", "latency_ms": None, "detail": "URL is not configured"}
     started = time.monotonic()
     try:
-        resp = requests.get(f"{url.rstrip('/')}{path}", timeout=HEALTH_TIMEOUT_SECONDS)
+        resp = requests.get(f"{url.rstrip('/')}{path}", timeout=EXTERNAL_CHECK_TIMEOUT_SECONDS)
         latency_ms = round((time.monotonic() - started) * 1000, 1)
         healthy = resp.status_code < 500
         return {
@@ -59,20 +61,22 @@ def _check_celery_workers() -> dict[str, Any]:
     started = time.monotonic()
     try:
         from bgProcessing.celery_app import celery_app
-        inspector = celery_app.control.inspect(timeout=HEALTH_TIMEOUT_SECONDS)
-        pong = inspector.ping()
+        inspector = celery_app.control.inspect(timeout=CELERY_INSPECT_TIMEOUT_SECONDS)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            active_future = pool.submit(inspector.active)
+            reserved_future = pool.submit(inspector.reserved)
+            active = active_future.result() or {}
+            reserved = reserved_future.result() or {}
         latency_ms = round((time.monotonic() - started) * 1000, 1)
-        if not pong:
+        if not active:
             return {"name": "celery_workers", "status": "down", "latency_ms": latency_ms, "detail": "No workers responded", "workers": []}
-        active = inspector.active() or {}
-        reserved = inspector.reserved() or {}
         workers = [
             {
                 "name": worker_name,
                 "active_tasks": len(active.get(worker_name, [])),
                 "reserved_tasks": len(reserved.get(worker_name, [])),
             }
-            for worker_name in pong.keys()
+            for worker_name in active.keys()
         ]
         return {"name": "celery_workers", "status": "up", "latency_ms": latency_ms, "detail": f"{len(workers)} worker(s) online", "workers": workers}
     except Exception as exc:
@@ -122,7 +126,18 @@ async def _compute_system_health(session: AsyncSession) -> dict[str, Any]:
         run_in_threadpool(_check_external_service, "rampart_ai", os.getenv("RAMPARTAI_URL"), "/"),
         run_in_threadpool(_check_disk_space),
         run_in_threadpool(_check_memory),
+        return_exceptions=True,
     )
+
+    checks = [
+        c if isinstance(c, dict) else {
+            "name": "unknown",
+            "status": "down",
+            "latency_ms": None,
+            "detail": (str(c)[:200] if c else "check failed"),
+        }
+        for c in checks
+    ]
 
     overall = "up"
     for check in checks:

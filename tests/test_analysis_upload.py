@@ -103,7 +103,7 @@ def test_upload_route_uses_validated_uuid_subject(monkeypatch, upload_modules):
     response = TestClient(app).post(
         "/api/analy/v1/upload",
         params={"token": "upload-token"},
-        files={"file": ("sample.bin", b"content")},
+        files={"file": ("sample.apk", b"content")},
         data={"privacy": "true"},
     )
 
@@ -141,7 +141,7 @@ def active_user(status="active", is_banned=False):
     return SimpleNamespace(status=status, is_banned=is_banned)
 
 
-async def run_upload(monkeypatch, controller, tmp_path, content=b"payload", filename="sample.bin", user=None, existing=None, refreshed=None, task=None, events=None, gap_fill=("none", None)):
+async def run_upload(monkeypatch, controller, tmp_path, content=b"payload", filename="sample.apk", user=None, existing=None, refreshed=None, task=None, events=None, gap_fill=("none", None)):
     session = FakeSession(user if user is not None else active_user(), events)
     if task:
         task.session = session
@@ -240,7 +240,7 @@ async def test_upload_requires_existing_active_user(monkeypatch, upload_modules,
 
     with pytest.raises(HTTPException) as raised:
         await controller.scan_file_controller(
-            UploadFile(filename="sample.bin", file=io.BytesIO(b"payload")), "00000000-0000-4000-8000-000000000001", True
+            UploadFile(filename="sample.apk", file=io.BytesIO(b"payload")), "00000000-0000-4000-8000-000000000001", True
         )
 
     assert raised.value.status_code == status_code

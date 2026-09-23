@@ -31,6 +31,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cores.Schema.schema_class import User
+from services.admin.admin_service import write_audit_log
 
 AVATAR_DIR = Path("avatars")
 AVATAR_DIR.mkdir(parents=True, exist_ok=True)
@@ -66,7 +67,22 @@ async def update_username(session: AsyncSession, uid: uuid.UUID, username: str) 
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(status_code=409, detail="Username is already taken")
 
+    if user.username == username:
+        return user
+
+    previous_username = user.username
     user.username = username
+    try:
+        await write_audit_log(
+            session,
+            actor_uid=uid,
+            target_uid=None,
+            action="update_profile",
+            detail=f"username: '{previous_username}' -> '{username}'",
+        )
+    except Exception:  # pragma: no cover - defensive
+        # Audit logging must never block an otherwise-successful profile update.
+        pass
     await session.commit()
     await session.refresh(user)
     return user

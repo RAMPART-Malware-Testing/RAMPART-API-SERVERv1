@@ -112,14 +112,14 @@ class GenerateTokenParams(BaseModel):
 
 class UpdatePrivacyParams(BaseModel):
     token: str
-    privacy: bool = True
+    privacy: bool = False
 
 class CheckHashParams(BaseModel):
     token: str
     sha256: str
     file_name: str
     file_size: int
-    privacy: bool = True
+    privacy: bool = False
 
     @field_validator("sha256")
     @classmethod

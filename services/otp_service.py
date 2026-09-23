@@ -1,4 +1,4 @@
-import random
+import secrets
 from typing import Literal
 
 from utils.mailer import send_email
@@ -19,7 +19,7 @@ class OTPService:
 
     @staticmethod
     def _generate() -> str:
-        return f"{random.randint(100000, 999999)}"
+        return f"{secrets.randbelow(900000) + 100000}"
 
     @staticmethod
     def _key(action: str, token: str) -> str:

@@ -8,6 +8,7 @@ from celery.exceptions import MaxRetriesExceededError, Retry
 from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy import text
+from uuid import uuid4
 
 from bgProcessing import task_handlers, tasks
 from controller import analysis_controller
@@ -401,6 +402,10 @@ async def test_status_uses_string_uid_and_current_report_schema(monkeypatch):
 
     monkeypatch.setattr(analysis_controller, "SessionLocal", Context)
     monkeypatch.setattr(analysis_controller, "get_analysis_with_report", lookup)
+    # analysisReport_controller caches in Redis (3s TTL) keyed by uid+task_id;
+    # without this, whichever of these two same-key tests runs second reads
+    # the other's cached response.
+    analysis_controller.invalidate_cached(analysis_controller.TASK_STATUS_CACHE_NAMESPACE)
 
     response = await analysis_controller.analysisReport_controller("00000000-0000-4000-8000-000000000001", "task-1")
 
@@ -431,6 +436,7 @@ async def test_success_without_report_is_defensive(monkeypatch):
 
     monkeypatch.setattr(analysis_controller, "SessionLocal", Context)
     monkeypatch.setattr(analysis_controller, "get_analysis_with_report", lookup)
+    analysis_controller.invalidate_cached(analysis_controller.TASK_STATUS_CACHE_NAMESPACE)
 
     response = await analysis_controller.analysisReport_controller("00000000-0000-4000-8000-000000000001", "task-1")
 
@@ -499,14 +505,64 @@ async def test_raw_report_reads_persisted_virustotal_name(monkeypatch, tmp_path)
 
     assert response["report"] == report
 
+from collections import namedtuple
+
+# Mirrors what SQLAlchemy's result.all() yields for
+# `select(Analysis.uid, Analysis.privacy)` - the controller reads these as
+# attributes (row.uid / row.privacy), so a plain tuple is not a faithful stub.
+_AccessRow = namedtuple("_AccessRow", "uid privacy")
+
+class _DownloadSession:
+    """Minimal async-session stand-in for downloadReport_controller tests -
+    the controller only needs a context manager it can pass to the (faked)
+    authz/service helpers, plus add/commit for the audit-log path."""
+
+    def __init__(self):
+        self.added = []
+        self.commits = 0
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    async def commit(self):
+        self.commits += 1
+
+def _fake_download_auth(monkeypatch, *, uid, role="user", rows):
+    """Stubs get_current_user (always succeeds, returns a user with the
+    given uid/role/ban state) and get_analysis_access_rows_by_md5 (returns
+    the given (uid, privacy) rows) for downloadReport_controller tests."""
+    banned = role == "banned"
+
+    async def current_user(session, token):
+        return SimpleNamespace(
+            uid=uid,
+            is_banned=banned,
+            banned_reason="test ban" if banned else None,
+            role="user" if banned else role,
+        )
+
+    async def access_rows(session, md5):
+        return [_AccessRow(*row) for row in rows]
+
+    monkeypatch.setattr(analysis_controller, "SessionLocal", _DownloadSession)
+    monkeypatch.setattr(analysis_controller, "get_current_user", current_user)
+    monkeypatch.setattr(analysis_controller, "get_analysis_access_rows_by_md5", access_rows)
+
 @pytest.mark.asyncio
 async def test_download_accepts_exact_persisted_virustotal_basename(monkeypatch, tmp_path):
     name = f"virustotal-{'a' * 32}.json"
     expected = tmp_path / name
     expected.write_text("{}", encoding="utf-8")
     monkeypatch.setattr(analysis_controller, "BASE_REPORT_PATH", tmp_path)
+    _fake_download_auth(monkeypatch, uid=uuid4(), rows=[(uuid4(), True)])
 
-    assert await analysis_controller.downloadReport_controller(name) == expected.resolve()
+    assert await analysis_controller.downloadReport_controller(name, "access-token") == expected.resolve()
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("name", [
@@ -520,8 +576,9 @@ async def test_download_accepts_all_known_tool_basenames(name, monkeypatch, tmp_
     expected = tmp_path / name
     expected.write_text("{}", encoding="utf-8")
     monkeypatch.setattr(analysis_controller, "BASE_REPORT_PATH", tmp_path)
+    _fake_download_auth(monkeypatch, uid=uuid4(), rows=[(uuid4(), True)])
 
-    assert await analysis_controller.downloadReport_controller(name) == expected.resolve()
+    assert await analysis_controller.downloadReport_controller(name, "access-token") == expected.resolve()
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("name", [
@@ -533,6 +590,84 @@ async def test_download_rejects_malformed_or_unknown_tool_names(name):
     with pytest.raises(HTTPException) as raised:
         await analysis_controller.downloadReport_controller(name)
     assert raised.value.status_code == 400
+
+@pytest.mark.asyncio
+async def test_download_requires_token(monkeypatch, tmp_path):
+    name = f"virustotal-{'a' * 32}.json"
+    (tmp_path / name).write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(analysis_controller, "BASE_REPORT_PATH", tmp_path)
+    _fake_download_auth(monkeypatch, uid=uuid4(), rows=[(uuid4(), True)])
+
+    with pytest.raises(HTTPException) as raised:
+        await analysis_controller.downloadReport_controller(name, None)
+    assert raised.value.status_code == 401
+
+@pytest.mark.asyncio
+async def test_download_rejects_banned_user(monkeypatch, tmp_path):
+    name = f"virustotal-{'a' * 32}.json"
+    (tmp_path / name).write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(analysis_controller, "BASE_REPORT_PATH", tmp_path)
+    _fake_download_auth(monkeypatch, uid=uuid4(), role="banned", rows=[(uuid4(), True)])
+
+    with pytest.raises(HTTPException) as raised:
+        await analysis_controller.downloadReport_controller(name, "access-token")
+    assert raised.value.status_code == 403
+
+@pytest.mark.asyncio
+async def test_download_rejects_foreign_private_report(monkeypatch, tmp_path):
+    name = f"virustotal-{'a' * 32}.json"
+    (tmp_path / name).write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(analysis_controller, "BASE_REPORT_PATH", tmp_path)
+    _fake_download_auth(monkeypatch, uid=uuid4(), rows=[(uuid4(), False)])
+
+    with pytest.raises(HTTPException) as raised:
+        await analysis_controller.downloadReport_controller(name, "access-token")
+    assert raised.value.status_code == 403
+
+@pytest.mark.asyncio
+async def test_download_rejects_md5_without_analysis_rows(monkeypatch, tmp_path):
+    name = f"virustotal-{'a' * 32}.json"
+    (tmp_path / name).write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(analysis_controller, "BASE_REPORT_PATH", tmp_path)
+    _fake_download_auth(monkeypatch, uid=uuid4(), rows=[])
+
+    with pytest.raises(HTTPException) as raised:
+        await analysis_controller.downloadReport_controller(name, "access-token")
+    assert raised.value.status_code == 404
+
+@pytest.mark.asyncio
+async def test_download_allows_owner_of_private_report(monkeypatch, tmp_path):
+    uid = uuid4()
+    name = f"virustotal-{'a' * 32}.json"
+    expected = tmp_path / name
+    expected.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(analysis_controller, "BASE_REPORT_PATH", tmp_path)
+    _fake_download_auth(monkeypatch, uid=uid, rows=[(uid, False)])
+
+    assert await analysis_controller.downloadReport_controller(name, "access-token") == expected.resolve()
+
+@pytest.mark.asyncio
+async def test_download_admin_private_report_is_audited(monkeypatch, tmp_path):
+    owner_uid = uuid4()
+    name = f"virustotal-{'a' * 32}.json"
+    expected = tmp_path / name
+    expected.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(analysis_controller, "BASE_REPORT_PATH", tmp_path)
+    _fake_download_auth(monkeypatch, uid=uuid4(), role="admin", rows=[(owner_uid, False)])
+    audited = []
+    monkeypatch.setattr(
+        analysis_controller,
+        "write_audit_log",
+        lambda session, **kwargs: audited.append(kwargs) or _noop_coroutine(),
+    )
+
+    assert await analysis_controller.downloadReport_controller(name, "access-token") == expected.resolve()
+    assert audited[0]["action"] == "download_private_report"
+    assert audited[0]["detail"] == name
+    assert audited[0]["target_uid"] == owner_uid
+
+async def _noop_coroutine():
+    return None
 
 def test_raw_report_request_accepts_known_tool_selector():
     params = AnalysisReportParamsTarget(task_id="task-1", token="token", tool="cape")

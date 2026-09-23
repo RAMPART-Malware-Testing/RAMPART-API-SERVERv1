@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
 
@@ -103,10 +104,14 @@ async def list_active_tasks(
 def _fetch_queue_depth() -> dict[str, Any]:
     try:
         from bgProcessing.celery_app import celery_app
-        inspector = celery_app.control.inspect(timeout=3)
-        active = inspector.active() or {}
-        reserved = inspector.reserved() or {}
-        scheduled = inspector.scheduled() or {}
+        inspector = celery_app.control.inspect(timeout=1.0)
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            active_future = pool.submit(inspector.active)
+            reserved_future = pool.submit(inspector.reserved)
+            scheduled_future = pool.submit(inspector.scheduled)
+            active = active_future.result() or {}
+            reserved = reserved_future.result() or {}
+            scheduled = scheduled_future.result() or {}
         total_active = sum(len(v) for v in active.values())
         total_reserved = sum(len(v) for v in reserved.values())
         total_scheduled = sum(len(v) for v in scheduled.values())

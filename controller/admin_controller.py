@@ -18,6 +18,7 @@ authz failure, so every admin endpoint reports errors identically.
 from __future__ import annotations
 
 from fastapi import HTTPException
+from fastapi.concurrency import run_in_threadpool
 
 from cores.async_pg_db import SessionLocal
 from schemas.admin import (
@@ -375,7 +376,7 @@ async def task_queue_depth_controller(body: AdminTokenParams):
         except AuthError as exc:
             return _auth_error_response(exc)
     from services.admin.task_queue_service import get_queue_depth
-    return get_queue_depth()
+    return await run_in_threadpool(get_queue_depth)
 
 async def task_retry_controller(body: AdminTaskActionParams):
     async with SessionLocal() as session:
@@ -414,7 +415,7 @@ async def rate_limit_snapshot_controller(body: AdminTokenParams):
         except AuthError as exc:
             return _auth_error_response(exc)
     from services.admin.rate_limit_monitor_service import get_rate_limit_snapshot
-    return get_rate_limit_snapshot()
+    return await run_in_threadpool(get_rate_limit_snapshot)
 
 async def rate_limit_clear_controller(body: AdminClearLockoutParams):
     async with SessionLocal() as session:

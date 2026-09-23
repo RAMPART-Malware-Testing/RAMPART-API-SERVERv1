@@ -9,18 +9,39 @@ from fastapi.concurrency import run_in_threadpool
 from bgProcessing.tasks import analyze_malware_task
 from cores.Schema.schema_class import Analysis, User, Reports
 from schemas.analy import AnalysisHistoryParams
+from services.malware_type_service import classify_or_default, classify_signature
 from uuid import UUID, uuid4
 
 REPORTS_DIR = Path("reports")
 
 ANALYSIS_HISTORY_CACHE_NAMESPACE = "analy:history"
-ANALYSIS_HISTORY_CACHE_TTL_SECONDS = 5
+ANALYSIS_HISTORY_CACHE_TTL_SECONDS = 30
 
 _GAP_FILL_TOOL_KWARGS: dict[str, tuple[str, str]] = {
     "virustotal": ("vt_status", "vt_report_path"),
     "mobsf": ("mobsf_status", "mobsf_report_path"),
     "cape": ("cape_status", "cape_report_path"),
 }
+
+def _malware_type_items(report: Reports | None) -> list[dict[str, str]]:
+    """Map a report's malware_signatures to a deduplicated {type, label, icon}
+    list via the shared malware-type classifier."""
+    signatures = report.malware_signatures if report else None
+    if not signatures:
+        return []
+    seen: set[str] = set()
+    items: list[dict[str, str]] = []
+    for signature in signatures:
+        if not signature:
+            continue
+        label, icon = classify_or_default(signature)
+        match = classify_signature(signature)
+        type_key = match["type_name_en"] if match else label
+        if type_key in seen:
+            continue
+        seen.add(type_key)
+        items.append({"type": type_key, "label": label, "icon": icon})
+    return items
 
 async def acquire_analysis_hash_lock(session: AsyncSession, file_hash: str) -> None:
     lock_key = int.from_bytes(bytes.fromhex(file_hash)[:8], byteorder="big", signed=True)
@@ -512,6 +533,13 @@ async def get_analysis_history(
         stmt = stmt.options(joinedload(Analysis.report))
 
     analyses = (await session.execute(stmt)).scalars().unique().all()
+    uids = [a.uid for a in analyses if a.uid]
+    owners: dict = {}
+    if uids:
+        user_rows = (
+            await session.execute(select(User).where(User.uid.in_(uids)))
+        ).scalars().all()
+        owners = {u.uid: u for u in user_rows}
 
     def serialize(a: Analysis) -> dict[str, Any]:
         item: dict[str, Any] = {
@@ -526,8 +554,17 @@ async def get_analysis_history(
             "md5":        a.md5,
             "privacy":    a.privacy,
             "created_at": a.created_at.isoformat() if a.created_at else None,
+            "uploaded_by":  None,
+            "malware_types": _malware_type_items(a.report),
             "report":     None,
         }
+
+        owner = owners.get(a.uid)
+        if owner:
+            item["uploaded_by"] = {
+                "username": owner.username,
+                "avatar_url": owner.avatar_url,
+            }
 
         if a.report:
             r = a.report

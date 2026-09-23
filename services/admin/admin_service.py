@@ -17,6 +17,7 @@ from datetime import datetime, timedelta as _timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import and_, asc, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, joinedload
@@ -59,6 +60,20 @@ def _invalidate_file_caches() -> None:
     invalidate_cached(REPORT_LIST_CACHE_NAMESPACE)
     invalidate_cached(DASHBOARD_CACHE_NAMESPACE)
     invalidate_cached(AUDIT_LOG_CACHE_NAMESPACE)
+    # User-facing views must stop serving a deleted file immediately rather
+    # than up to their TTL. Imports are function-level on purpose:
+    # analy_service imports bgProcessing.tasks, which imports this module, so a
+    # module-level import here would be circular.
+    from services.analy.analy_service import ANALYSIS_HISTORY_CACHE_NAMESPACE
+    from services.dashboard.dashboars_service import (
+        DASHBOARD_SUMMARY_CACHE_NAMESPACE,
+        RECENT_ACTIVITIES_CACHE_NAMESPACE,
+        REPORTS_HISTORY_CACHE_NAMESPACE,
+    )
+    invalidate_cached(ANALYSIS_HISTORY_CACHE_NAMESPACE)
+    invalidate_cached(DASHBOARD_SUMMARY_CACHE_NAMESPACE)
+    invalidate_cached(RECENT_ACTIVITIES_CACHE_NAMESPACE)
+    invalidate_cached(REPORTS_HISTORY_CACHE_NAMESPACE)
 
 async def write_audit_log(
     session: AsyncSession,
@@ -725,6 +740,7 @@ async def soft_delete_file(
     await _purge_temp_file_if_unreferenced(session, analysis.file_path)
     await session.commit()
     await session.refresh(analysis)
+    _invalidate_file_caches()
     return analysis
 
 async def bulk_soft_delete_files(
@@ -769,6 +785,8 @@ async def bulk_soft_delete_files(
             await _purge_temp_file_if_unreferenced(session, analysis.file_path)
 
     await session.commit()
+    if succeeded:
+        _invalidate_file_caches()
     return {"success": True, "data": {"succeeded": succeeded, "failed": failed}}
 
 async def ban_user(
@@ -798,6 +816,7 @@ async def ban_user(
     )
     await session.commit()
     await session.refresh(target)
+    _invalidate_user_caches(target.uid)
     return target
 
 async def bulk_ban_users(
@@ -832,6 +851,8 @@ async def bulk_ban_users(
             failed.append({"uid": str(target_uid), "reason": exc.message})
 
     await session.commit()
+    if succeeded:
+        _invalidate_user_caches()
     return {"success": True, "data": {"succeeded": succeeded, "failed": failed}}
 
 async def unban_user(
@@ -860,6 +881,7 @@ async def unban_user(
     )
     await session.commit()
     await session.refresh(target)
+    _invalidate_user_caches(target.uid)
     return target
 
 async def change_user_role(
@@ -895,6 +917,7 @@ async def change_user_role(
     )
     await session.commit()
     await session.refresh(target)
+    _invalidate_user_caches(target.uid)
     return target
 
 async def get_admin_dashboard_summary(session: AsyncSession, *, trend_days: int = 14) -> dict[str, Any]:
@@ -1103,20 +1126,24 @@ async def broadcast_email(
         stmt = stmt.where(User.role == target_role)
     rows = (await session.execute(stmt)).all()
 
-    sent = 0
-    for email, username in rows:
-        if not email:
-            continue
-        text_body = f"สวัสดีคุณ {username},\n\n{message}\n\n— ทีมงาน RAMPART"
-        html_body = f"""
-        <div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:auto">
-          <p>สวัสดีคุณ {username},</p>
-          <p style="white-space:pre-line">{message}</p>
-          <p style="color:#888;font-size:12px">— ทีมงาน RAMPART</p>
-        </div>
-        """
-        if send_email(email, subject, text_body, html_body):
-            sent += 1
+    def _send_emails() -> int:
+        sent = 0
+        for email, username in rows:
+            if not email:
+                continue
+            text_body = f"สวัสดีคุณ {username},\n\n{message}\n\n— ทีมงาน RAMPART"
+            html_body = f"""
+            <div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:auto">
+              <p>สวัสดีคุณ {username},</p>
+              <p style="white-space:pre-line">{message}</p>
+              <p style="color:#888;font-size:12px">— ทีมงาน RAMPART</p>
+            </div>
+            """
+            if send_email(email, subject, text_body, html_body):
+                sent += 1
+        return sent
+
+    sent = await run_in_threadpool(_send_emails)
 
     await write_audit_log(
         session,

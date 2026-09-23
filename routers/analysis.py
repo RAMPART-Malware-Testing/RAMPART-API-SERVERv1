@@ -19,7 +19,7 @@ async def generateToken(body: GenerateTokenParams):
 @router.post("/upload")
 async def uploadFile(
     file: UploadFile = File(...),
-    privacy: bool = Form(True),
+    privacy: bool = Form(False),
     token: str | None = Query(default=None),
     token_form: str | None = Form(default=None, alias="token"),
 ):

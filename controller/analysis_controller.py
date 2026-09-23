@@ -360,6 +360,15 @@ async def downloadReport_controller(file_name:str, token: str | None = None):
             await session.commit()
         elif not owner_or_public:
             raise HTTPException(status_code=403, detail="Access denied")
+        if owner_or_public:
+            await write_audit_log(
+                session,
+                actor_uid=user.uid,
+                target_uid=rows[0].uid,
+                action="download_report",
+                detail=file_name,
+            )
+            await session.commit()
 
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="Report not found")

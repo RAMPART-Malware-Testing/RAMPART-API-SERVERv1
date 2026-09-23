@@ -29,6 +29,32 @@ DOWNLOAD_HISTORY_CACHE_TTL_SECONDS = 5
 LOGIN_HISTORY_CACHE_NAMESPACE = "profile:login_history"
 LOGIN_HISTORY_CACHE_TTL_SECONDS = 5
 
+def _detect_login_channel(user_agent: str | None) -> str:
+    if not user_agent:
+        return "Unknown"
+    ua = user_agent.lower()
+    if "dart" in ua or "flutter" in ua:
+        return "Mobile"
+    if any(marker in ua for marker in ("mozilla", "chrome", "safari", "firefox", "edge", "opera")):
+        return "Web"
+    return "Unknown"
+
+def _parse_os_from_user_agent(user_agent: str | None) -> str | None:
+    if not user_agent:
+        return None
+    ua = user_agent.lower()
+    if "android" in ua:
+        return "Android"
+    if "iphone" in ua or "ipad" in ua or "ipod" in ua or re.search(r"(^|[^a-z])ios([^a-z]|$)", ua):
+        return "iOS"
+    if "windows" in ua:
+        return "Windows"
+    if "mac os" in ua or "macintosh" in ua or "macos" in ua:
+        return "macOS"
+    if "linux" in ua:
+        return "Linux"
+    return None
+
 async def record_download_controller(token: str, file_name: str | None, tool: str | None, md5: str | None):
     uid, err = _resolve_uid_or_error(token)
     if err:
@@ -99,6 +125,10 @@ async def _fetch_login_history(session, uid, limit: int):
             "user_agent": r.user_agent,
             "status": r.status,
             "created_at": r.created_at.isoformat() if r.created_at else None,
+            "channel": _detect_login_channel(r.user_agent),
+            "os": _parse_os_from_user_agent(r.user_agent),
+            # Deliberately null until a geo-IP source is wired in; location must not be faked.
+            "location": None,
         }
         for r in rows
     ]
