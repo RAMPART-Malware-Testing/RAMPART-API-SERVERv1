@@ -306,22 +306,36 @@ async def get_file_by_hash_controller(task_id: str, uid: str, tool: str = "virus
             }
 
         path = (BASE_REPORT_PATH / f"{prefix}-{analysis.md5}.json").resolve()
-        try:
-            if path.parent == BASE_REPORT_PATH.resolve() and path.is_file():
-                async with aiofiles.open(path, "r", encoding="utf-8") as f:
-                    content = await f.read()
-                    data = json.loads(content)
-            else:
-                data = {"error": "file not found", "tool": tool}
-        except Exception as e:
-            data = {"error": str(e), "tool": tool}
+        if not (path.parent == BASE_REPORT_PATH.resolve() and path.is_file()):
+            return {
+                "success": False,
+                "task_id": task_id,
+                "status": analysis.status,
+                "tool": tool,
+                "message": "REPORT_FILE_NOT_FOUND",
+                "report": None,
+            }
 
-        return{
+        try:
+            async with aiofiles.open(path, "r", encoding="utf-8") as f:
+                content = await f.read()
+            data = json.loads(content)
+        except Exception as e:
+            return {
+                "success": False,
+                "task_id": task_id,
+                "status": analysis.status,
+                "tool": tool,
+                "message": f"REPORT_FILE_UNREADABLE: {e}",
+                "report": None,
+            }
+
+        return {
             "success": True,
             "task_id": task_id,
             "status": analysis.status,
             "tool": tool,
-            "report":data
+            "report": data,
         }
 
 async def downloadReport_controller(file_name:str, token: str | None = None):

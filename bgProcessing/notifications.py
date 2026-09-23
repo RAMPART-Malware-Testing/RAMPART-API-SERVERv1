@@ -29,7 +29,7 @@ def notify_analysis_success(db, task_id: str) -> None:
     score = float(report.score) if report and report.score is not None else None
     risk_level = report.risk_level if report else None
     file_name = analysis.file_name or "ไฟล์ของคุณ"
-    report_url = f"{_get_frontend_url()}/reports/{task_id}"
+    report_url = f"{_get_frontend_url()}/scan/analysis?taskId={task_id}"
 
     risk_text = risk_level or "ไม่ระบุ"
     score_text = f"{score}/100" if score is not None else "ไม่ระบุ"

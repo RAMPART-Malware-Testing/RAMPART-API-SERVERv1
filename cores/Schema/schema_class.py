@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, Text, text, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Numeric, Text, text, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from datetime import datetime, timezone
@@ -63,6 +63,16 @@ class OAuthAccount(Base):
 
 class Analysis(Base):
     __tablename__ = "analysis"
+
+    __table_args__ = (
+        Index(
+            "uq_analysis_task_uid_active",
+            "task_id",
+            "uid",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+    )
 
     aid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     uid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.uid", ondelete="CASCADE"), nullable=False)

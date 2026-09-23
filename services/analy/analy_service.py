@@ -362,6 +362,7 @@ async def get_analysis_with_report(
             Analysis.uid == uid,
             Analysis.deleted_at.is_(None),
         )
+        .order_by(Analysis.created_at.desc())
     )
     row = result.first()
     if row is None:
@@ -382,6 +383,7 @@ async def get_public_analysis_with_report(
             Analysis.privacy == True,  # noqa: E712
             Analysis.deleted_at.is_(None),
         )
+        .order_by(Analysis.created_at.desc())
     )
     row = result.first()
     if row is None:
@@ -403,6 +405,7 @@ async def get_analysis_with_report_admin(
         select(Analysis, Reports)
         .outerjoin(Reports, Analysis.rid == Reports.rid)
         .where(Analysis.task_id == task_id, Analysis.deleted_at.is_(None))
+        .order_by(Analysis.created_at.desc())
     )
     row = result.first()
     if row is None:
