@@ -99,21 +99,24 @@ def _no_redis(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_login_rejects_unknown_email(monkeypatch):
-    """Unknown email and wrong password must be indistinguishable (no
-    account enumeration): both return the generic INVALID_CREDENTIALS."""
+    """An email with no account is named as such, so the caller is not left
+    wondering. This is the one case distinct from every credential failure:
+    a wrong password stays generic (see the tests below)."""
     patch_session(monkeypatch, None)
     response = await AuthService.login(
         SimpleNamespace(email="nobody@example.com", password="whatever"), "ua", "127.0.0.1", ""
     )
     assert response["success"] is False
-    assert response["status"] == "INVALID_CREDENTIALS"
-    assert response["message"] == "ข้อมูลการเข้าสู่ระบบไม่ถูกต้อง"
+    assert response["status"] == "USER_NOT_FOUND"
+    assert response["message"] == "ไม่พบผู้ใช้งานระบบ"
 
 @pytest.mark.asyncio
 async def test_login_rejects_oauth_only_account_with_null_password(monkeypatch):
     """The critical coexistence case: a user who only ever signed in via
     Google/GitHub has password=None. Logging in with a password must be
-    rejected cleanly, not crash inside verify_password(None, ...)."""
+    rejected cleanly, not crash inside verify_password(None, ...). The
+    account DOES exist, so the reply must not claim otherwise: it stays the
+    generic INVALID_CREDENTIALS."""
     user = make_user(password=None)
     patch_session(monkeypatch, user)
     response = await AuthService.login(
@@ -121,9 +124,13 @@ async def test_login_rejects_oauth_only_account_with_null_password(monkeypatch):
     )
     assert response["success"] is False
     assert response["status"] == "INVALID_CREDENTIALS"
+    assert response["message"] == "ข้อมูลการเข้าสู่ระบบไม่ถูกต้อง"
 
 @pytest.mark.asyncio
 async def test_login_rejects_wrong_password(monkeypatch):
+    """A wrong password is never named as the failing field. The reply must
+    read exactly like any other credential rejection, otherwise it confirms
+    the account exists and can be ground against indefinitely."""
     user = make_user(password=get_password_hash("correct-horse-battery-staple"))
     patch_session(monkeypatch, user)
     response = await AuthService.login(
@@ -131,6 +138,7 @@ async def test_login_rejects_wrong_password(monkeypatch):
     )
     assert response["success"] is False
     assert response["status"] == "INVALID_CREDENTIALS"
+    assert response["message"] == "ข้อมูลการเข้าสู่ระบบไม่ถูกต้อง"
 
 @pytest.mark.asyncio
 async def test_login_sends_otp_on_correct_password(monkeypatch):
@@ -488,14 +496,24 @@ async def test_register_confirm_creates_user_with_hashed_password(monkeypatch):
     assert verify_password(created.password, "Sup3rSecret!") is True
 
 @pytest.mark.asyncio
-async def test_reset_hides_unknown_email_behind_generic_otp_response(monkeypatch):
-    """Anti-enumeration: an unknown email gets the same OTP_SENT-shaped
-    success as a known one (without any OTP session / email being sent)."""
+async def test_reset_rejects_unknown_email_without_sending_otp(monkeypatch):
+    """An unknown email gets USER_NOT_FOUND, and no OTP session is created
+    for it (nobody to mail, nothing to reset)."""
     patch_session(monkeypatch, None)
+
+    otp_sessions = []
+
+    async def spy_create_otp_session(**kwargs):
+        otp_sessions.append(kwargs)
+        return {"success": True, "status": "OTP_SENT", "message": "sent", "data": {"token": kwargs["token"]}}
+
+    monkeypatch.setattr(auth_service_module.OTPService, "create_otp_session", spy_create_otp_session)
+
     response = await AuthService.reset(SimpleNamespace(email="nobody@example.com", token=None, newPasswd=None))
-    assert response["success"] is True
-    assert response["status"] == "OTP_SENT"
-    assert response["data"] is None
+    assert response["success"] is False
+    assert response["status"] == "USER_NOT_FOUND"
+    assert response["message"] == "ไม่พบผู้ใช้งานระบบ"
+    assert otp_sessions == []
 
 @pytest.mark.asyncio
 async def test_reset_sends_otp_for_known_email(monkeypatch):

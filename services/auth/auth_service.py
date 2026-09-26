@@ -40,6 +40,13 @@ DEVICE_TOKEN_TTL_MINUTES = 60 * 24 * 7
 # Per-IP fixed windows (utils.rate_limit, fails OPEN without Redis) plus a
 # per-email wrong-password lockout below. Availability over strictness,
 # matching the codebase's Redis posture.
+#
+# Response policy for the email+password endpoints, deliberate on both sides:
+# an email with no account is named as such (USER_NOT_FOUND, and the reset
+# flow emails no OTP because there is nobody to mail), while a wrong password
+# is NEVER named - it stays the generic INVALID_CREDENTIALS so the reply
+# cannot be read as "the account exists, keep guessing". Unknown email is the
+# absence of an account; wrong password would be a live account to grind on.
 LOGIN_IP_RATE_LIMIT = 20
 LOGIN_IP_RATE_WINDOW_SECONDS = 15 * 60
 AUTH_IP_RATE_LIMIT = 15
@@ -218,8 +225,12 @@ class AuthService:
 
             if not user:
                 _record_pwfail(normalized_email)
-                return error(AuthStatus.INVALID_CREDENTIALS, "ข้อมูลการเข้าสู่ระบบไม่ถูกต้อง")
+                return error(AuthStatus.USER_NOT_FOUND, "ไม่พบผู้ใช้งานระบบ")
 
+            # Wrong password - including OAuth-only accounts, whose password
+            # column is NULL - always answers with the generic message: naming
+            # the password as the failing field would confirm the account
+            # exists and invite repeated guessing.
             if not user.password or not verify_password(user.password, body.password):
                 _record_pwfail(normalized_email)
                 return error(AuthStatus.INVALID_CREDENTIALS, "ข้อมูลการเข้าสู่ระบบไม่ถูกต้อง")
@@ -480,12 +491,10 @@ class AuthService:
                 )
                 user = result.mappings().one_or_none()
             if not user:
-                # Anti-enumeration: answer exactly like the known-email path
-                # (no OTP session is created and nothing is emailed).
-                return success(
-                    AuthStatus.OTP_SENT,
-                    f"รหัส OTP ถูกส่งไปยังอีเมล {normalized_email}"
-                )
+                # No account, so no OTP: returning before create_otp_session
+                # means no code is stored and no mail is sent to an address
+                # that has nothing to reset.
+                return error(AuthStatus.USER_NOT_FOUND, "ไม่พบผู้ใช้งานระบบ")
 
             token = create_token(
                 subject=str(user.uid),
