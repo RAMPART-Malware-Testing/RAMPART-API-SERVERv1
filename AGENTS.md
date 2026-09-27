@@ -34,7 +34,7 @@
 ## Celery
 
 - Windows: uses `--pool=solo`. Linux: uses `--pool=prefork` (default).
-- Task `max_retries=100` with dynamic countdowns (30s for MobSF/CAPE polling, 5s for RampartAI, 60s for CAPE initial submit).
+- Task `max_retries=150` with dynamic countdowns (30s for MobSF/CAPE polling, 5s for RampartAI, 60s for CAPE initial submit). MobSF polls up to `MAX_MOBSF_POLL_ATTEMPTS=120` (~60 min), CAPE up to `MAX_CAPE_POLL_ATTEMPTS=40` (~20 min) — the MobSF cap must stay below the task's retry budget (VT polls + MobSF/CAPE joint polls).
 - 1-hour timeout (`task_time_limit=3600`), timezone `Asia/Bangkok`.
 
 ## Testing

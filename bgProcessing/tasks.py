@@ -33,6 +33,7 @@ PROGRESS_TTL_SECONDS = 86400
 
 MAX_TOOL_ERROR_RETRIES = 3
 MAX_TOOL_POLL_ATTEMPTS = 10
+MAX_MOBSF_POLL_ATTEMPTS = 120
 MAX_CAPE_POLL_ATTEMPTS = 40
 
 TOOL_LABELS = {"virustotal": "VirusTotal", "mobsf": "MobSF", "cape": "CAPE", "rampart_ai": "RampartAI"}
@@ -301,7 +302,7 @@ def finalize_virustotal_report(db, task_id: str, file_path: str, report_data: di
     )
     return report, scores["virustotal_score"]
 
-@celery_app.task(bind=True, max_retries=60)
+@celery_app.task(bind=True, max_retries=150)
 def analyze_malware_task(
     self,
     file_path: str,
@@ -468,7 +469,7 @@ def analyze_malware_task(
             if result.get("status") is True:
                 mobsf_report_path = result.get("report_path", mobsf_report_path)
             mobsf_submitted = bool(result.get("submitted", mobsf_submitted))
-            outcome = evaluate_tool_progress(tool_key="mobsf", result=result, attempts=mobsf_attempts, polls=mobsf_polls, max_polls=30)
+            outcome = evaluate_tool_progress(tool_key="mobsf", result=result, attempts=mobsf_attempts, polls=mobsf_polls, max_polls=MAX_MOBSF_POLL_ATTEMPTS)
             mobsf_attempts, mobsf_polls = outcome["attempts"], outcome["polls"]
             mobsf_status = outcome["status"]
             mobsf_countdown = outcome["retry_countdown"]
