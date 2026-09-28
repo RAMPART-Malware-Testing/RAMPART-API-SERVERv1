@@ -14,12 +14,15 @@ from cores.Schema.schema_class import User
 from cores.async_pg_db import SessionLocal
 from services.analy.analy_service import (
     acquire_analysis_hash_lock,
-    acquire_analysis_task_lock,
+    attempt_attach_to_existing_analysis,
     attempt_gap_fill_redispatch,
-    get_file_by_hash,
-    get_file_by_task_id,
-    insert_table_analy,
+    build_carry_forward_kwargs,
+    carry_forward_states,
+    completeness_summary,
+    evaluate_tool_completeness,
+    get_content_row_for_recovery,
     update_analysis_rows_by_task_id,
+    upsert_user_analysis,
 )
 from utils.uuid import parse_uuid
 
@@ -32,10 +35,9 @@ for directory in [UPLOAD_DIR, REPORTS_DIR, RESULTS_DIR]:
 
 MAX_FILE_SIZE = 1024 * 1024 * 1024
 CHUNK_SIZE = 1024 * 1024
-REUSABLE_STATUSES = {"queued", "processing", "analyzing", "success"}
 
-def upload_response(filename, md5, sha256, task_id, task_status, deduplicated, queue_state):
-    return {
+def upload_response(filename, md5, sha256, task_id, task_status, deduplicated, queue_state, completeness=None):
+    response = {
         "success": True,
         "task_id": task_id,
         "status": task_status,
@@ -45,6 +47,9 @@ def upload_response(filename, md5, sha256, task_id, task_status, deduplicated, q
         "deduplicated": deduplicated,
         "queue_state": queue_state,
     }
+    if completeness is not None:
+        response["completeness"] = completeness
+    return response
 
 async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool):
     try:
@@ -109,50 +114,33 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
                     gap_analysis.status,
                     False,
                     "gap_filled",
+                    completeness_summary(gap_analysis),
                 )
 
-            await acquire_analysis_hash_lock(db_session, final_sha256)
-            existing = await get_file_by_hash(db_session, final_sha256)
-            existing_status = existing.get("status") if existing else None
-            existing_task_id = existing.get("task_id") if existing else None
-
-            if existing and existing_status == "dispatching" and existing_task_id:
+            attach_outcome, attached = await attempt_attach_to_existing_analysis(
+                db_session,
+                uid=user_id,
+                file_hash=final_sha256,
+                file_name=original_filename,
+                file_size=accumulated_size,
+                privacy=is_private,
+            )
+            if attach_outcome == "dispatching":
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Analysis dispatch is in progress. Retry shortly.",
                 )
-
-            if existing and existing_status in REUSABLE_STATUSES and existing_task_id:
-                await acquire_analysis_task_lock(db_session, existing_task_id)
-                existing = await get_file_by_task_id(db_session, existing_task_id)
-                existing_status = existing.get("status") if existing else None
-                if not existing or existing_status == "failed":
-                    existing = None
-                else:
-                    await insert_table_analy(
-                        session=db_session,
-                        uid=user_id,
-                        rid=existing.get("rid"),
-                        task_id=existing_task_id,
-                        tools=existing.get("tools"),
-                        status=existing_status,
-                        file_name=original_filename,
-                        file_hash=final_sha256,
-                        file_path=existing.get("file_path"),
-                        file_type=existing.get("file_type"),
-                        file_size=existing.get("file_size"),
-                        privacy=is_private,
-                        md5=final_md5,
-                    )
-                    return upload_response(
-                        original_filename,
-                        final_md5,
-                        final_sha256,
-                        existing_task_id,
-                        existing_status,
-                        True,
-                        "reused",
-                    )
+            if attach_outcome == "attached" and attached is not None:
+                return upload_response(
+                    original_filename,
+                    final_md5,
+                    final_sha256,
+                    attached.task_id,
+                    attached.status,
+                    True,
+                    "reused" if attached.status == "success" else "waiting",
+                    completeness_summary(attached),
+                )
 
             target_file_path = UPLOAD_DIR / f"{final_sha256}{file_extension}"
             if target_file_path.exists():
@@ -160,10 +148,22 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
             else:
                 shutil.move(str(temp_file_path), str(target_file_path))
             temp_file_path = None
+            recovery_row = await get_content_row_for_recovery(db_session, final_sha256)
+            carry_forward_kwargs = {}
+            recovery_rid = None
+            if recovery_row is not None:
+                recovery_rid = recovery_row.get("rid")
+                carry_forward_kwargs, _ = build_carry_forward_kwargs(
+                    recovery_row, evaluate_tool_completeness(recovery_row)
+                )
+                recovery_states = carry_forward_states(recovery_row)
+                if recovery_states:
+                    carry_forward_kwargs["tool_states"] = recovery_states
             task_id = str(uuid.uuid4())
-            analysis = await insert_table_analy(
+            analysis = await upsert_user_analysis(
                 session=db_session,
                 uid=user_id,
+                rid=recovery_rid,
                 task_id=task_id,
                 status="dispatching",
                 file_name=original_filename,
@@ -179,6 +179,7 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
                 await run_in_threadpool(
                     analyze_malware_task.apply_async,
                     args=(str(target_file_path), final_md5, final_sha256, accumulated_size),
+                    kwargs=carry_forward_kwargs or None,
                     task_id=task_id,
                 )
             except Exception:

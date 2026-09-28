@@ -9,7 +9,7 @@ from cores.Schema.schema_class import User
 from schemas.analy import AnalysisHistoryParams 
 from services.admin.admin_service import write_audit_log
 from services.admin.authz import ADMIN_ROLES, AuthError, ensure_not_banned, get_current_user
-from services.analy.analy_service import get_analysis_access_rows_by_md5, get_analysis_history, get_analysis_with_report, get_analysis_with_report_admin, get_file_by_hash, get_public_analysis_with_report, insert_table_analy
+from services.analy.analy_service import get_analysis_access_rows_by_md5, get_analysis_history, get_analysis_with_report, get_analysis_with_report_admin, get_public_analysis_with_report
 from services.token_service import TokenService
 import os
 from pathlib import Path

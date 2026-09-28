@@ -6,13 +6,17 @@
 
 ## ภาพรวม
 
-ทั้งหมด 7 ตาราง ใช้ UUID เป็น primary key (`gen_random_uuid()` จาก extension `pgcrypto`) โดยมี `users` เป็นศูนย์กลาง — ทุกตารางที่เหลือยกเว้น `reports` จะมี FK กลับมาที่ `users.uid`
+ทั้งหมด **7 ตาราง** ใช้ UUID เป็น primary key (`gen_random_uuid()` จาก extension `pgcrypto`) โดยมี `users` เป็นศูนย์กลาง — ทุกตารางที่เหลือยกเว้น `reports` จะมี FK กลับมาที่ `users.uid`
 
-| กลุ่ม | ตาราง | หน้าที่ |
-|---|---|---|
-| ตัวตน | `users`, `oauth_accounts` | บัญชีผู้ใช้ + แผนที่บัญชีกับ external identity (Google/GitHub) |
-| งานวิเคราะห์ | `analysis`, `reports` | งานสแกนแต่ละชิ้น + ผลรวมคะแนนจากทุก tool |
-| ประวัติ/ตรวจสอบย้อนหลัง | `audit_logs`, `login_history`, `download_history` | ใครทำอะไร, login เมื่อไร, ดาวน์โหลดอะไร |
+| # | ตาราง | กลุ่ม | 1 แถว = อะไร | PK | FK หลัก | คอลัมน์ |
+|---|---|---|---|---|---|---|
+| 1 | `users` | ตัวตน | บัญชีผู้ใช้ 1 บัญชี (local password หรือ OAuth) | `uid` | `created_by`, `banned_by` → `users.uid` | 15 |
+| 2 | `oauth_accounts` | ตัวตน | identity ภายนอก 1 รายการที่ผูกกับ user (Google/GitHub) | `id` | `uid` → `users.uid` (CASCADE) | 6 |
+| 3 | `analysis` | งานวิเคราะห์ | งานสแกน 1 งานของผู้ใช้ 1 คน (ตัวตนคือ `uid` + `file_hash`) | `aid` | `uid` → `users.uid` (CASCADE), `rid` → `reports.rid` (SET NULL), `deleted_by` → `users.uid` | 20 |
+| 4 | `reports` | งานวิเคราะห์ | ผลรวมคะแนน 1 ชุดของเนื้อหาไฟล์ 1 ไฟล์ (แชร์กันทุก user ที่อัปโหลดไฟล์เดียวกัน) | `rid` | ไม่มี FK ออก (ถูก `analysis.rid` อ้างถึง) | 17 |
+| 5 | `audit_logs` | ประวัติ/ตรวจสอบ | การกระทำสำคัญ 1 ครั้ง (actor + target + action) | `log_id` | `actor_uid` → `users.uid` (CASCADE), `target_uid` → `users.uid` (SET NULL) | 6 |
+| 6 | `login_history` | ประวัติ/ตรวจสอบ | ความพยายาม login 1 ครั้ง (สำเร็จหรือล้มเหลว, ทุกช่องทาง) | `id` | `uid` → `users.uid` (CASCADE) | 7 |
+| 7 | `download_history` | ประวัติ/ตรวจสอบ | การดาวน์โหลดรายงานดิบ 1 ครั้ง | `id` | `uid` → `users.uid` (CASCADE) | 6 |
 
 ## ER Diagram
 
@@ -41,6 +45,8 @@ erDiagram
         uuid rid FK "NULL ได้"
         text task_id "index แยกต่างหาก"
         text status
+        text tool_notes "ข้อความอ่านได้"
+        jsonb tool_states "ผลราย tool สำหรับตัดสินใจ"
         timestamptz deleted_at "soft delete"
         uuid deleted_by FK
     }
@@ -120,9 +126,12 @@ erDiagram
 ### `analysis`
 งานสแกนหนึ่งชิ้นต่อหนึ่งแถว — สร้างที่ขั้น upload (status `pending`) แล้วถูก Celery task อัปเดตตลอด pipeline (VirusTotal → MobSF → CAPE → RampartAI → Gemini)
 
-- `task_id` — Celery task ที่รันงานนี้; หลายแถว (คนละ user) อาจแชร์ `task_id` เดียวกันเพราะ dedup ด้วย file hash
+- **ตัวตนของแถวคือ `(uid, file_hash)`** — ผู้ใช้หนึ่งคนมีแถวที่ยังไม่ถูกลบได้ไม่เกินหนึ่งแถวต่อไฟล์หนึ่งไฟล์ (ชื่อไฟล์เป็นแค่ metadata ไม่ใช่ตัวตน) การอัปโหลดไฟล์เดิมซ้ำจะอัปเดตแถวเดิม ไม่สร้างใหม่ ดู `docs/analysis-dedup-design.md`
+- `task_id` — Celery task ที่รันงานนี้; หลายแถว (คนละ user) แชร์ `task_id` เดียวกันได้เพราะ dedup ด้วย file hash — รอบซ่อม (repair run) จะ re-point แถวเดิมไป `task_id` ใหม่โดย `rid` เดิมไม่เปลี่ยน
 - `status` — `pending` → ... → `success` / `failed` / skipped states ต่าง ๆ
-- `is_malicious`, `blocked_by` — ถ้า VirusTotalตัดสินว่าเป็น malware งานถูก block ทันที
+- `tool_notes` — ข้อความไทย/อังกฤษสำหรับแสดงผล (`{tool: message}`) เป็น JSON string
+- `tool_states` — ผลราย tool แบบเครื่องอ่าน (`{tool: {state: success|terminal|gap, reason}}`) ใช้ตัดสินว่าต้องวิเคราะห์ tool ใดซ้ำตอนมีคนอัปโหลดไฟล์เดิมอีกครั้ง
+- `is_malicious`, `blocked_by` — ถ้า VirusTotalตัดสินว่าเป็น malware งานถูก block ทันที (`blocked_by='virustotal'` หมายถึง MobSF/CAPE ถูกข้ามโดยเจตนา ไม่ใช่ช่องโหว่ที่ต้องซ่อม)
 - `deleted_at` / `deleted_by` — soft delete (แถวไม่หาย แค่ซ่อน); partial unique index ด้านล่างทำงานคู่กับคอลัมน์นี้
 - `privacy` — สวิตช์ส่วนตัว/สาธารณะของงาน
 
@@ -150,11 +159,13 @@ erDiagram
 
 อัปโหลดไฟล์วิเคราะห์
   analysis (uid, task_id, status=pending, file hashes)
-      │  dedup: ไฟล์เดียวกัน (sha256) จากหลาย user
-      │  = analysis หลายแถว + task_id เดียว
+      │  dedup: เนื้อหาเดียวกัน (sha256) = report เดียว, task เดียว
+      │  ผู้ใช้คนเดิมอัปโหลดซ้ำ = อัปเดตแถวเดิม (uid + file_hash)
+      │  ผู้ใช้ใหม่      = แถวใหม่ที่ชี้ task_id/rid เดิม (รอผล run เดียวกันถ้ายังไม่เสร็จ)
+      │  tool ขาด       = repair run วิเคราะห์เฉพาะ tool ที่ขาด โดยใช้ rid เดิม
       ▼
   Celery pipeline (VirusTotal → MobSF → CAPE → RampartAI → Gemini)
-      │  ตอน finalize
+      │  ตอน finalize (เขียน tool_states + tool_notes)
       ▼
   reports (ผลรวมคะแนน) ←── analysis.rid (ทุกแถวใน task เดียวชี้ report เดียว)
 
@@ -168,20 +179,23 @@ erDiagram
 | ตาราง | Index | ไว้ทำอะไร |
 |---|---|---|
 | `users` | `UNIQUE(username)`, `UNIQUE(email)` | กันซ้ำ + lookup ตอน login |
-| `oauth_accounts` | `UNIQUE(provider, provider_uid)` | resolve repeat login ให้ uid เดิมเสมอ |
+| `oauth_accounts` | `uq_oauth_accounts_provider_identity UNIQUE(provider, provider_uid)` | resolve repeat login ให้ uid เดิมเสมอ |
 | `oauth_accounts` | `ix_oauth_accounts_uid(uid)` | หา identity ทั้งหมดของ user |
-| `analysis` | `uq_analysis_task_uid_active(task_id, uid) WHERE deleted_at IS NULL` | กันงานซ้ำที่ยังไม่ถูก soft-delete ของ user เดียวกัน (partial unique index — มีเฉพาะใน `schema_class.py` ดูหมายเหตุด้านล่าง) |
-| `analysis` | `ix_analysis_file_hash(file_hash)` | ค้นหา/dedup ด้วย hash |
+| `analysis` | `uq_analysis_task_uid_active(task_id, uid) WHERE deleted_at IS NULL` | กันงานซ้ำที่ยังไม่ถูก soft-delete ของ user เดียวกัน (partial unique index) |
+| `analysis` | `ix_analysis_file_hash(file_hash)` | ค้นหา/dedup ด้วย hash (upload, repair run, นับ run ต่อเนื้อหา) |
 | `analysis` | `ix_analysis_task_id(task_id)` | หาทุก analysis ของ task เดียว (ตอน finalize) |
-| `analysis` | `ix_analysis_uid_created_at(uid, created_at DESC)` | ประวัติงานล่าสุดของ user (หน้า dashboard/history) |
+| `analysis` | `ix_analysis_uid_created_at(uid, created_at DESC)` | ประวัติงานล่าสุดของ user (หน้า history ของผู้ใช้เอง) |
+| `analysis` | `ix_analysis_md5(md5)` | ตรวจสิทธิ์ดาวน์โหลดรายงานจากชื่อไฟล์ (`get_analysis_access_rows_by_md5`) — เดิม scan ทั้งตาราง |
+| `analysis` | `ix_analysis_created_at(created_at DESC)` | หน้ารวมไฟล์ของ admin/dashboard ที่เรียงตามเวลาล่าสุดโดยไม่กรอง uid |
+| `audit_logs` | `ix_audit_logs_created_at(created_at DESC)` | รายการ audit ล่าสุด + export + การ์ด recent actions |
+| `audit_logs` | `ix_audit_logs_actor_uid_created_at(actor_uid, created_at DESC)` | กรอง audit ตาม actor |
+| `login_history` | `ix_login_history_uid_created_at(uid, created_at DESC)` | ประวัติ login ของ user หนึ่งคน (profile + admin) |
+| `download_history` | `ix_download_history_uid_created_at(uid, created_at DESC)` | ประวัติดาวน์โหลดของ user หนึ่งคน (profile + admin) |
 
 ## หมายเหตุและกฎการดูแล
 
-- **Partial unique index ต่างกันระหว่างสองแหล่ง** — `uq_analysis_task_uid_active` มีใน `schema_class.py` (`__table_args__`) แต่ไม่มีใน `CREATE-SQL.sql` ถ้าสร้างฐานข้อมูลจาก `CREATE-SQL.sql` ล้วน ๆ ต้องเพิ่มเอง:
-  ```sql
-  CREATE UNIQUE INDEX uq_analysis_task_uid_active
-      ON analysis (task_id, uid)
-      WHERE deleted_at IS NULL;
-  ```
+- **Partial unique index ตรงกันแล้วทั้งสองแหล่ง** — `uq_analysis_task_uid_active` ประกาศใน `schema_class.py` (`__table_args__`) และมีอยู่ใน `CREATE-SQL.sql` แล้ว ฐานข้อมูลที่มีอยู่ก่อนหน้าต้องรัน `docs/migrations/2026-09-28-analysis-dedup-phase0.sql` เพื่อเพิ่มคอลัมน์ `tool_states` และสร้าง index นี้ (ไฟล์เดียวกันจะ soft delete แถว `(task_id, uid)` ซ้ำที่บล็อกการสร้าง index ให้ก่อน)
+- **Index ประกาศครบทั้งสามแหล่งแล้ว** (2026-09-28) — เดิม index หลายตัวมีเฉพาะใน `CREATE-SQL.sql` ไม่ได้ประกาศใน ORM ทำให้ฐานข้อมูลที่สร้างด้วย `init_db()` (เส้นทางปกติ) ไม่มี index เหล่านั้นเลย ตอนนี้ `cores/Schema/schema_class.py` (`__table_args__` ของ `OAuthAccount`/`Analysis`/`AuditLog`/`LoginHistory`/`DownloadHistory`), `CREATE-SQL.sql` และ `docs/migrations/2026-09-28-indexes.sql` ตรงกันทั้งหมด 11 index + 1 unique constraint
+- ฐานข้อมูลที่มีอยู่ก่อนหน้า ต้องรัน `docs/migrations/2026-09-28-indexes.sql` เพื่อสร้าง index ที่ขาด (ไฟล์ใช้ `IF NOT EXISTS` จึงรันซ้ำได้) และไฟล์จะเพิ่ม unique constraint ของ `oauth_accounts` ให้ด้วยถ้ายังไม่มี — ถ้ามีแถว `(provider, provider_uid)` ซ้ำอยู่ ไฟล์จะข้ามและ `RAISE NOTICE` บอกแทนที่จะล้มทั้งสคริปต์
 - ตาม AGENTS.md — `Base.metadata.create_all` **สร้างเฉพาะตารางที่ยังไม่มี** ไม่เคย `ALTER TABLE` ให้ การเพิ่มคอลัมน์ใหม่บนตารางที่มีอยู่ต้องรัน ALTER กับ Postgres container (port 5433) ด้วยมือ และ mirror กลับใน `CREATE-SQL.sql` ทุกครั้ง
 - Database จริงคือ Postgres container พอร์ต **5433** (ไม่ใช่ 5432) — `cores/async_pg_db.py` (FastAPI) และ `cores/sync_pg_db.py` (Celery) ชี้มาที่เดียวกัน

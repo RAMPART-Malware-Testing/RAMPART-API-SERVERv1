@@ -15,11 +15,34 @@ from fastapi import HTTPException
 from controller.Analysis import CheckHash_controller as controller
 from services.analy import analy_service
 
+class FakeResult:
+    def __init__(self, scalar=0, row=None):
+        self._scalar = scalar
+        self._row = row
+
+    def scalar_one(self):
+        return self._scalar
+
+    def scalars(self):
+        return self
+
+    def first(self):
+        return self._row
+
+    def mappings(self):
+        return self
+
+    def one_or_none(self):
+        return self._row
+
 class FakeSession:
-    def __init__(self):
+    def __init__(self, content_runs=1, existing_row=None):
         self.rollback_called = False
         self.added = []
         self.commits = 0
+        self.content_runs = content_runs
+        self.existing_row = existing_row
+        self.statements = []
 
     async def rollback(self):
         self.rollback_called = True
@@ -32,6 +55,13 @@ class FakeSession:
 
     async def refresh(self, value):
         return None
+
+    async def execute(self, statement, parameters=None):
+        self.statements.append(statement)
+        text = str(statement)
+        if "count(" in text.lower():
+            return FakeResult(scalar=self.content_runs)
+        return FakeResult(row=self.existing_row)
 
 @pytest.mark.asyncio
 async def test_attach_returns_none_when_no_existing_analysis(monkeypatch):
@@ -88,7 +118,7 @@ async def test_attach_reuses_existing_success_task(monkeypatch):
             "file_type": "apk", "file_size": 999, "md5": "deadbeef",
         }),
     )
-    monkeypatch.setattr(analy_service, "insert_table_analy", fake_insert)
+    monkeypatch.setattr(analy_service, "upsert_user_analysis", fake_insert)
 
     outcome, analysis = await analy_service.attempt_attach_to_existing_analysis(
         session, uid="user-2", file_hash="a" * 64, file_name="f.apk", file_size=10, privacy=False,
@@ -137,19 +167,27 @@ async def test_gap_fill_returns_none_when_no_existing_analysis(monkeypatch):
     assert analysis is None
 
 @pytest.mark.asyncio
-async def test_gap_fill_returns_none_when_success_but_no_tool_notes(monkeypatch, tmp_path):
+async def test_gap_fill_returns_none_when_success_is_complete(monkeypatch, tmp_path):
     session = FakeSession()
     file_path = tmp_path / "sample.apk"
     file_path.write_bytes(b"content")
 
+    reports_dir = tmp_path / "reports"
+    reports_dir.mkdir()
+    md5 = "deadbeef"
+    for tool in ("virustotal", "mobsf", "cape", "rampartai"):
+        (reports_dir / f"{tool}-{md5}.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
+
+    monkeypatch.setattr(analy_service, "REPORTS_DIR", reports_dir)
     monkeypatch.setattr(analy_service, "acquire_analysis_hash_lock", _noop)
     monkeypatch.setattr(
         analy_service,
         "get_file_by_hash",
         _returns({
             "status": "success", "task_id": "task-1", "tool_notes": None,
-            "md5": "deadbeef", "file_path": str(file_path), "file_type": "apk",
-            "file_size": 7, "tools": "virustotal,mobsf,cape,gemini",
+            "md5": md5, "file_path": str(file_path), "file_type": "apk",
+            "file_size": 7, "tools": "virustotal,mobsf,cape,rampart_ai,gemini",
+            "rid": "report-1",
         }),
     )
 
@@ -159,6 +197,55 @@ async def test_gap_fill_returns_none_when_success_but_no_tool_notes(monkeypatch,
 
     assert outcome == "none"
     assert analysis is None
+    assert session.added == []
+
+@pytest.mark.asyncio
+async def test_gap_fill_rebuilds_tools_whose_report_files_vanished(monkeypatch, tmp_path):
+    session = FakeSession()
+    file_path = tmp_path / "sample.apk"
+    file_path.write_bytes(b"content")
+
+    reports_dir = tmp_path / "reports"
+    reports_dir.mkdir()
+
+    monkeypatch.setattr(analy_service, "REPORTS_DIR", reports_dir)
+    monkeypatch.setattr(analy_service, "acquire_analysis_hash_lock", _noop)
+    monkeypatch.setattr(
+        analy_service,
+        "get_file_by_hash",
+        _returns({
+            "status": "success", "task_id": "task-1", "tool_notes": None,
+            "md5": "deadbeef", "file_path": str(file_path), "file_type": "apk",
+            "file_size": 7, "tools": "virustotal,mobsf",
+            "rid": "report-1", "tool_states": None,
+        }),
+    )
+
+    apply_async_calls = []
+    monkeypatch.setattr(
+        analy_service.analyze_malware_task,
+        "apply_async",
+        lambda **kwargs: apply_async_calls.append(kwargs),
+    )
+
+    update_calls = []
+
+    async def fake_update(session, task_id, **kwargs):
+        update_calls.append((task_id, kwargs))
+        return 1
+
+    monkeypatch.setattr(analy_service, "update_analysis_rows_by_task_id", fake_update)
+
+    outcome, analysis = await analy_service.attempt_gap_fill_redispatch(
+        session, uid="user-1", file_hash="a" * 64, file_name="f.apk", file_size=10, privacy=True,
+    )
+
+    assert outcome == "gap_filled"
+    assert analysis is not None
+    assert analysis.rid == "report-1"
+    assert len(apply_async_calls) == 1
+    assert "virustotal" not in apply_async_calls[0]["kwargs"]
+    assert "mobsf_status" not in apply_async_calls[0]["kwargs"]
 
 @pytest.mark.asyncio
 async def test_gap_fill_does_not_apply_to_in_flight_analysis(monkeypatch):
