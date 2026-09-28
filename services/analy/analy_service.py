@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, joinedload, selectinload
 from fastapi.concurrency import run_in_threadpool
 from bgProcessing.tasks import analyze_malware_task
+from bgProcessing.task_handlers import CAPE_PACKAGE_MAP, MOBSF_SUPPORTED_EXTS, VIRUSTOTAL_MAX_SIZE
 from cores.Schema.schema_class import Analysis, User, Reports
 from schemas.analy import AnalysisHistoryParams
 from uuid import UUID, uuid4
@@ -16,10 +17,13 @@ REPORTS_DIR = Path("reports")
 ANALYSIS_HISTORY_CACHE_NAMESPACE = "analy:history"
 ANALYSIS_HISTORY_CACHE_TTL_SECONDS = 5
 
-_GAP_FILL_TOOL_KWARGS: dict[str, tuple[str, str]] = {
+_TERMINAL_SKIP_REASONS = {"unsupported", "oversize"}
+_MAX_CONTENT_RERUNS = 3
+_CARRY_FORWARD_TOOL_KWARGS: dict[str, tuple[str, str]] = {
     "virustotal": ("vt_status", "vt_report_path"),
     "mobsf": ("mobsf_status", "mobsf_report_path"),
     "cape": ("cape_status", "cape_report_path"),
+    "rampart_ai": ("rampart_ai_status", "rampart_ai_report_path"),
 }
 
 async def acquire_analysis_hash_lock(session: AsyncSession, file_hash: str) -> None:
@@ -52,23 +56,125 @@ async def update_analysis_rows_by_task_id(
     result = await session.execute(stmt.values(**values))
     return result.rowcount
 
+def row_field(row, key: str, default=None):
+    if isinstance(row, dict):
+        return row.get(key, default)
+    return getattr(row, key, default)
+
+_TOOL_REPORT_PREFIX = {
+    "virustotal": "virustotal",
+    "mobsf": "mobsf",
+    "cape": "cape",
+    "rampart_ai": "rampartai",
+}
+
+def tool_report_file(md5: str, tool: str) -> Path:
+    return REPORTS_DIR / f"{_TOOL_REPORT_PREFIX.get(tool, tool)}-{md5}.json"
+
+def decode_json_dict(raw) -> dict:
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+def report_file_readable(path: Path) -> bool:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return False
+    return True
+
+def file_extension(row) -> str:
+    path = row_field(row, "file_path")
+    if path:
+        suffix = Path(path).suffix.lower()
+        if suffix:
+            return suffix
+    file_type = (row_field(row, "file_type") or "").strip().lower()
+    return f".{file_type}" if file_type else ""
+
+def succeeded_tools(row) -> set[str]:
+    return {tool.strip() for tool in (row_field(row, "tools") or "").split(",") if tool.strip()}
+
+def expected_tools(row, states: dict) -> list[str]:
+    ext = file_extension(row)
+    expected = ["virustotal"]
+    if ext in MOBSF_SUPPORTED_EXTS:
+        expected.append("mobsf")
+    if ext in CAPE_PACKAGE_MAP:
+        expected.append("cape")
+    return expected
+
+def resolve_tool_state(tool: str, md5, done: set[str], states: dict, blocked_by, file_size: int) -> dict:
+    entry = states.get(tool) or {}
+    state = entry.get("state")
+    if state in ("success", "gap", "terminal"):
+        if state == "success" and not (md5 and report_file_readable(tool_report_file(md5, tool))):
+            return {"state": "gap", "reason": "missing_report"}
+        return dict(entry)
+    if tool == "virustotal" and file_size > VIRUSTOTAL_MAX_SIZE:
+        return {"state": "terminal", "reason": "oversize"}
+    if blocked_by == "virustotal" and tool != "virustotal":
+        return {"state": "terminal", "reason": "short_circuit"}
+    if tool in done and md5 and report_file_readable(tool_report_file(md5, tool)):
+        return {"state": "success"}
+    return {"state": "gap", "reason": "no_report"}
+
+def evaluate_tool_completeness(row) -> dict:
+    md5 = row_field(row, "md5")
+    states = decode_json_dict(row_field(row, "tool_states"))
+    done = succeeded_tools(row)
+    blocked_by = row_field(row, "blocked_by")
+    file_size = row_field(row, "file_size") or 0
+    resolved: dict[str, dict] = {}
+
+    for tool in expected_tools(row, states):
+        resolved[tool] = resolve_tool_state(tool, md5, done, states, blocked_by, file_size)
+    if (resolved.get("mobsf") or {}).get("state") == "success":
+        resolved["rampart_ai"] = resolve_tool_state("rampart_ai", md5, done, states, blocked_by, file_size)
+
+    missing = [tool for tool, state in resolved.items() if state["state"] == "gap"]
+    terminal = [tool for tool, state in resolved.items() if state["state"] == "terminal"]
+    return {"complete": not missing, "missing": missing, "terminal": terminal, "states": resolved}
+
+def completeness_summary(analysis) -> dict | None:
+    if analysis is None or row_field(analysis, "status") != "success":
+        return None
+    plan = evaluate_tool_completeness(analysis)
+    return {"complete": plan["complete"], "missing": plan["missing"], "terminal": plan["terminal"]}
+
+def carry_forward_states(row) -> dict | None:
+    return decode_json_dict(row_field(row, "tool_states")) or None
+
+def build_carry_forward_kwargs(row, completeness: dict) -> tuple[dict, dict]:
+    md5 = row_field(row, "md5")
+    notes = decode_json_dict(row_field(row, "tool_notes"))
+    kwargs: dict[str, Any] = {}
+    carried_notes: dict[str, str] = {}
+    mobsf_carried = (completeness["states"].get("mobsf") or {}).get("state") == "success"
+    for tool, (status_keyword, path_keyword) in _CARRY_FORWARD_TOOL_KWARGS.items():
+        state = (completeness["states"].get(tool) or {}).get("state")
+        if tool == "rampart_ai" and not mobsf_carried:
+            continue
+        if state == "success":
+            kwargs[status_keyword] = True
+            kwargs[path_keyword] = str(tool_report_file(md5, tool))
+        elif state == "terminal":
+            kwargs[status_keyword] = "skipped"
+            if notes.get(tool):
+                carried_notes[tool] = notes[tool]
+    return kwargs, carried_notes
+
 async def get_file_by_hash(
     session: AsyncSession,
     file_hash: str
 ) -> Analysis | None:
-    """Backs the upload-time dedup path (attempt_attach_to_existing_analysis
-    / attempt_gap_fill_redispatch / ScanFile_controller's direct reuse
-    check) - finds the most recent still-usable analysis for this content
-    hash so a re-upload can attach to the existing task_id instead of
-    re-running every tool.
-
-    Must exclude soft-deleted rows: a deleted Analysis row can still have
-    status='success' (soft-delete never changes status, only deleted_at),
-    so without this filter a re-upload of previously-deleted content would
-    "successfully" attach to a task_id that every report-viewing endpoint
-    (get_analysis_with_report et al.) now correctly refuses to show,
-    surfacing as an inexplicable TASK_NOT_FOUND right after upload instead
-    of triggering a fresh analysis."""
     result = await session.execute(
         select(
             Analysis.rid,
@@ -77,8 +183,12 @@ async def get_file_by_hash(
             Analysis.file_type,
             Analysis.file_size,
             Analysis.file_hash,
+            Analysis.file_name,
             Analysis.tools,
             Analysis.tool_notes,
+            Analysis.tool_states,
+            Analysis.blocked_by,
+            Analysis.is_malicious,
             Analysis.md5,
             Analysis.task_id,
         ).where(
@@ -93,6 +203,42 @@ async def get_file_by_hash(
 
 REUSABLE_ANALYSIS_STATUSES = ("queued", "processing", "analyzing", "success")
 
+async def count_content_runs(session: AsyncSession, file_hash: str) -> int:
+    result = await session.execute(
+        select(func.count(func.distinct(Analysis.task_id))).where(
+            Analysis.file_hash == file_hash,
+            Analysis.task_id.isnot(None),
+            Analysis.deleted_at.is_(None),
+        )
+    )
+    return int(result.scalar_one() or 0)
+
+async def get_content_row_for_recovery(session: AsyncSession, file_hash: str) -> Analysis | None:
+    result = await session.execute(
+        select(
+            Analysis.rid,
+            Analysis.status,
+            Analysis.file_path,
+            Analysis.file_type,
+            Analysis.file_size,
+            Analysis.file_hash,
+            Analysis.file_name,
+            Analysis.tools,
+            Analysis.tool_notes,
+            Analysis.tool_states,
+            Analysis.blocked_by,
+            Analysis.is_malicious,
+            Analysis.md5,
+            Analysis.task_id,
+        ).where(
+            Analysis.file_hash == file_hash,
+            Analysis.file_path.isnot(None),
+            Analysis.task_id.isnot(None),
+            Analysis.deleted_at.is_(None),
+        ).order_by(desc(Analysis.created_at)).limit(1)
+    )
+    return result.mappings().one_or_none()
+
 async def attempt_attach_to_existing_analysis(
     session: AsyncSession,
     *,
@@ -102,22 +248,6 @@ async def attempt_attach_to_existing_analysis(
     file_size: int,
     privacy: bool,
 ) -> tuple[str, Analysis | None]:
-    """Shared dedup logic for both the full-upload path and the
-    hash-only pre-check path.
-
-    Looks up any existing analysis for this sha256 content hash and, if one
-    is safely reusable, attaches a brand-new `Analysis` row for `uid` to the
-    *same* task_id/rid/tools/status - no new Celery task, no re-run of any
-    tool, and (for the hash-only caller) no file bytes need to ever be
-    uploaded to reach this result.
-
-    Returns a tuple of (outcome, analysis):
-      - ("attached", analysis)  - reused an existing task; row committed
-      - ("dispatching", None)   - another request is mid-dispatch for this
-                                   exact hash right now; not safe to reuse
-      - ("none", None)          - no reusable analysis exists; caller should
-                                   proceed with a fresh upload/dispatch
-    """
     await acquire_analysis_hash_lock(session, file_hash)
     existing = await get_file_by_hash(session, file_hash)
     existing_status = existing.get("status") if existing else None
@@ -135,7 +265,7 @@ async def attempt_attach_to_existing_analysis(
     if not existing or existing_status == "failed":
         return "none", None
 
-    analysis = await insert_table_analy(
+    analysis = await upsert_user_analysis(
         session=session,
         uid=uid,
         rid=existing.get("rid"),
@@ -149,6 +279,8 @@ async def attempt_attach_to_existing_analysis(
         file_size=existing.get("file_size") or file_size,
         privacy=privacy,
         md5=existing.get("md5"),
+        tool_notes=existing.get("tool_notes"),
+        tool_states=existing.get("tool_states"),
     )
     return "attached", analysis
 
@@ -161,33 +293,19 @@ async def attempt_gap_fill_redispatch(
     file_size: int,
     privacy: bool,
 ) -> tuple[str, Analysis | None]:
-    """When the most recent successful analysis for this hash has
-    tool_notes (meaning at least one tool was force-skipped after
-    exhausting its error/rate-limit retry budget - see
-    bgProcessing/tasks.py's apply_tool_outcome), re-dispatch a *fresh*
-    Celery task that reuses already-successful tool reports and only
-    retries the gap. Returns ("gap_filled", analysis) on a fresh
-    re-dispatch, or ("none", None) if there's nothing to gap-fill
-    (either no existing analysis, or it has no tool_notes).
-
-    Only acts on a most-recent row whose status is exactly "success" -
-    a "dispatching" row (in-flight conflict) or any other in-progress
-    status (queued/processing/analyzing) is left untouched for the
-    caller's existing dispatching-conflict / attempt_attach_to_existing_
-    analysis handling, which must run AFTER this returns "none".
-
-    Never mutates or deletes the old Analysis row / report - it stays
-    intact as history and the caller ends up with a brand-new task_id
-    and a brand-new Analysis row instead.
-    """
     await acquire_analysis_hash_lock(session, file_hash)
     existing = await get_file_by_hash(session, file_hash)
     if not existing:
         return "none", None
 
-    existing_status = existing.get("status")
-    tool_notes_raw = existing.get("tool_notes")
-    if existing_status != "success" or not tool_notes_raw:
+    if existing.get("status") != "success":
+        return "none", None
+
+    completeness = evaluate_tool_completeness(existing)
+    if completeness["complete"]:
+        return "none", None
+
+    if await count_content_runs(session, file_hash) > _MAX_CONTENT_RERUNS:
         return "none", None
 
     existing_md5 = existing.get("md5")
@@ -195,29 +313,17 @@ async def attempt_gap_fill_redispatch(
     if not existing_md5 or not existing_file_path or not Path(existing_file_path).is_file():
         return "none", None
 
-    tools_column = {t.strip() for t in (existing.get("tools") or "").split(",") if t.strip()}
-    gap_fill_kwargs: dict[str, Any] = {}
-    for tool, (status_kwarg, path_kwarg) in _GAP_FILL_TOOL_KWARGS.items():
-        if tools_column and tool not in tools_column:
-            continue
-        report_path = REPORTS_DIR / f"{tool}-{existing_md5}.json"
-        if not report_path.is_file():
-            continue
-        try:
-            with report_path.open("r", encoding="utf-8") as handle:
-                json.load(handle)
-        except (OSError, json.JSONDecodeError):
-            continue
-        gap_fill_kwargs[status_kwarg] = True
-        gap_fill_kwargs[path_kwarg] = str(report_path)
-
+    gap_fill_kwargs, carried_notes = build_carry_forward_kwargs(existing, completeness)
     new_task_id = str(uuid4())
     final_file_size = existing.get("file_size") or file_size
 
-    analysis = Analysis(
+    analysis = await upsert_user_analysis(
+        session=session,
         uid=uid,
+        rid=existing.get("rid"),
         task_id=new_task_id,
         status="dispatching",
+        tools=existing.get("tools"),
         file_name=file_name,
         file_hash=file_hash,
         file_path=existing_file_path,
@@ -225,16 +331,19 @@ async def attempt_gap_fill_redispatch(
         file_size=final_file_size,
         privacy=privacy,
         md5=existing_md5,
+        tool_notes=json.dumps(carried_notes, ensure_ascii=False) if carried_notes else None,
+        tool_states=existing.get("tool_states"),
     )
-    session.add(analysis)
-    await session.commit()
-    await session.refresh(analysis)
 
     try:
         await run_in_threadpool(
             analyze_malware_task.apply_async,
             args=(existing_file_path, existing_md5, file_hash, final_file_size),
-            kwargs=gap_fill_kwargs,
+            kwargs={
+                **gap_fill_kwargs,
+                "tool_notes": carried_notes or None,
+                "tool_states": carry_forward_states(existing),
+            },
             task_id=new_task_id,
         )
     except Exception:
@@ -274,7 +383,12 @@ async def get_file_by_task_id(session: AsyncSession, task_id: str):
             Analysis.file_type,
             Analysis.file_size,
             Analysis.file_hash,
+            Analysis.file_name,
             Analysis.tools,
+            Analysis.tool_notes,
+            Analysis.tool_states,
+            Analysis.blocked_by,
+            Analysis.is_malicious,
             Analysis.md5,
             Analysis.task_id,
         ).where(
@@ -285,14 +399,10 @@ async def get_file_by_task_id(session: AsyncSession, task_id: str):
     )
     return result.mappings().one_or_none()
 
-async def insert_table_analy(
+async def upsert_user_analysis(
     session: AsyncSession,
     *,
     uid: UUID | str,
-    rid: Any | None = None,
-    task_id: str | None = None,
-    tools: str | None = None,
-    status: str | None = None,
     file_name: str,
     file_hash: str,
     file_path: str,
@@ -300,12 +410,22 @@ async def insert_table_analy(
     file_size: int,
     privacy: bool,
     md5: str,
+    rid: Any | None = None,
+    task_id: str | None = None,
+    tools: str | None = None,
+    status: str | None = None,
+    tool_notes: str | None = None,
+    tool_states: dict | None = None,
 ) -> Analysis:
-    stmt = select(Analysis).where(
-        Analysis.uid == uid,
-        Analysis.file_name == file_name,
-        Analysis.file_hash == file_hash,
-        Analysis.deleted_at.is_(None),
+    stmt = (
+        select(Analysis)
+        .where(
+            Analysis.uid == uid,
+            Analysis.file_hash == file_hash,
+            Analysis.deleted_at.is_(None),
+        )
+        .order_by(desc(Analysis.created_at))
+        .limit(1)
     )
     existing = await session.execute(stmt)
     analy = existing.scalars().first()
@@ -333,10 +453,14 @@ async def insert_table_analy(
         analy.file_type = file_type
         analy.file_size = file_size
         analy.md5 = md5
+        if tool_notes is not None:
+            analy.tool_notes = tool_notes
+        if tool_states is not None:
+            analy.tool_states = tool_states
         await session.commit()
         await session.refresh(analy)
         return analy
-    
+
     analy = Analysis(
         uid=uid,
         rid=rid,
@@ -350,6 +474,8 @@ async def insert_table_analy(
         file_size=file_size,
         privacy=privacy,
         md5=md5,
+        tool_notes=tool_notes,
+        tool_states=tool_states,
     )
     session.add(analy)
     await session.commit()

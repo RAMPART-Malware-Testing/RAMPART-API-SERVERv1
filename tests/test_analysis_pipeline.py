@@ -284,7 +284,9 @@ def test_clean_vt_dispatches_mobsf_and_cape_before_retry(monkeypatch, tmp_path):
     assert retry_calls[0]["countdown"] == 30
     assert retry_calls[0]["kwargs"]["cape_task_id"] == 42
     assert all(
-        not isinstance(value, dict) for key, value in retry_calls[0]["kwargs"].items() if key != "tool_notes"
+        not isinstance(value, dict)
+        for key, value in retry_calls[0]["kwargs"].items()
+        if key not in ("tool_notes", "tool_states")
     )
 
 def test_mobsf_unsupported_finalizes_with_cape_only(monkeypatch, tmp_path):
@@ -354,7 +356,10 @@ def test_evaluate_tool_progress_passes_through_terminal_success():
     outcome = tasks.evaluate_tool_progress(
         tool_key="mobsf", result={"status": True}, attempts=0, polls=0
     )
-    assert outcome == {"status": True, "attempts": 0, "polls": 0, "retry_countdown": None, "note": None}
+    assert outcome == {
+        "status": True, "attempts": 0, "polls": 0, "retry_countdown": None, "note": None,
+        "state": {"state": "success"},
+    }
 
 def test_evaluate_tool_progress_passes_through_terminal_skip_without_note():
     """A tool-decided soft-skip (e.g. unsupported file type) is a normal,
@@ -366,6 +371,7 @@ def test_evaluate_tool_progress_passes_through_terminal_skip_without_note():
     )
     assert outcome["status"] == "skipped"
     assert outcome["note"] is None
+    assert outcome["state"] == {"state": "terminal", "reason": "skipped"}
 
 def test_evaluate_tool_progress_pending_within_poll_budget_keeps_polling():
     outcome = tasks.evaluate_tool_progress(
@@ -385,6 +391,8 @@ def test_evaluate_tool_progress_pending_exhausts_poll_budget_force_skips():
     assert outcome["status"] == "skipped"
     assert outcome["retry_countdown"] is None
     assert outcome["note"] == "CAPE skipped after 10 status checks with no result"
+    assert outcome["state"]["state"] == "gap"
+    assert outcome["state"]["reason"] == "exhausted"
 
 def test_evaluate_tool_progress_error_within_attempt_budget_retries():
     outcome = tasks.evaluate_tool_progress(

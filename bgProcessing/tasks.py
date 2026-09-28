@@ -36,6 +36,7 @@ PROGRESS_TTL_SECONDS = 86400
 
 MAX_TOOL_ERROR_RETRIES = 3
 MAX_TOOL_POLL_ATTEMPTS = 10
+MAX_MOBSF_POLL_ATTEMPTS = 120
 MAX_CAPE_POLL_ATTEMPTS = 40
 
 TOOL_LABELS = {"virustotal": "VirusTotal", "mobsf": "MobSF", "cape": "CAPE", "rampart_ai": "RampartAI"}
@@ -137,49 +138,40 @@ def evaluate_tool_progress(
     max_attempts: int = MAX_TOOL_ERROR_RETRIES,
     max_polls: int = MAX_TOOL_POLL_ATTEMPTS,
 ) -> dict:
-    """Normalizes one pass of a VirusTotal/MobSF/CAPE handler result into
-    the shared retry-then-skip policy, so all three tools are handled by
-    one piece of logic instead of three near-duplicated blocks.
-
-    `result["status"]` from the handler can be:
-      - True         -> terminal success, passed straight through.
-      - "skipped"    -> terminal soft-skip decided by the handler itself
-                        (e.g. unsupported file type) - passed straight
-                        through with no note (this is a normal, expected
-                        outcome, not a degraded one).
-      - "pending"    -> the tool is legitimately still working. Counted
-                        against `max_polls`; once exceeded, force-skipped
-                        with a note.
-      - anything else (including "failed") -> treated as a retryable
-                        error. Counted against `max_attempts`; once
-                        exceeded, force-skipped with a note. Below the
-                        cap, reported back as "pending" so the caller's
-                        retry machinery is identical for both polling and
-                        error-backoff waits.
-
-    Returns a dict: {status, attempts, polls, retry_countdown, note}.
-    `retry_countdown` is only meaningful when status == "pending" (the
-    caller still needs another Celery retry pass). `note` is only set
-    when this call just force-skipped the tool.
-    """
     label = TOOL_LABELS.get(tool_key, tool_key)
     status = result.get("status")
 
-    if status is True or status == "skipped":
-        return {"status": status, "attempts": attempts, "polls": polls, "retry_countdown": None, "note": None}
+    if status is True:
+        return {
+            "status": status, "attempts": attempts, "polls": polls,
+            "retry_countdown": None, "note": None, "state": {"state": "success"},
+        }
+
+    if status == "skipped":
+        reason = str(result.get("reason") or "skipped")
+        return {
+            "status": status, "attempts": attempts, "polls": polls,
+            "retry_countdown": None, "note": None,
+            "state": {"state": "terminal", "reason": reason},
+        }
 
     if status == "pending":
         polls += 1
         if polls > max_polls:
             note = f"{label} skipped after {max_polls} status checks with no result"
             print(f"[{label}] {note}")
-            return {"status": "skipped", "attempts": attempts, "polls": polls, "retry_countdown": None, "note": note}
+            return {
+                "status": "skipped", "attempts": attempts, "polls": polls,
+                "retry_countdown": None, "note": note,
+                "state": {"state": "gap", "reason": "exhausted", "message": note},
+            }
         return {
             "status": "pending",
             "attempts": attempts,
             "polls": polls,
             "retry_countdown": result.get("retry_in", 30),
             "note": None,
+            "state": None,
         }
 
     attempts += 1
@@ -187,7 +179,11 @@ def evaluate_tool_progress(
     if attempts >= max_attempts:
         note = f"{label} skipped after {max_attempts} failed attempts: {error}"
         print(f"[{label}] {note}")
-        return {"status": "skipped", "attempts": attempts, "polls": polls, "retry_countdown": None, "note": note}
+        return {
+            "status": "skipped", "attempts": attempts, "polls": polls,
+            "retry_countdown": None, "note": note,
+            "state": {"state": "gap", "reason": "exhausted", "message": note},
+        }
     print(f"[{label}] Attempt {attempts}/{max_attempts} failed, will retry: {error}")
     return {
         "status": "pending",
@@ -195,6 +191,7 @@ def evaluate_tool_progress(
         "polls": polls,
         "retry_countdown": 30 * attempts,
         "note": None,
+        "state": None,
     }
 
 def finalize_analysis_report(
@@ -208,6 +205,7 @@ def finalize_analysis_report(
     rampart_ai_report_path: str | None = None,
     tools: str = "virustotal",
     tool_notes: dict | None = None,
+    tool_states: dict | None = None,
 ):
     try:
         db.execute(
@@ -255,12 +253,17 @@ def finalize_analysis_report(
             report = db.get(Reports, next(iter(report_ids)))
             if report is None:
                 raise TaskFinalizationError("Associated report not found")
-            report.virustotal_score = scores["virustotal_score"]
-            report.mobsf_score = scores["mobsf_score"]
-            report.cape_score = scores["cape_score"]
-            report.rampart_ai_score = rampartai_prediction
-            report.malware_signatures = signatures
-            if getattr(report, "type", None) is None:
+            if scores["virustotal_score"] is not None:
+                report.virustotal_score = scores["virustotal_score"]
+            if scores["mobsf_score"] is not None:
+                report.mobsf_score = scores["mobsf_score"]
+            if scores["cape_score"] is not None:
+                report.cape_score = scores["cape_score"]
+            if rampartai_prediction is not None:
+                report.rampart_ai_score = rampartai_prediction
+            if signatures:
+                report.malware_signatures = signatures
+            if threat_label and getattr(report, "type", None) is None:
                 report.type = threat_label
         else:
             report = Reports(
@@ -281,6 +284,8 @@ def finalize_analysis_report(
             "tools": tools,
             "tool_notes": json.dumps(tool_notes, ensure_ascii=False) if tool_notes else None,
         }
+        if tool_states:
+            values["tool_states"] = tool_states
         if malicious:
             values.update(is_malicious=True, blocked_by="virustotal")
         result = db.execute(
@@ -295,6 +300,22 @@ def finalize_analysis_report(
             raise TaskFinalizationError("Terminal update did not associate task rows")
         if result.rowcount != len(rows):
             raise TaskFinalizationError("Task rows were not fully associated")
+
+        content_hashes = {row.file_hash for row in rows if row.file_hash}
+        if len(content_hashes) == 1:
+            shared = {key: values[key] for key in ("tools", "tool_notes", "tool_states") if key in values}
+            if shared:
+                db.execute(
+                    update(Analysis)
+                    .where(
+                        Analysis.file_hash == next(iter(content_hashes)),
+                        Analysis.rid == report.rid,
+                        Analysis.status == "success",
+                        Analysis.task_id != task_id,
+                        Analysis.deleted_at.is_(None),
+                    )
+                    .values(**shared)
+                )
 
         verified = db.execute(
             select(Analysis).where(Analysis.task_id == task_id)
@@ -316,7 +337,7 @@ def finalize_virustotal_report(db, task_id: str, file_path: str, report_data: di
     )
     return report, scores["virustotal_score"]
 
-@celery_app.task(bind=True, max_retries=60)
+@celery_app.task(bind=True, max_retries=150)
 def analyze_malware_task(
     self,
     file_path: str,
@@ -342,10 +363,12 @@ def analyze_malware_task(
     rampart_ai_report_path: str | None = None,
     gemini_status=None,
     tool_notes: dict | None = None,
+    tool_states: dict | None = None,
 ):
     db = SyncSessionLocal()
     task_id = self.request.id
     tool_notes = dict(tool_notes) if tool_notes else {}
+    tool_states = dict(tool_states) if tool_states else {}
 
     try:
         publish_progress(task_id, "worker", "Celery worker accepted the task")
@@ -380,6 +403,8 @@ def analyze_malware_task(
             vt_status = outcome["status"]
             if outcome["note"]:
                 tool_notes["virustotal"] = outcome["note"]
+            if outcome["state"]:
+                tool_states["virustotal"] = outcome["state"]
 
             if vt_status == "pending":
                 publish_progress(
@@ -398,6 +423,7 @@ def analyze_malware_task(
                             "vt_attempts": vt_attempts,
                             "vt_polls": vt_polls,
                             "tool_notes": tool_notes,
+                            "tool_states": tool_states,
                         },
                     )
                 except MaxRetriesExceededError:
@@ -455,9 +481,12 @@ def analyze_malware_task(
                 tool_notes.setdefault("mobsf", "Skipped: VirusTotal already detected malware")
                 tool_notes.setdefault("cape", "Skipped: VirusTotal already detected malware")
                 tool_notes.setdefault("rampart_ai", "Skipped: VirusTotal already detected malware")
+                for short_circuited in ("mobsf", "cape", "rampart_ai"):
+                    tool_states[short_circuited] = {"state": "terminal", "reason": "short_circuit"}
                 tools = "virustotal,gemini" if assessment else "virustotal"
                 report, scores = finalize_analysis_report(
-                    db, task_id, file_path, vt_report_path, tools=tools, tool_notes=tool_notes or None
+                    db, task_id, file_path, vt_report_path, tools=tools,
+                    tool_notes=tool_notes or None, tool_states=tool_states or None,
                 )
                 if assessment:
                     apply_gemini_assessment(report, assessment)
@@ -502,12 +531,14 @@ def analyze_malware_task(
             if result.get("status") is True:
                 mobsf_report_path = result.get("report_path", mobsf_report_path)
             mobsf_submitted = bool(result.get("submitted", mobsf_submitted))
-            outcome = evaluate_tool_progress(tool_key="mobsf", result=result, attempts=mobsf_attempts, polls=mobsf_polls, max_polls=30)
+            outcome = evaluate_tool_progress(tool_key="mobsf", result=result, attempts=mobsf_attempts, polls=mobsf_polls, max_polls=MAX_MOBSF_POLL_ATTEMPTS)
             mobsf_attempts, mobsf_polls = outcome["attempts"], outcome["polls"]
             mobsf_status = outcome["status"]
             mobsf_countdown = outcome["retry_countdown"]
             if outcome["note"]:
                 tool_notes["mobsf"] = outcome["note"]
+            if outcome["state"]:
+                tool_states["mobsf"] = outcome["state"]
 
         rampart_ai_ready = rampart_ai_status in (True, "skipped") and (
             rampart_ai_status != True or bool(rampart_ai_report_path and Path(rampart_ai_report_path).is_file())
@@ -533,8 +564,13 @@ def analyze_malware_task(
                 )
                 rampart_ai_status = rai_result.get("status")
                 rampart_ai_report_path = rai_result.get("report_path", rampart_ai_report_path)
+                if rampart_ai_status is True:
+                    tool_states["rampart_ai"] = {"state": "success"}
+                else:
+                    tool_states["rampart_ai"] = {"state": "gap", "reason": "unavailable"}
             else:
                 rampart_ai_status = "skipped"
+                tool_states["rampart_ai"] = {"state": "terminal", "reason": "no_mobsf_report"}
 
         cape_ready = bool(cape_status is True and cape_report_path and Path(cape_report_path).is_file())
         cape_countdown = None
@@ -569,6 +605,8 @@ def analyze_malware_task(
             cape_countdown = outcome["retry_countdown"]
             if outcome["note"]:
                 tool_notes["cape"] = outcome["note"]
+            if outcome["state"]:
+                tool_states["cape"] = outcome["state"]
             publish_progress(
                 task_id,
                 "sandboxes",
@@ -619,6 +657,7 @@ def analyze_malware_task(
                         "rampart_ai_status": rampart_ai_status,
                         "rampart_ai_report_path": rampart_ai_report_path,
                         "tool_notes": tool_notes,
+                        "tool_states": tool_states,
                     },
                 )
             except MaxRetriesExceededError:
@@ -698,6 +737,7 @@ def analyze_malware_task(
                         "rampart_ai_report_path": successful_rampart_ai_path,
                         "gemini_status": "pending",
                         "tool_notes": tool_notes,
+                        "tool_states": tool_states,
                     },
                 )
             except MaxRetriesExceededError:
@@ -713,6 +753,7 @@ def analyze_malware_task(
             rampart_ai_report_path=successful_rampart_ai_path,
             tools=",".join(successful_tools),
             tool_notes=tool_notes or None,
+            tool_states=tool_states or None,
         )
         apply_gemini_assessment(report, assessment)
         db.commit()

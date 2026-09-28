@@ -141,21 +141,30 @@ def active_user(status="active", is_banned=False):
     return SimpleNamespace(status=status, is_banned=is_banned)
 
 
+def attach_record(target, values):
+    return SimpleNamespace(
+        aid=None,
+        rid=target.get("rid"),
+        task_id=target.get("task_id"),
+        status=target.get("status"),
+        tools=target.get("tools"),
+        md5=target.get("md5"),
+        file_name=values.get("file_name"),
+        file_hash=values.get("file_hash"),
+        file_path=target.get("file_path"),
+        file_type=target.get("file_type"),
+        file_size=target.get("file_size"),
+        tool_notes=None,
+        tool_states=None,
+        blocked_by=None,
+    )
+
+
 async def run_upload(monkeypatch, controller, tmp_path, content=b"payload", filename="sample.bin", user=None, existing=None, refreshed=None, task=None, events=None, gap_fill=("none", None)):
     session = FakeSession(user if user is not None else active_user(), events)
     if task:
         task.session = session
     inserted = []
-
-    async def find_existing(db, sha256):
-        if events is not None:
-            events.append("lookup")
-        return existing
-
-    async def find_task(db, task_id):
-        if events is not None:
-            events.append("refresh")
-        return existing if refreshed is None else refreshed
 
     async def insert(session, **values):
         if events is not None:
@@ -171,10 +180,6 @@ async def run_upload(monkeypatch, controller, tmp_path, content=b"payload", file
         if events is not None:
             events.append("lock")
 
-    async def task_lock(session, task_id):
-        if events is not None:
-            events.append("task-lock")
-
     async def update_task_rows(session, task_id, **values):
         if events is not None:
             events.append(f"update:{values['status']}")
@@ -189,14 +194,28 @@ async def run_upload(monkeypatch, controller, tmp_path, content=b"payload", file
             events.append("gap-fill-check")
         return gap_fill
 
+    async def attach(db, **kwargs):
+        if events is not None:
+            events.append("attach")
+        target = existing if refreshed is None else refreshed
+        if target is None:
+            return "none", None
+        if target.get("status") in ("dispatching", "failed"):
+            return ("dispatching" if target.get("status") == "dispatching" else "none"), None
+        record = attach_record(target, kwargs)
+        inserted.append(record)
+        return "attached", record
+
+    async def no_recovery(db, sha256):
+        return None
+
     monkeypatch.setattr(controller, "UPLOAD_DIR", tmp_path)
     monkeypatch.setattr(controller, "SessionLocal", lambda: SessionContext(session))
     monkeypatch.setattr(controller, "attempt_gap_fill_redispatch", gap_fill_redispatch, raising=False)
-    monkeypatch.setattr(controller, "get_file_by_hash", find_existing)
-    monkeypatch.setattr(controller, "get_file_by_task_id", find_task, raising=False)
-    monkeypatch.setattr(controller, "insert_table_analy", insert)
+    monkeypatch.setattr(controller, "attempt_attach_to_existing_analysis", attach, raising=False)
+    monkeypatch.setattr(controller, "get_content_row_for_recovery", no_recovery, raising=False)
+    monkeypatch.setattr(controller, "upsert_user_analysis", insert)
     monkeypatch.setattr(controller, "acquire_analysis_hash_lock", lock, raising=False)
-    monkeypatch.setattr(controller, "acquire_analysis_task_lock", task_lock, raising=False)
     monkeypatch.setattr(controller, "update_analysis_rows_by_task_id", update_task_rows, raising=False)
     monkeypatch.setattr(controller, "analyze_malware_task", task or FakeTask())
     upload = UploadFile(filename=filename, file=io.BytesIO(content))
@@ -205,7 +224,7 @@ async def run_upload(monkeypatch, controller, tmp_path, content=b"payload", file
 
 
 @pytest.mark.asyncio
-async def test_upload_locks_hash_before_lookup_insert_and_dispatch(monkeypatch, upload_modules, tmp_path):
+async def test_upload_runs_dedup_before_persisting_and_dispatching(monkeypatch, upload_modules, tmp_path):
     _, controller, _ = upload_modules
     events = []
 
@@ -219,8 +238,7 @@ async def test_upload_locks_hash_before_lookup_insert_and_dispatch(monkeypatch, 
 
     assert events == [
         "gap-fill-check",
-        "lock",
-        "lookup",
+        "attach",
         "insert",
         "commit",
         "dispatch",
@@ -325,7 +343,7 @@ async def test_upload_attaches_to_reusable_job_without_dispatch(monkeypatch, upl
     assert response["task_id"] == "existing-task"
     assert response["status"] == existing_status
     assert response["deduplicated"] is True
-    assert response["queue_state"] == "reused"
+    assert response["queue_state"] == ("reused" if existing_status == "success" else "waiting")
     assert inserted[0].task_id == "existing-task"
     assert inserted[0].status == existing_status
     assert not task.calls
@@ -333,7 +351,7 @@ async def test_upload_attaches_to_reusable_job_without_dispatch(monkeypatch, upl
 
 
 @pytest.mark.asyncio
-async def test_reusable_attachment_lock_order_is_hash_then_task_then_refresh_then_insert(monkeypatch, upload_modules, tmp_path):
+async def test_upload_stops_at_attach_without_dispatching(monkeypatch, upload_modules, tmp_path):
     _, controller, _ = upload_modules
     events = []
     existing = {
@@ -348,9 +366,13 @@ async def test_reusable_attachment_lock_order_is_hash_then_task_then_refresh_the
         "task_id": "existing-task",
     }
 
-    await run_upload(monkeypatch, controller, tmp_path, existing=existing, events=events)
+    response, _, _, task = await run_upload(
+        monkeypatch, controller, tmp_path, existing=existing, events=events, task=FakeTask()
+    )
 
-    assert events[:7] == ["gap-fill-check", "lock", "lookup", "task-lock", "refresh", "insert", "commit"]
+    assert events == ["gap-fill-check", "attach"]
+    assert response["queue_state"] == "waiting"
+    assert not task.calls
 
 
 @pytest.mark.asyncio
@@ -457,8 +479,7 @@ async def test_broker_failure_marks_persisted_analysis_failed_and_returns_503(mo
     assert task.status_at_dispatch == "dispatching"
     assert events == [
         "gap-fill-check",
-        "lock",
-        "lookup",
+        "attach",
         "insert",
         "commit",
         "dispatch",

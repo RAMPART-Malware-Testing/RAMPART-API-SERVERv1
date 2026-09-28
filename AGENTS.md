@@ -30,11 +30,12 @@
 - **OTP**: 6-digit codes in Redis under `otp:{action}:{token}`, 5-minute TTL. Delivery via Gmail SMTP (`GMAIL_USERNAME`/`GMAIL_PASSWORD`) or generic `SMTP_*`, falls back to console print if neither is set. Wrong-attempt lockout is keyed by `otp_lockout:{action}:{identifier}` (identifier = email for register, uid for login/reset-passwd) — NOT by token, so retrying with a fresh token cannot bypass an active lockout. Max 5 wrong attempts before lockout.
 - **RBAC**: three-tier `master`/`admin`/`user` on `User.role`. `master` can only be granted via `ROOT_EMAIL` env var at OAuth login — never via any API. Every authorization decision funnels through `services/admin/authz.py::ensure_can_manage_target`.
 - **Upload flow**: POST `/api/analy/v1/upload` with upload token → file chunked, hashed (md5/sha1/sha256) → deduped by sha256 → Celery task dispatched.
+- **Dedup / reuse model** (see `docs/analysis-dedup-design.md`): report identity is the **sha256** (one `reports.rid` per content, shared by every user row), user row identity is **`(uid, file_hash)`** — never keyed on file name. `services/analy/analy_service.py` holds the decision: `attempt_gap_fill_redispatch` (repair run that re-executes only tools whose report is missing, carrying the existing rid so no second report appears), `attempt_attach_to_existing_analysis` (points the caller's row at a finished or in-flight run — `queue_state` `reused`/`waiting`), `upsert_user_analysis` (in-place update of the caller's row for that content). `Analysis.tool_states` (JSONB) is the machine-readable per-tool outcome `{state: success|terminal|gap, reason}` written by the pipeline; `tool_notes` stays the human-readable message. Repair runs are capped at `MAX_CONTENT_RERUNS=3` per content (counted as distinct `task_id`s for that hash).
 
 ## Celery
 
 - Windows: uses `--pool=solo`. Linux: uses `--pool=prefork` (default).
-- Task `max_retries=100` with dynamic countdowns (30s for MobSF/CAPE polling, 5s for RampartAI, 60s for CAPE initial submit).
+- Task `max_retries=150` with dynamic countdowns (30s for MobSF/CAPE polling, 5s for RampartAI, 60s for CAPE initial submit). MobSF polls up to `MAX_MOBSF_POLL_ATTEMPTS=120` (~60 min), CAPE up to `MAX_CAPE_POLL_ATTEMPTS=40` (~20 min) — the MobSF cap must stay below the task's retry budget (VT polls + MobSF/CAPE joint polls).
 - 1-hour timeout (`task_time_limit=3600`), timezone `Asia/Bangkok`.
 
 ## Testing

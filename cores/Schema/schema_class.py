@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Numeric, Text, text, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Numeric, Text, UniqueConstraint, text, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from datetime import datetime, timezone
@@ -50,6 +50,11 @@ class OAuthAccount(Base):
     """
     __tablename__ = "oauth_accounts"
 
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_uid", name="uq_oauth_accounts_provider_identity"),
+        Index("ix_oauth_accounts_uid", "uid"),
+    )
+
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     uid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.uid", ondelete="CASCADE"), nullable=False)
     provider: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -73,6 +78,11 @@ class Analysis(Base):
             unique=True,
             postgresql_where=text("deleted_at IS NULL"),
         ),
+        Index("ix_analysis_file_hash", "file_hash"),
+        Index("ix_analysis_task_id", "task_id"),
+        Index("ix_analysis_uid_created_at", "uid", text("created_at DESC")),
+        Index("ix_analysis_md5", "md5"),
+        Index("ix_analysis_created_at", text("created_at DESC")),
     )
 
     aid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
@@ -87,6 +97,7 @@ class Analysis(Base):
     file_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     tools: Mapped[str | None] = mapped_column(Text, nullable=True)
     tool_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tool_states: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[str | None] = mapped_column(Text, server_default=text("'pending'"))
     blocked_by: Mapped[str | None] = mapped_column(String(50), nullable=True)
     is_malicious: Mapped[bool | None] = mapped_column(Boolean, server_default=text("FALSE"))
@@ -130,6 +141,11 @@ class Reports(Base):
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
+    __table_args__ = (
+        Index("ix_audit_logs_created_at", text("created_at DESC")),
+        Index("ix_audit_logs_actor_uid_created_at", "actor_uid", text("created_at DESC")),
+    )
+
     log_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     actor_uid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.uid", ondelete="CASCADE"), nullable=False)
     target_uid: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.uid", ondelete="SET NULL"), nullable=True)
@@ -146,6 +162,10 @@ class AuditLog(Base):
 class LoginHistory(Base):
     __tablename__ = "login_history"
 
+    __table_args__ = (
+        Index("ix_login_history_uid_created_at", "uid", text("created_at DESC")),
+    )
+
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     uid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.uid", ondelete="CASCADE"), nullable=False)
     provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -159,6 +179,10 @@ class LoginHistory(Base):
 
 class DownloadHistory(Base):
     __tablename__ = "download_history"
+
+    __table_args__ = (
+        Index("ix_download_history_uid_created_at", "uid", text("created_at DESC")),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     uid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.uid", ondelete="CASCADE"), nullable=False)

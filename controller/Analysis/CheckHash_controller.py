@@ -17,6 +17,7 @@ from cores.Schema.schema_class import User
 from services.analy.analy_service import (
     attempt_attach_to_existing_analysis,
     attempt_gap_fill_redispatch,
+    completeness_summary,
     get_analysis_with_report,
 )
 from utils.uuid import parse_uuid
@@ -105,9 +106,11 @@ async def check_hash_controller(user_id: str, sha256: str, file_name: str, file_
             "found": True,
             "task_id": analysis.task_id,
             "status": analysis.status,
+            "queue_state": "reused" if analysis.status == "success" else "waiting",
             "md5": analysis.md5,
             "sha256": analysis.file_hash,
             "filename": analysis.file_name,
+            "completeness": completeness_summary(analysis),
             "report": (
                 {
                     "score": float(report.score) if report.score is not None else None,

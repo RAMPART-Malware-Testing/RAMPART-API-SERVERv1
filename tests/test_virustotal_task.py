@@ -41,8 +41,11 @@ class FakeSession:
                 return ScalarResult()
             return ScalarResult(self.report, self.rows)
         params = statement.compile().params
-        target = next(value for value in params.values() if value in ("processing", "success", "failed"))
-        statuses = next(value for value in params.values() if isinstance(value, list))
+        targets = [value for value in params.values() if value in ("processing", "success", "failed")]
+        statuses = next((value for value in params.values() if isinstance(value, list)), None)
+        if not targets or statuses is None:
+            return SimpleNamespace(rowcount=0)
+        target = targets[0]
         matching = [row for row in self.rows if row.status in statuses]
         rid = next((value for value in params.values() if value == "report-id"), None)
         for row in matching:
@@ -598,8 +601,8 @@ class FinalizeSession:
     def rollback(self):
         self.rollbacks += 1
 
-def analysis_row(status="processing", rid=None):
-    return SimpleNamespace(status=status, rid=rid)
+def analysis_row(status="processing", rid=None, file_hash="a" * 64):
+    return SimpleNamespace(status=status, rid=rid, file_hash=file_hash)
 
 def test_finalization_acquires_task_advisory_lock_before_reading_rows():
     session = FinalizeSession([analysis_row()])
