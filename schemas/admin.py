@@ -8,6 +8,56 @@ MAX_SEARCH_LENGTH = 100
 MAX_LIMIT = 100
 MAX_REASON_LENGTH = 500
 
+class AdminDeleteHistoryParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str
+    target_uid: str
+    kind: str
+    entry_id: str
+
+    @field_validator("kind")
+    @classmethod
+    def validate_kind(cls, v: str) -> str:
+        v = v.strip().lower()
+        if v not in {"analysis", "login", "download", "password"}:
+            raise ValueError("kind must be one of: analysis, login, download, password")
+        return v
+
+class MasterSetupEmailParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not v:
+            raise ValueError("กรุณาระบุอีเมล Gmail")
+        if len(v) > 255:
+            raise ValueError("อีเมลยาวเกินไป")
+        return v
+
+class MasterSetupConfirmParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str
+    newPasswd: str
+    otp_token: str | None = None
+    otp: str | None = None
+    skip_otp: bool = False
+
+    @field_validator("otp")
+    @classmethod
+    def validate_otp(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        if not v.isdigit() or len(v) != 6:
+            raise ValueError("รหัส OTP ต้องเป็นตัวเลข 6 หลัก")
+        return v
+
 _DANGEROUS_SQL_PATTERNS = [
     "'", '"', ";", "--", "/*", "*/", "xp_", "exec", "drop", "union",
     "select", "insert", "update", "delete",

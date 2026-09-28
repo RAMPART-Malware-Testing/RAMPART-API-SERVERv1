@@ -17,6 +17,12 @@ from schemas.analy import AnalysisHistoryParams
 from uuid import UUID
 from utils.cache import build_suffix, cached_async
 
+try:
+    from zoneinfo import ZoneInfo
+    BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
+except Exception:
+    BANGKOK_TZ = timezone(timedelta(hours=7))
+
 DASHBOARD_SUMMARY_CACHE_NAMESPACE = "dashboard:summary"
 DASHBOARD_SUMMARY_CACHE_TTL_SECONDS = 5
 RECENT_ACTIVITIES_CACHE_NAMESPACE = "dashboard:recent_activities"
@@ -54,9 +60,9 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
     )
     total_users = user_count_q.scalar()
 
-    now = datetime.now(timezone.utc)
-    day_start   = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    now = datetime.now(BANGKOK_TZ)
+    day_start   = now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
     def malware_query(since: datetime):
         return (
@@ -72,7 +78,7 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
             )
             .group_by(Reports.type)
             .order_by(func.count().desc())
-            .limit(5)
+            .limit(10)
         )
 
     daily_q   = await session.execute(malware_query(day_start))
@@ -229,7 +235,6 @@ async def _fetch_reports_history(
     needs_join = params.score != 0
     stmt = (
         select(Analysis)
-        .options(joinedload(Analysis.report))
         .where(where_clause)
         .order_by(*order_by)
         .offset((params.page - 1) * params.limit)

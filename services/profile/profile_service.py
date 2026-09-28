@@ -23,14 +23,16 @@ Injection / Unrestricted File Upload):
 import io
 import secrets
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cores.Schema.schema_class import User
+from cores.Schema.schema_class import Analysis, Reports, User
+from utils.cypto.PasswordCreateAndVerify import get_password_hash, verify_password
 
 AVATAR_DIR = Path("avatars")
 AVATAR_DIR.mkdir(parents=True, exist_ok=True)
@@ -70,6 +72,64 @@ async def update_username(session: AsyncSession, uid: uuid.UUID, username: str) 
     await session.commit()
     await session.refresh(user)
     return user
+
+async def change_password(
+    session: AsyncSession, uid: uuid.UUID, current_password: str, new_password: str
+) -> User:
+    user = await get_user_or_404(session, uid)
+
+    if not user.password:
+        raise HTTPException(
+            status_code=409,
+            detail="บัญชีนี้เข้าสู่ระบบผ่านผู้ให้บริการภายนอก กรุณาใช้เมนูลืมรหัสผ่านเพื่อตั้งรหัสผ่านใหม่",
+        )
+    if not verify_password(user.password, current_password):
+        raise HTTPException(status_code=401, detail="รหัสผ่านปัจจุบันไม่ถูกต้อง")
+    if verify_password(user.password, new_password):
+        raise HTTPException(status_code=400, detail="รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม")
+
+    user.password = get_password_hash(new_password)
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+async def unread_notification_counts(
+    session: AsyncSession,
+    uid: uuid.UUID,
+    reports_since: datetime | None,
+    public_since: datetime | None,
+) -> dict[str, int]:
+    finished_reports = 0
+    if reports_since is not None:
+        finished_reports = (
+            await session.execute(
+                select(func.count())
+                .select_from(Analysis)
+                .join(Reports, Analysis.rid == Reports.rid)
+                .where(
+                    Analysis.uid == uid,
+                    Analysis.deleted_at.is_(None),
+                    Analysis.status == "success",
+                    Reports.created_at > reports_since,
+                )
+            )
+        ).scalar_one()
+
+    new_public_files = 0
+    if public_since is not None:
+        new_public_files = (
+            await session.execute(
+                select(func.count())
+                .select_from(Analysis)
+                .where(
+                    Analysis.privacy.is_(True),
+                    Analysis.deleted_at.is_(None),
+                    Analysis.created_at > public_since,
+                )
+            )
+        ).scalar_one()
+
+    return {"reports": int(finished_reports), "public": int(new_public_files)}
 
 def _assert_within_size_cap(total_size: int) -> None:
     """Raises 413 the moment the running total crosses the size cap."""

@@ -1,5 +1,7 @@
 import json
 import math
+import re
+from collections import Counter
 from pathlib import Path
 
 from calling.CAPE import CAPEAnalyzer
@@ -9,6 +11,71 @@ from calling.VirusTotal import VirusToTalAPI
 
 VIRUSTOTAL_MAX_SIZE = 32 * 1024 * 1024
 vt = VirusToTalAPI()
+
+GENERIC_SIGNATURE_TOKENS = {
+    "trojan", "backdoor", "worm", "virus", "malware", "generic", "variant", "gen",
+    "agent", "win32", "win64", "w32", "w64", "msil", "heur", "heuristic", "suspicious",
+    "likely", "possible", "riskware", "hacktool", "pua", "unwanted", "software",
+    "downloader", "dropper", "exploit", "ransom", "ransomware", "spyware", "adware",
+    "miner", "coinminer", "rootkit", "pws", "stealer", "banker", "fake", "misc",
+    "threat", "detected", "blocked", "part", "start", "auto", "file", "script",
+    "javascript", "python", "android", "linux", "osx", "macos", "email", "html",
+    "php", "macro", "office", "bank", "crypt", "inject", "injector", "packed",
+    "shell", "code", "multi", "genericml", "susp", "mal", "troj", "http", "https",
+}
+
+MALWARE_CATEGORY_TOKENS = {
+    "trojan", "backdoor", "worm", "virus", "ransomware", "adware", "spyware",
+    "rootkit", "miner", "coinminer", "downloader", "dropper", "hacktool", "pua",
+    "riskware", "banker", "stealer", "keylogger", "botnet", "exploit",
+}
+
+CATEGORY_ALIASES = {"ransom": "ransomware", "trojangeneric": "trojan"}
+
+def _title_token(token: str) -> str:
+    if any(character.isupper() for character in token[1:]):
+        return token
+    return token[:1].upper() + token[1:]
+
+def virustotal_threat_label(report: dict) -> str | None:
+    attributes = get_virustotal_attributes(report) or {}
+    classification = attributes.get("popular_threat_classification") or {}
+    label = classification.get("suggested_threat_label")
+    if not label:
+        categories = [
+            item for item in (classification.get("popular_threat_category") or [])
+            if isinstance(item, dict) and item.get("value")
+        ]
+        categories.sort(key=lambda item: item.get("count") or 0, reverse=True)
+        label = categories[0]["value"] if categories else None
+    if not label:
+        return None
+    primary = str(label).split("/")[0].strip()
+    parts = [part for part in re.split(r"[^A-Za-z0-9]+", primary) if part]
+    if not parts:
+        return None
+    return ".".join(_title_token(part) for part in parts[:3])
+
+def malware_family_from_signatures(signatures: list[str] | None) -> str | None:
+    families: Counter[str] = Counter()
+    categories: Counter[str] = Counter()
+    display: dict[str, str] = {}
+    for entry in signatures or []:
+        text = str(entry).split(":", 1)[-1]
+        for token in re.findall(r"[A-Za-z]{4,}", text):
+            lowered = token.lower()
+            if lowered in GENERIC_SIGNATURE_TOKENS:
+                if lowered in MALWARE_CATEGORY_TOKENS:
+                    categories[lowered] += 1
+                continue
+            families[lowered] += 1
+            display.setdefault(lowered, token)
+    if families:
+        return _title_token(display[families.most_common(1)[0][0]])
+    if categories:
+        token = categories.most_common(1)[0][0]
+        return _title_token(CATEGORY_ALIASES.get(token, token))
+    return None
 
 def get_virustotal_attributes(report: dict) -> dict:
     return report.get("data", {}).get("attributes", {})
@@ -25,6 +92,22 @@ def get_malicious_virustotal_results(report: dict) -> dict:
         str(index): result
         for index, result in enumerate(report.get("threats_found", {}).get("malicious", []))
     }
+
+def virustotal_detection_counts(report: dict | str | Path) -> tuple[int, int] | None:
+    if isinstance(report, dict):
+        data = report
+    else:
+        try:
+            with Path(report).open("r", encoding="utf-8") as file:
+                data = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            return None
+    attributes = get_virustotal_attributes(data) or {}
+    stats = attributes.get("last_analysis_stats") or {}
+    if not stats:
+        return None
+    total = sum(int(value or 0) for value in stats.values())
+    return len(get_malicious_virustotal_results(data)), total
 
 def is_reportvt_complete(report: dict) -> bool:
     if not report:

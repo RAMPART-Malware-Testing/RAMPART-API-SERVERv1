@@ -18,6 +18,9 @@ from bgProcessing.task_handlers import (
     handle_mobsf,
     handle_rampart_ai,
     handle_virustotal,
+    malware_family_from_signatures,
+    virustotal_detection_counts,
+    virustotal_threat_label,
     write_raw_virustotal_report,
 )
 from cores.Schema.schema_class import Analysis, Reports
@@ -113,6 +116,11 @@ def read_sandbox_score(path: str | None, calculator):
         return calculator(read_report(path))
     except (OSError, json.JSONDecodeError, AttributeError, TypeError, ValueError):
         return None
+
+def tool_danger_score(status, path: str | None, calculator):
+    if status is not True:
+        return None
+    return read_sandbox_score(path, calculator)
 
 def task_is_complete(db, task_id: str) -> bool:
     statuses = db.execute(
@@ -222,10 +230,14 @@ def finalize_analysis_report(
             vt_report = read_report(vt_report_path)
             virustotal_score = calculate_threat_scoreVT(vt_report)
             signatures, malicious = virustotal_report_values(vt_report)
+            threat_label = virustotal_threat_label(vt_report)
             del vt_report
         else:
             virustotal_score = None
             signatures, malicious = [], False
+            threat_label = None
+        if threat_label is None and signatures:
+            threat_label = malware_family_from_signatures(signatures)
         scores = {
             "virustotal_score": virustotal_score,
             "mobsf_score": read_sandbox_score(mobsf_report_path, calculate_mobsf_danger_score),
@@ -248,9 +260,12 @@ def finalize_analysis_report(
             report.cape_score = scores["cape_score"]
             report.rampart_ai_score = rampartai_prediction
             report.malware_signatures = signatures
+            if getattr(report, "type", None) is None:
+                report.type = threat_label
         else:
             report = Reports(
                 file_type=Path(file_path).suffix.lstrip(".") or None,
+                type=threat_label,
                 virustotal_score=scores["virustotal_score"],
                 mobsf_score=scores["mobsf_score"],
                 cape_score=scores["cape_score"],
@@ -392,15 +407,22 @@ def analyze_malware_task(
                     )
 
         vt_score = None
+        vt_counts = None
         if vt_status is True:
             if not Path(vt_report_path).is_file():
                 return fail_task(db, task_id, "VirusTotal report file not found", tool_notes=tool_notes)
             vt_score = calculate_threat_scoreVT(vt_report_path)
+            vt_counts = virustotal_detection_counts(vt_report_path)
             publish_progress(
                 task_id,
                 "virustotal",
                 "VirusTotal analysis completed",
-                tools={"virustotal": {"status": "success", "score": vt_score}},
+                tools={"virustotal": {
+                    "status": "success",
+                    "score": vt_score,
+                    "detections": vt_counts[0] if vt_counts else None,
+                    "engines": vt_counts[1] if vt_counts else None,
+                }},
             )
             if vt_score == 100:
                 try:
@@ -413,7 +435,12 @@ def analyze_malware_task(
                     "gemini",
                     "Gemini is synthesizing tool evidence",
                     tools={
-                        "virustotal": {"status": "success", "score": vt_score},
+                        "virustotal": {
+                            "status": "success",
+                            "score": vt_score,
+                            "detections": vt_counts[0] if vt_counts else None,
+                            "engines": vt_counts[1] if vt_counts else None,
+                        },
                         "mobsf": {"status": "skipped", "note": "Skipped: VirusTotal already detected malware"},
                         "cape": {"status": "skipped", "note": "Skipped: VirusTotal already detected malware"},
                         "rampart_ai": {"status": "skipped", "note": "Skipped: VirusTotal already detected malware"},
@@ -454,6 +481,13 @@ def analyze_malware_task(
                 tools={"virustotal": {"status": "skipped", "note": tool_notes.get("virustotal")}},
             )
 
+        vt_entry = {
+            "status": vt_status if vt_status is True else "skipped",
+            "score": vt_score,
+            "detections": vt_counts[0] if vt_counts else None,
+            "engines": vt_counts[1] if vt_counts else None,
+        }
+
         mobsf_ready = bool(mobsf_status is True and mobsf_report_path and Path(mobsf_report_path).is_file())
         mobsf_countdown = None
         if mobsf_status not in (True, "skipped") and not mobsf_ready:
@@ -485,8 +519,8 @@ def analyze_malware_task(
                     "rampart_ai",
                     "Classifying MobSF report with RampartAI",
                     tools={
-                        "virustotal": {"status": vt_status if vt_status is True else "skipped", "score": vt_score},
-                        "mobsf": {"status": mobsf_status},
+                        "virustotal": vt_entry,
+                        "mobsf": {"status": mobsf_status, "score": tool_danger_score(mobsf_status, mobsf_report_path, calculate_mobsf_danger_score)},
                         "cape": {"status": cape_status or "pending"},
                         "rampart_ai": {"status": "processing"},
                     },
@@ -510,7 +544,7 @@ def analyze_malware_task(
                 "sandboxes",
                 "Advancing CAPE analysis",
                 tools={
-                    "virustotal": {"status": vt_status if vt_status is True else "skipped", "score": vt_score},
+                    "virustotal": vt_entry,
                     "mobsf": {"status": mobsf_status},
                     "cape": {"status": "processing", "task_id": cape_task_id},
                     "rampart_ai": {"status": rampart_ai_status or "waiting"},
@@ -540,10 +574,10 @@ def analyze_malware_task(
                 "sandboxes",
                 "CAPE analysis updated",
                 tools={
-                    "virustotal": {"status": vt_status if vt_status is True else "skipped", "score": vt_score},
-                    "mobsf": {"status": mobsf_status},
-                    "cape": {"status": cape_status, "task_id": cape_task_id, "note": tool_notes.get("cape")},
-                    "rampart_ai": {"status": rampart_ai_status or "waiting"},
+                    "virustotal": vt_entry,
+                    "mobsf": {"status": mobsf_status, "score": tool_danger_score(mobsf_status, mobsf_report_path, calculate_mobsf_danger_score)},
+                    "cape": {"status": cape_status, "task_id": cape_task_id, "note": tool_notes.get("cape"), "score": tool_danger_score(cape_status, cape_report_path, calculate_cape_danger_score)},
+                    "rampart_ai": {"status": rampart_ai_status or "waiting", "score": tool_danger_score(rampart_ai_status, rampart_ai_report_path, calculate_rampart_ai_score)},
                 },
             )
 
@@ -558,10 +592,10 @@ def analyze_malware_task(
                 "sandboxes",
                 "Waiting for sandbox reports",
                 tools={
-                    "virustotal": {"status": vt_status if vt_status is True else "skipped", "score": vt_score},
-                    "mobsf": {"status": mobsf_status, "note": tool_notes.get("mobsf")},
-                    "cape": {"status": cape_status, "task_id": cape_task_id, "note": tool_notes.get("cape")},
-                    "rampart_ai": {"status": rampart_ai_status or "waiting"},
+                    "virustotal": vt_entry,
+                    "mobsf": {"status": mobsf_status, "note": tool_notes.get("mobsf"), "score": tool_danger_score(mobsf_status, mobsf_report_path, calculate_mobsf_danger_score)},
+                    "cape": {"status": cape_status, "task_id": cape_task_id, "note": tool_notes.get("cape"), "score": tool_danger_score(cape_status, cape_report_path, calculate_cape_danger_score)},
+                    "rampart_ai": {"status": rampart_ai_status or "waiting", "score": tool_danger_score(rampart_ai_status, rampart_ai_report_path, calculate_rampart_ai_score)},
                     "gemini": {"status": "waiting"},
                 },
             )
@@ -620,10 +654,10 @@ def analyze_malware_task(
             "gemini",
             "Gemini is synthesizing tool evidence",
             tools={
-                "virustotal": {"status": vt_status if vt_status is True else "skipped", "score": vt_score},
-                "mobsf": {"status": mobsf_status, "note": tool_notes.get("mobsf")},
-                "cape": {"status": cape_status, "task_id": cape_task_id, "note": tool_notes.get("cape")},
-                "rampart_ai": {"status": rampart_ai_status},
+                "virustotal": vt_entry,
+                "mobsf": {"status": mobsf_status, "note": tool_notes.get("mobsf"), "score": tool_danger_score(mobsf_status, successful_mobsf_path, calculate_mobsf_danger_score)},
+                "cape": {"status": cape_status, "task_id": cape_task_id, "note": tool_notes.get("cape"), "score": tool_danger_score(cape_status, successful_cape_path, calculate_cape_danger_score)},
+                "rampart_ai": {"status": rampart_ai_status, "score": tool_danger_score(rampart_ai_status, successful_rampart_ai_path, calculate_rampart_ai_score)},
                 "gemini": {"status": "processing"},
             },
         )
@@ -636,10 +670,10 @@ def analyze_malware_task(
                 "gemini",
                 "Gemini analysis failed, retrying",
                 tools={
-                    "virustotal": {"status": vt_status if vt_status is True else "skipped", "score": vt_score},
-                    "mobsf": {"status": mobsf_status, "note": tool_notes.get("mobsf")},
-                    "cape": {"status": cape_status, "task_id": cape_task_id, "note": tool_notes.get("cape")},
-                    "rampart_ai": {"status": rampart_ai_status},
+                    "virustotal": vt_entry,
+                    "mobsf": {"status": mobsf_status, "note": tool_notes.get("mobsf"), "score": tool_danger_score(mobsf_status, successful_mobsf_path, calculate_mobsf_danger_score)},
+                    "cape": {"status": cape_status, "task_id": cape_task_id, "note": tool_notes.get("cape"), "score": tool_danger_score(cape_status, successful_cape_path, calculate_cape_danger_score)},
+                    "rampart_ai": {"status": rampart_ai_status, "score": tool_danger_score(rampart_ai_status, successful_rampart_ai_path, calculate_rampart_ai_score)},
                     "gemini": {"status": "pending"},
                 },
             )
@@ -691,7 +725,7 @@ def analyze_malware_task(
             "complete",
             "Analysis and database commit completed",
             tools={
-                "virustotal": {"status": vt_status if vt_status is True else "skipped", "score": scores["virustotal_score"]},
+                "virustotal": vt_entry,
                 "mobsf": {"status": mobsf_status, "score": scores["mobsf_score"], "note": tool_notes.get("mobsf")},
                 "cape": {"status": cape_status, "score": scores["cape_score"], "task_id": cape_task_id, "note": tool_notes.get("cape")},
                 "rampart_ai": {"status": rampart_ai_status, "score": scores["rampart_ai_score"]},

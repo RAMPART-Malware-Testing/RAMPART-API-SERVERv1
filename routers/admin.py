@@ -10,16 +10,20 @@ from controller.admin_controller import (
     bulk_delete_files_controller,
     change_role_controller,
     delete_file_controller,
+    delete_user_history_controller,
     export_audit_logs_csv_controller,
     export_files_csv_controller,
     export_users_csv_controller,
     get_user_detail_controller,
     get_user_download_history_controller,
+    get_user_password_history_controller,
     get_user_history_controller,
     get_user_login_history_controller,
     list_files_controller,
     list_reports_controller,
     list_users_controller,
+    master_setup_confirm_controller,
+    master_setup_email_controller,
     rate_limit_clear_controller,
     rate_limit_snapshot_controller,
     system_health_controller,
@@ -39,6 +43,7 @@ from schemas.admin import (
     AdminClearLockoutParams,
     AdminDashboardParams,
     AdminDeleteFileParams,
+    AdminDeleteHistoryParams,
     AdminListFilesParams,
     AdminListReportsParams,
     AdminListUsersParams,
@@ -49,6 +54,8 @@ from schemas.admin import (
     AdminUnbanUserParams,
     AdminUserHistoryParams,
     AdminUserSubHistoryParams,
+    MasterSetupConfirmParams,
+    MasterSetupEmailParams,
 )
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
@@ -185,3 +192,23 @@ async def rate_limit_snapshot(body: AdminTokenParams):
 @router.post("/rate-limits/clear")
 async def rate_limit_clear(body: AdminClearLockoutParams):
     return await rate_limit_clear_controller(body)
+
+
+@router.post("/setup/email")
+async def master_setup_email(body: MasterSetupEmailParams):
+    return await master_setup_email_controller(body)
+
+
+@router.post("/setup/confirm")
+async def master_setup_confirm(body: MasterSetupConfirmParams):
+    return await master_setup_confirm_controller(body)
+
+
+@router.post("/users/history-delete")
+async def delete_user_history(body: AdminDeleteHistoryParams):
+    return await delete_user_history_controller(body)
+
+
+@router.post("/users/password-history")
+async def get_user_password_history(body: AdminUserSubHistoryParams):
+    return await get_user_password_history_controller(body)

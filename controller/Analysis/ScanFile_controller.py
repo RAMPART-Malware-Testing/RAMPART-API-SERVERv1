@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import os
 import re
 import shutil
@@ -8,6 +9,7 @@ from tempfile import NamedTemporaryFile
 
 from fastapi import HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
+from sqlalchemy.exc import IntegrityError
 
 from bgProcessing.tasks import analyze_malware_task
 from cores.Schema.schema_class import User
@@ -26,6 +28,8 @@ from utils.uuid import parse_uuid
 UPLOAD_DIR = Path("temps_files")
 REPORTS_DIR = Path("reports")
 RESULTS_DIR = Path("results")
+
+logger = logging.getLogger("rampart.upload")
 
 for directory in [UPLOAD_DIR, REPORTS_DIR, RESULTS_DIR]:
     directory.mkdir(parents=True, exist_ok=True)
@@ -215,7 +219,15 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
             )
         except HTTPException:
             raise
+        except IntegrityError:
+            logger.exception("Upload conflict for %s", original_filename)
+            await db_session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="ไฟล์นี้มีผลการวิเคราะห์เดิมอยู่แล้ว กรุณาลองอีกครั้งหรือดูรายงานเดิมได้เลย",
+            )
         except Exception:
+            logger.exception("Upload failed for %s", original_filename)
             await db_session.rollback()
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

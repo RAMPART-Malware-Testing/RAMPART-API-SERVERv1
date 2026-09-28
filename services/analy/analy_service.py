@@ -310,6 +310,18 @@ async def insert_table_analy(
     existing = await session.execute(stmt)
     analy = existing.scalars().first()
 
+    if analy is None and task_id:
+        same_task = await session.execute(
+            select(Analysis).where(
+                Analysis.uid == uid,
+                Analysis.task_id == task_id,
+                Analysis.deleted_at.is_(None),
+            )
+        )
+        analy = same_task.scalars().first()
+        if analy is not None:
+            analy.file_name = file_name
+
     if analy:
         analy.created_at = datetime.now(timezone.utc)
         analy.privacy = privacy

@@ -4,7 +4,7 @@ from sqlalchemy import select
 
 from cores.Schema.schema_class import User
 from cores.async_pg_db import SessionLocal
-from utils.cypto.PasswordCreateAndVerify import get_password_hash
+from utils.cypto.PasswordCreateAndVerify import get_password_hash, verify_password
 from utils.email_normalize import normalize_email, normalized_email_expr
 
 ROOT_EMAIL = os.getenv("ROOT_EMAIL", "").strip().lower()
@@ -41,6 +41,23 @@ async def ensure_root_master_account() -> None:
         user = result.scalar_one_or_none()
 
         if user is None:
+            by_username = await session.execute(
+                select(User).where(User.username == ROOT_USERNAME)
+            )
+            user = by_username.scalar_one_or_none()
+
+        if user is None:
+            existing_master = await session.execute(
+                select(User.uid).where(User.role == "master").limit(1)
+            )
+            if existing_master.scalar_one_or_none() is not None:
+                print(
+                    f"[Bootstrap] Master account already exists (env root {ROOT_EMAIL} "
+                    "was renamed or replaced) - skipping default master creation"
+                )
+                return
+
+        if user is None:
             username = await _generate_unique_username(session, ROOT_USERNAME)
             user = User(
                 username=username,
@@ -49,6 +66,7 @@ async def ensure_root_master_account() -> None:
                 avatar_url=None,
                 role="master",
                 status="active",
+                must_setup=True,
             )
             session.add(user)
             await session.commit()
@@ -67,6 +85,9 @@ async def ensure_root_master_account() -> None:
             changed = True
         if not user.password:
             user.password = get_password_hash(ROOT_PASSWORD)
+            changed = True
+        if user.password and verify_password(user.password, ROOT_PASSWORD) and not user.must_setup:
+            user.must_setup = True
             changed = True
 
         if changed:

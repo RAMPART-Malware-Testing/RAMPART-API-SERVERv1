@@ -8,6 +8,11 @@ import json
 
 load_dotenv()    
 
+CONNECT_TIMEOUT_SECONDS = 10
+
+def cape_timeout(read_seconds):
+    return (CONNECT_TIMEOUT_SECONDS, read_seconds)
+
 from typing import Dict, Any, List, Optional
 import json
 
@@ -193,7 +198,7 @@ class CAPEAnalyzer:
             return {"error": str(e), "data": None}
         url = f"{self.base_url}/apiv2/tasks/search/{hash_type}/{file_hash}/"
         try:
-            response = requests.get(url, timeout=120)
+            response = requests.get(url, timeout=cape_timeout(120))
             js = response.json()
             return js.get("data")
         except requests.exceptions.RequestException as e:
@@ -201,7 +206,7 @@ class CAPEAnalyzer:
 
     def delete_taskID(self, task_id):
         try:
-            requests.get(f"{self.base_url}/apiv2/tasks/delete/{task_id}", timeout=30)
+            requests.get(f"{self.base_url}/apiv2/tasks/delete/{task_id}", timeout=cape_timeout(30))
         except: pass
 
     def create_file_task(self, file_path: str, machine: Optional[str] = None, package: Optional[str] = None, is_pcap: bool = False) -> Dict[str, Any]:
@@ -216,7 +221,7 @@ class CAPEAnalyzer:
         if is_pcap: data['pcap'] = '1'
 
         try:
-            response = requests.post(url, files=files, data=data, timeout=600)
+            response = requests.post(url, files=files, data=data, timeout=cape_timeout(600))
             if response.status_code != 200:
                 return {"status": "error", "error": f"CAPE API returned HTTP {response.status_code}: {response.text[:300]}"}
             result = response.json()
@@ -233,7 +238,7 @@ class CAPEAnalyzer:
     def get_task_status(self, task_id: int) -> Dict[str, Any]:
         url = f"{self.base_url}/apiv2/tasks/status/{task_id}"
         try:
-            response = requests.get(url, timeout=60)
+            response = requests.get(url, timeout=cape_timeout(60))
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -242,7 +247,7 @@ class CAPEAnalyzer:
     def get_task_report(self, task_id: int, report_format: str = "json"):
         url = f"{self.base_url}/apiv2/tasks/get/report/{task_id}/{report_format}/"
         try:
-            response = requests.get(url, timeout=60)
+            response = requests.get(url, timeout=cape_timeout(60))
             response.raise_for_status()
             return {"status": "success", "data": response.json()}
         except Exception as e:

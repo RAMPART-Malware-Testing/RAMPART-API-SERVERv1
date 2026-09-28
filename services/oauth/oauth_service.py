@@ -216,5 +216,6 @@ def user_public_dict(user: User) -> dict:
         "avatar_url": user.avatar_url,
         "role": user.role,
         "status": user.status,
+        "must_setup": bool(user.must_setup),
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }

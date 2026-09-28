@@ -56,11 +56,13 @@ class OTPService:
                 redis_client.delete(OTPService._attempts_key(action, token))
             except Exception as exc:
                 print(f"[OTP] unable to store session {action}:{token}: {exc}")
-        OTPService._send_email(email, otp, action)
+        sent = OTPService._send_email(email, otp, action)
         return success(
             AuthStatus.OTP_SENT,
-            f"รหัส OTP ถูกส่งไปยังอีเมล {email}",
-            {"token": token, "expires_in": OTP_TTL_SECONDS},
+            f"รหัส OTP ถูกส่งไปยังอีเมล {email}"
+            if sent
+            else f"สร้างรหัส OTP แล้ว แต่ระบบส่งอีเมลไม่สำเร็จ (ตรวจสอบการตั้งค่า GMAIL_USERNAME/GMAIL_PASSWORD)",
+            {"token": token, "expires_in": OTP_TTL_SECONDS, "email_sent": sent},
         )
 
     @staticmethod
@@ -122,8 +124,8 @@ class OTPService:
             pass
 
     @staticmethod
-    def _send_email(email: str, otp: str, action: str) -> None:
-        send_email(
+    def _send_email(email: str, otp: str, action: str) -> bool:
+        return send_email(
             email,
             f"รหัส OTP ของคุณ ({action})",
             f"รหัสยืนยัน (OTP) ของคุณคือ: {otp}\n\nรหัสนี้จะหมดอายุใน 5 นาที",

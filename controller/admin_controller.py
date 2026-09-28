@@ -30,6 +30,7 @@ from schemas.admin import (
     AdminClearLockoutParams,
     AdminDashboardParams,
     AdminDeleteFileParams,
+    AdminDeleteHistoryParams,
     AdminListFilesParams,
     AdminListReportsParams,
     AdminListUsersParams,
@@ -40,8 +41,11 @@ from schemas.admin import (
     AdminUnbanUserParams,
     AdminUserHistoryParams,
     AdminUserSubHistoryParams,
+    MasterSetupConfirmParams,
+    MasterSetupEmailParams,
 )
 from services.admin import admin_service
+from services.admin.master_setup import confirm_master_setup, start_master_setup
 from services.admin.authz import ADMIN_ROLES, AuthError, ensure_not_banned, ensure_role, get_current_user
 from utils.response import error, success
 from utils.status_code import AuthStatus
@@ -266,6 +270,20 @@ async def get_user_login_history_controller(body: AdminUserSubHistoryParams):
         except AuthError as exc:
             return _auth_error_response(exc)
 
+async def get_user_password_history_controller(body: AdminUserSubHistoryParams):
+    async with SessionLocal() as session:
+        try:
+            await _resolve_admin_actor(session, body.token)
+            target_uid = _parse_target_uid(body.target_uid)
+            target = await admin_service.get_user_admin_view(session, target_uid)
+            if target is None:
+                raise AuthError(404, "TARGET_NOT_FOUND", "ไม่พบผู้ใช้เป้าหมาย")
+            return await admin_service.get_user_password_history_admin(
+                session, target_uid, page=body.page, limit=body.limit
+            )
+        except AuthError as exc:
+            return _auth_error_response(exc)
+
 async def get_user_download_history_controller(body: AdminUserSubHistoryParams):
     async with SessionLocal() as session:
         try:
@@ -428,5 +446,39 @@ async def rate_limit_clear_controller(body: AdminClearLockoutParams):
             )
             await session.commit()
             return result
+        except AuthError as exc:
+            return _auth_error_response(exc)
+
+async def master_setup_email_controller(body: MasterSetupEmailParams):
+    async with SessionLocal() as session:
+        try:
+            actor = await _resolve_admin_actor(session, body.token)
+            return await start_master_setup(session, actor, body.email)
+        except AuthError as exc:
+            return _auth_error_response(exc)
+
+async def master_setup_confirm_controller(body: MasterSetupConfirmParams):
+    async with SessionLocal() as session:
+        try:
+            actor = await _resolve_admin_actor(session, body.token)
+            return await confirm_master_setup(
+                session, actor, body.otp_token, body.otp, body.newPasswd, skip_otp=body.skip_otp
+            )
+        except AuthError as exc:
+            return _auth_error_response(exc)
+
+async def delete_user_history_controller(body: AdminDeleteHistoryParams):
+    async with SessionLocal() as session:
+        try:
+            actor = await _resolve_admin_actor(session, body.token)
+            target_uid = _parse_target_uid(body.target_uid)
+            result = await admin_service.delete_user_history_entry(
+                session,
+                actor=actor,
+                target_uid=target_uid,
+                kind=body.kind,
+                entry_id=body.entry_id,
+            )
+            return success(AuthStatus.ADMIN_ACTION_SUCCESS, "ลบประวัติสำเร็จ", result.get("data"))
         except AuthError as exc:
             return _auth_error_response(exc)

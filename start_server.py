@@ -1,4 +1,7 @@
+import logging
+import logging.handlers
 import os
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +12,25 @@ from dotenv import load_dotenv
 import uvicorn
 
 load_dotenv()
+
+LOG_DIR = Path(os.getenv("SERVER_LOG_DIR") or (Path.home() / "rampart-logs"))
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOG_DIR / "server.log"
+
+def _configure_file_logging() -> None:
+    handler = logging.handlers.RotatingFileHandler(
+        LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+    )
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    )
+    handler.setLevel(logging.WARNING)
+    logging.getLogger("watchfiles").setLevel(logging.WARNING)
+    logging.getLogger().setLevel(logging.INFO)
+    for name in ("", "uvicorn", "uvicorn.error", "uvicorn.access", "rampart"):
+        logging.getLogger(name).addHandler(handler)
+
+_configure_file_logging()
 
 app = FastAPI(
     title="RAMPART",
@@ -78,5 +100,20 @@ async def root():
 async def scan_page():
     return FileResponse('scan.html')
 
+RELOAD_EXCLUDES = [
+    "temps_files/*",
+    "reports/*",
+    "results/*",
+    "avatars/*",
+    "logs/*",
+    "*.log",
+]
+
 if __name__=="__main__":
-    uvicorn.run("start_server:app", host="0.0.0.0", port=8006, reload=True)
+    uvicorn.run(
+        "start_server:app",
+        host="0.0.0.0",
+        port=8006,
+        reload=True,
+        reload_excludes=RELOAD_EXCLUDES,
+    )

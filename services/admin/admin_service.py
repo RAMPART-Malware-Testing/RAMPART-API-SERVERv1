@@ -12,6 +12,7 @@ skips that call.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timedelta as _timedelta, timezone
 from pathlib import Path
@@ -23,6 +24,7 @@ from sqlalchemy.orm import contains_eager, joinedload
 
 from cores.Schema.schema_class import AuditLog, Analysis, DownloadHistory, LoginHistory, Reports, User
 from schemas.admin import AdminUserHistoryParams
+from utils.uuid import parse_uuid
 from services.admin.authz import (
     ROLE_ADMIN,
     ROLE_MASTER,
@@ -40,6 +42,7 @@ USER_HISTORY_CACHE_NAMESPACE = "admin:users:history"
 USER_HISTORY_CACHE_TTL_SECONDS = 5
 USER_LOGIN_HISTORY_CACHE_NAMESPACE = "admin:users:login_history"
 USER_DOWNLOAD_HISTORY_CACHE_NAMESPACE = "admin:users:download_history"
+USER_PASSWORD_HISTORY_CACHE_NAMESPACE = "admin:users:password_history"
 FILE_LIST_CACHE_NAMESPACE = "admin:files:list"
 FILE_LIST_CACHE_TTL_SECONDS = 5
 REPORT_LIST_CACHE_NAMESPACE = "admin:reports:list"
@@ -317,6 +320,69 @@ async def get_user_login_history_admin(
         suffix=suffix,
     )
 
+async def _fetch_user_password_history(
+    session: AsyncSession,
+    target_uid: uuid.UUID,
+    *,
+    page: int,
+    limit: int,
+) -> dict[str, Any]:
+    condition = and_(
+        AuditLog.actor_uid == target_uid,
+        AuditLog.action == "change_password",
+    )
+    total = (
+        await session.execute(
+            select(func.count()).select_from(AuditLog).where(condition)
+        )
+    ).scalar_one()
+
+    stmt = (
+        select(AuditLog)
+        .where(condition)
+        .order_by(desc(AuditLog.created_at))
+        .offset((page - 1) * limit)
+        .limit(limit)
+    )
+    rows = (await session.execute(stmt)).scalars().all()
+
+    total_pages = max(1, -(-total // limit))
+    return {
+        "success": True,
+        "data": [
+            {
+                "id": str(r.log_id),
+                "ip": (json.loads(r.detail).get("ip") if r.detail and r.detail.startswith("{") else None),
+                "user_agent": (json.loads(r.detail).get("user_agent") if r.detail and r.detail.startswith("{") else None),
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "total_pages": total_pages,
+            "has_next": page < total_pages,
+            "has_prev": page > 1,
+        },
+    }
+
+async def get_user_password_history_admin(
+    session: AsyncSession,
+    target_uid: uuid.UUID,
+    *,
+    page: int,
+    limit: int,
+) -> dict[str, Any]:
+    suffix = build_suffix(uid=str(target_uid), page=page, limit=limit)
+    return await cached_async(
+        USER_PASSWORD_HISTORY_CACHE_NAMESPACE,
+        USER_HISTORY_CACHE_TTL_SECONDS,
+        lambda: _fetch_user_password_history(session, target_uid, page=page, limit=limit),
+        suffix=suffix,
+    )
+
 async def _fetch_user_download_history(
     session: AsyncSession,
     target_uid: uuid.UUID,
@@ -494,6 +560,69 @@ async def get_user_analysis_history_admin(
             "has_prev": params.page > 1,
         },
     }
+
+async def delete_user_history_entry(
+    session: AsyncSession,
+    *,
+    actor: User,
+    target_uid: uuid.UUID,
+    kind: str,
+    entry_id: str,
+) -> dict[str, Any]:
+    if actor.role != ROLE_MASTER:
+        raise AuthError(403, "INSUFFICIENT_ROLE", "เฉพาะ master เท่านั้นที่ลบประวัติได้")
+
+    target = await session.get(User, target_uid)
+    if target is None:
+        raise AuthError(404, "TARGET_NOT_FOUND", "ไม่พบผู้ใช้เป้าหมาย")
+    ensure_can_manage_target(actor, target)
+
+    try:
+        parsed_id = parse_uuid(entry_id)
+    except (TypeError, ValueError):
+        raise AuthError(400, "INVALID_HISTORY_ID", "รหัสรายการประวัติไม่ถูกต้อง")
+
+    detail = kind
+    if kind == "analysis":
+        row = await session.get(Analysis, parsed_id)
+        if row is None or row.uid != target_uid or row.deleted_at is not None:
+            raise AuthError(404, "HISTORY_NOT_FOUND", "ไม่พบประวัติที่ต้องการลบ")
+        row.deleted_at = datetime.now(timezone.utc)
+        detail = f"analysis:{row.file_name or row.aid}"
+    elif kind == "login":
+        row = await session.get(LoginHistory, parsed_id)
+        if row is None or row.uid != target_uid:
+            raise AuthError(404, "HISTORY_NOT_FOUND", "ไม่พบประวัติที่ต้องการลบ")
+        await session.delete(row)
+        detail = f"login:{row.provider or '-'}@{row.created_at}"
+    elif kind == "password":
+        row = await session.get(AuditLog, parsed_id)
+        if row is None or row.actor_uid != target_uid or row.action != "change_password":
+            raise AuthError(404, "HISTORY_NOT_FOUND", "ไม่พบประวัติที่ต้องการลบ")
+        await session.delete(row)
+        detail = f"password:{row.created_at}"
+    elif kind == "download":
+        row = await session.get(DownloadHistory, parsed_id)
+        if row is None or row.uid != target_uid:
+            raise AuthError(404, "HISTORY_NOT_FOUND", "ไม่พบประวัติที่ต้องการลบ")
+        await session.delete(row)
+        detail = f"download:{row.file_name or row.md5 or '-'}"
+    else:
+        raise AuthError(400, "INVALID_HISTORY_KIND", "ประเภทประวัติไม่ถูกต้อง")
+
+    await write_audit_log(
+        session,
+        actor_uid=actor.uid,
+        target_uid=target.uid,
+        action="delete_user_history",
+        detail=detail[:500],
+    )
+    await session.commit()
+    _invalidate_user_caches(target.uid)
+    invalidate_cached(USER_LOGIN_HISTORY_CACHE_NAMESPACE)
+    invalidate_cached(USER_DOWNLOAD_HISTORY_CACHE_NAMESPACE)
+    invalidate_cached(USER_PASSWORD_HISTORY_CACHE_NAMESPACE)
+    return {"success": True, "data": {"kind": kind, "id": entry_id}}
 
 def _serialize_file_row(analysis: Analysis, owner: User | None, report: Reports | None) -> dict[str, Any]:
     item: dict[str, Any] = {
@@ -798,6 +927,7 @@ async def ban_user(
     )
     await session.commit()
     await session.refresh(target)
+    _invalidate_user_caches(target.uid)
     return target
 
 async def bulk_ban_users(
@@ -832,6 +962,8 @@ async def bulk_ban_users(
             failed.append({"uid": str(target_uid), "reason": exc.message})
 
     await session.commit()
+    if succeeded:
+        _invalidate_user_caches()
     return {"success": True, "data": {"succeeded": succeeded, "failed": failed}}
 
 async def unban_user(
@@ -860,6 +992,7 @@ async def unban_user(
     )
     await session.commit()
     await session.refresh(target)
+    _invalidate_user_caches(target.uid)
     return target
 
 async def change_user_role(
@@ -895,6 +1028,7 @@ async def change_user_role(
     )
     await session.commit()
     await session.refresh(target)
+    _invalidate_user_caches(target.uid)
     return target
 
 async def get_admin_dashboard_summary(session: AsyncSession, *, trend_days: int = 14) -> dict[str, Any]:

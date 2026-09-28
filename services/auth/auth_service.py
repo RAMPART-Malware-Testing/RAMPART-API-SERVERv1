@@ -16,6 +16,12 @@ def verify_access_token(token: str) -> str:
 
     return uid
 
+def is_placeholder_email(email: str | None) -> bool:
+    if not email or "@" not in email:
+        return True
+    domain = email.rsplit("@", 1)[-1].strip().lower()
+    return domain.endswith(".default") or domain.endswith(".local") or domain == "localhost"
+
 from sqlalchemy import select
 from cores.async_pg_db import SessionLocal
 from cores.Schema.schema_class import LoginHistory, OAuthAccount, User
@@ -132,6 +138,32 @@ class AuthService:
                             "device_token": refreshed_device_token,
                         }
                     )
+
+            if user.role == "master" and user.must_setup and is_placeholder_email(user.email):
+                access_token = create_token(
+                    subject=str(user.uid),
+                    token_type="access",
+                    expires_minutes=60 * 24 * 7
+                )
+                await _record_login_history(
+                    session, uid=user.uid, provider="password", ip=ip,
+                    user_agent=user_agent, status="success_default_master",
+                )
+                await session.commit()
+
+                user_dict = user.__dict__.copy()
+                user_dict.pop("password", None)
+                user_dict.pop("_sa_instance_state", None)
+                return success(
+                    AuthStatus.LOGIN_SUCCESS,
+                    "เข้าสู่ระบบสำเร็จ (บัญชีเริ่มต้น — กรุณาตั้งค่าใหม่)",
+                    {
+                        "access_token": access_token,
+                        "data": user_dict,
+                        "bypass_otp": True,
+                        "must_setup": True,
+                    }
+                )
 
             await _record_login_history(
                 session, uid=user.uid, provider="password", ip=ip,
