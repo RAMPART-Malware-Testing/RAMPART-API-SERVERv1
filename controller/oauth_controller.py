@@ -91,7 +91,7 @@ async def oauth_callback_controller(request: Request, provider: str):
     except OAuthError as exc:
         return _frontend_redirect(
             "/login",
-            error=AuthStatus.OAUTH_EMAIL_MISSING,
+            error=AuthStatus.OAUTH_ACCOUNT_LINKED,
             message=str(exc),
         )
 
