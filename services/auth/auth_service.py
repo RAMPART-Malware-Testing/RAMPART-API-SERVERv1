@@ -139,7 +139,7 @@ class AuthService:
                         }
                     )
 
-            if user.role == "master" and user.must_setup and is_placeholder_email(user.email):
+            if user.role == "master" and is_placeholder_email(user.email):
                 access_token = create_token(
                     subject=str(user.uid),
                     token_type="access",
@@ -156,12 +156,13 @@ class AuthService:
                 user_dict.pop("_sa_instance_state", None)
                 return success(
                     AuthStatus.LOGIN_SUCCESS,
-                    "เข้าสู่ระบบสำเร็จ (บัญชีเริ่มต้น — กรุณาตั้งค่าใหม่)",
+                    "เข้าสู่ระบบสำเร็จ (บัญชีเริ่มต้น — กรุณาตั้งค่าใหม่)"
+                    if user.must_setup else "เข้าสู่ระบบสำเร็จ",
                     {
                         "access_token": access_token,
                         "data": user_dict,
                         "bypass_otp": True,
-                        "must_setup": True,
+                        "must_setup": bool(user.must_setup),
                     }
                 )
 
