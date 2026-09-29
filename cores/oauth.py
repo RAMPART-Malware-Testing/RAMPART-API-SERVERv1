@@ -7,6 +7,7 @@ registered clients from here.
 """
 
 import os
+from urllib.parse import urlparse
 
 from authlib.integrations.starlette_client import OAuth
 from dotenv import load_dotenv
@@ -22,6 +23,17 @@ GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "")
 OAUTH_REDIRECT_BASE_URL = os.getenv("OAUTH_REDIRECT_BASE_URL", "http://localhost:8006").rstrip("/")
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+
+ALLOWED_ORIGINS = tuple(
+    dict.fromkeys(
+        [FRONTEND_URL]
+        + [
+            origin.strip().rstrip("/")
+            for origin in os.getenv("ALLOWED_ORIGINS", "").split(",")
+            if origin.strip()
+        ]
+    )
+)
 
 oauth = OAuth()
 
@@ -50,5 +62,25 @@ def oauth_configured(provider: str) -> bool:
         return bool(GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET)
     return False
 
-def redirect_uri_for(provider: str) -> str:
-    return f"{OAUTH_REDIRECT_BASE_URL}/api/auth/{provider}/callback"
+def origin_netloc(value: str) -> str:
+    candidate = value.strip().rstrip("/")
+    if candidate and "://" not in candidate:
+        candidate = f"//{candidate}"
+    return urlparse(candidate).netloc.lower()
+
+def resolve_redirect_origin(candidate: str | None) -> str | None:
+    if not candidate:
+        return None
+
+    netloc = origin_netloc(candidate)
+    if not netloc:
+        return None
+
+    for origin in ALLOWED_ORIGINS:
+        if origin_netloc(origin) == netloc:
+            return origin
+    return None
+
+def redirect_uri_for(provider: str, origin: str | None = None) -> str:
+    base = (origin or OAUTH_REDIRECT_BASE_URL).rstrip("/")
+    return f"{base}/api/auth/{provider}/callback"

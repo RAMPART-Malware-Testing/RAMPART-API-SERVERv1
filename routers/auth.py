@@ -23,12 +23,12 @@ from schemas.auth import (
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
 @router.get("/{provider}/login")
-async def oauth_login(provider: str, request: Request):
+async def oauth_login(provider: str, request: Request, redirect_origin: str | None = None):
     """Redirects the browser to Google/GitHub's consent screen.
 
     provider: "google" | "github"
     """
-    return await oauth_login_controller(request, provider)
+    return await oauth_login_controller(request, provider, redirect_origin)
 
 @router.get("/{provider}/callback")
 async def oauth_callback(provider: str, request: Request):

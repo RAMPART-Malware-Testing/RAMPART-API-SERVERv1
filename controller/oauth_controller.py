@@ -5,7 +5,7 @@ from fastapi.requests import Request
 from fastapi.responses import RedirectResponse
 
 from cores.async_pg_db import SessionLocal
-from cores.oauth import FRONTEND_URL, oauth, oauth_configured, redirect_uri_for
+from cores.oauth import FRONTEND_URL, oauth, oauth_configured, redirect_uri_for, resolve_redirect_origin
 from cores.Schema.schema_class import LoginHistory
 from services.oauth.oauth_service import (
     OAuthError,
@@ -40,10 +40,10 @@ def _frontend_redirect(path: str, **params) -> RedirectResponse:
         url = f"{url}?{query}"
     return RedirectResponse(url, status_code=302)
 
-async def oauth_login_controller(request: Request, provider: str):
+async def oauth_login_controller(request: Request, provider: str, redirect_origin: str | None = None):
     _require_supported_provider(provider)
     client = oauth.create_client(provider)
-    redirect_uri = redirect_uri_for(provider)
+    redirect_uri = redirect_uri_for(provider, resolve_redirect_origin(redirect_origin))
     try:
         return await client.authorize_redirect(request, redirect_uri)
     except Exception as exc:
