@@ -22,7 +22,7 @@ BEGIN
           AND tc.table_name = 'oauth_accounts'
           AND tc.constraint_type = 'UNIQUE'
         GROUP BY tc.constraint_name
-        HAVING array_agg(kcu.column_name ORDER BY kcu.column_name) = ARRAY['provider', 'provider_uid']
+        HAVING array_agg(kcu.column_name::text ORDER BY kcu.column_name) = ARRAY['provider', 'provider_uid']
     ) THEN
         IF EXISTS (
             SELECT 1 FROM "oauth_accounts"

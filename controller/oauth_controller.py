@@ -44,7 +44,14 @@ async def oauth_login_controller(request: Request, provider: str):
     _require_supported_provider(provider)
     client = oauth.create_client(provider)
     redirect_uri = redirect_uri_for(provider)
-    return await client.authorize_redirect(request, redirect_uri)
+    try:
+        return await client.authorize_redirect(request, redirect_uri)
+    except Exception as exc:
+        print(f"[OAuth] {provider} authorize_redirect failed: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail="ไม่สามารถเชื่อมต่อผู้ให้บริการภายนอกได้ กรุณาลองใหม่อีกครั้ง",
+        )
 
 async def oauth_callback_controller(request: Request, provider: str):
     """Finishes the OAuth dance and hands control back to the browser.
