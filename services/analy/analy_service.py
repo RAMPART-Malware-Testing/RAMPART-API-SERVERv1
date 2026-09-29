@@ -500,13 +500,13 @@ async def get_public_analysis_with_report(
     task_id: str
 ) -> tuple[Analysis, Reports | None] | None:
     """Allow viewing a report that the requester does NOT own, as long as it
-    is shared publicly (privacy == True) and not deleted."""
+    is shared publicly (privacy == False) and not deleted."""
     result = await session.execute(
         select(Analysis, Reports)
         .outerjoin(Reports, Analysis.rid == Reports.rid)
         .where(
             Analysis.task_id == task_id,
-            Analysis.privacy == True,  # noqa: E712
+            Analysis.privacy.is_(False),
             Analysis.deleted_at.is_(None),
         )
         .order_by(Analysis.created_at.desc())
@@ -541,20 +541,22 @@ async def get_analysis_with_report_admin(
 async def get_analysis_access_rows_by_md5(
     session: AsyncSession,
     md5: str,
-) -> list[tuple[UUID, bool]]:
+) -> list:
     """Backs the raw report-download path (downloadReport_controller) -
     tool report files are stored as {tool}-{md5}.json, so the md5 parsed
     from the file name is matched against Analysis.md5 (file_hash holds the
-    sha256, see ScanFile_controller). Returns the (uid, privacy) pair of
-    every non-deleted Analysis row sharing that md5 so the caller can apply
-    the owner/privacy/admin decision (owns any row OR any row is public;
-    admin bypass lives in the caller).
+    sha256, see ScanFile_controller). Returns one (uid, privacy, rid) tuple
+    per non-deleted Analysis row sharing that md5 so the caller can apply
+    the access rule: any row with privacy == False (public) grants access
+    outright, otherwise the requester must own a row for this content and
+    the content must have a report (rid IS NOT NULL); admin bypass lives in
+    the caller.
 
     Must exclude soft-deleted rows for the same reason as
     get_analysis_with_report - a deleted Analysis row must not keep
     granting access to its report files."""
     result = await session.execute(
-        select(Analysis.uid, Analysis.privacy).where(
+        select(Analysis.uid, Analysis.privacy, Analysis.rid).where(
             Analysis.md5 == md5,
             Analysis.deleted_at.is_(None),
         )

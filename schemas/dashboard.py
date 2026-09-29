@@ -6,6 +6,7 @@ MAX_SEARCH_LENGTH   = 100
 MAX_LIMIT           = 100
 
 class ReportsHistoryParams(BaseModel):
+    token: str
     page: int = 1
     limit: int = 10
     s: str | None = None

@@ -502,14 +502,40 @@ async def test_raw_report_reads_persisted_virustotal_name(monkeypatch, tmp_path)
 
     assert response["report"] == report
 
+async def _await(value):
+    return value
+
+
 @pytest.mark.asyncio
 async def test_download_accepts_exact_persisted_virustotal_basename(monkeypatch, tmp_path):
     name = f"virustotal-{'a' * 32}.json"
     expected = tmp_path / name
     expected.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(analysis_controller, "BASE_REPORT_PATH", tmp_path)
+    user = SimpleNamespace(uid="00000000-0000-4000-8000-000000000001", role="user", is_banned=False)
 
-    assert await analysis_controller.downloadReport_controller(name) == expected.resolve()
+    class Context:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, model, uid):
+            return user
+
+        async def commit(self):
+            return None
+
+    monkeypatch.setattr(analysis_controller, "BASE_REPORT_PATH", tmp_path)
+    monkeypatch.setattr(analysis_controller, "SessionLocal", Context)
+    monkeypatch.setattr(analysis_controller, "get_current_user", lambda session, token: _await(user))
+    monkeypatch.setattr(
+        analysis_controller,
+        "get_analysis_access_rows_by_md5",
+        lambda session, md5: _await([SimpleNamespace(uid=user.uid, privacy=False, rid="report-id")]),
+    )
+
+    assert await analysis_controller.downloadReport_controller(name, "token") == expected.resolve()
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("name", [
@@ -522,9 +548,31 @@ async def test_download_accepts_all_known_tool_basenames(name, monkeypatch, tmp_
     raw report set for research purposes - not just VirusTotal."""
     expected = tmp_path / name
     expected.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(analysis_controller, "BASE_REPORT_PATH", tmp_path)
+    user = SimpleNamespace(uid="00000000-0000-4000-8000-000000000001", role="user", is_banned=False)
 
-    assert await analysis_controller.downloadReport_controller(name) == expected.resolve()
+    class Context:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, model, uid):
+            return user
+
+        async def commit(self):
+            return None
+
+    monkeypatch.setattr(analysis_controller, "BASE_REPORT_PATH", tmp_path)
+    monkeypatch.setattr(analysis_controller, "SessionLocal", Context)
+    monkeypatch.setattr(analysis_controller, "get_current_user", lambda session, token: _await(user))
+    monkeypatch.setattr(
+        analysis_controller,
+        "get_analysis_access_rows_by_md5",
+        lambda session, md5: _await([SimpleNamespace(uid=user.uid, privacy=False, rid="report-id")]),
+    )
+
+    assert await analysis_controller.downloadReport_controller(name, "token") == expected.resolve()
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("name", [

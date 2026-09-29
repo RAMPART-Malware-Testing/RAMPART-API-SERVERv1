@@ -67,7 +67,7 @@ class CAPEClient:
     def cheack_analyer(self, path):
         return self.existing
 
-    def create_file_task(self, path, machine=None):
+    def create_file_task(self, path, machine=None, package=None):
         return self.created
 
     def get_task_status(self, task_id):
@@ -133,10 +133,12 @@ def test_cape_all_known_terminal_failure_states_are_treated_as_failed(tmp_path, 
     assert state in result["error"]
 
 def test_cape_existing_task_polls_then_writes_report(tmp_path):
+    sample = tmp_path / "sample.exe"
+    sample.write_bytes(b"payload")
     pending_client = CAPEClient(existing=[{"id": 77}], status={"data": "running"})
-    pending = task_handlers.handle_cape("sample.exe", "d" * 32, client=pending_client, reports_dir=tmp_path)
+    pending = task_handlers.handle_cape(str(sample), "d" * 32, client=pending_client, reports_dir=tmp_path)
     complete_client = CAPEClient(status={"data": "reported"}, report={"status": "success", "data": {"score": 6}})
-    complete = task_handlers.handle_cape("sample.exe", "d" * 32, task_id=77, client=complete_client, reports_dir=tmp_path)
+    complete = task_handlers.handle_cape(str(sample), "d" * 32, task_id=77, client=complete_client, reports_dir=tmp_path)
 
     assert pending["status"] == "pending"
     assert pending["task_id"] == 77
@@ -145,7 +147,9 @@ def test_cape_existing_task_polls_then_writes_report(tmp_path):
     assert json.loads((tmp_path / f"cape-{'d' * 32}.json").read_text()) == {"score": 6}
 
 def test_cape_submission_returns_only_task_id(tmp_path):
-    result = task_handlers.handle_cape("sample.exe", "e" * 32, client=CAPEClient(), reports_dir=tmp_path)
+    sample = tmp_path / "sample.exe"
+    sample.write_bytes(b"payload")
+    result = task_handlers.handle_cape(str(sample), "e" * 32, client=CAPEClient(), reports_dir=tmp_path)
     assert result["status"] == "pending"
     assert result["task_id"] == 42
     assert result["retry_in"] == 60
@@ -613,7 +617,7 @@ def test_malicious_vt_never_calls_sandboxes(monkeypatch, tmp_path):
     assert result["success"] is True
     assert calls == []
     assert retry_calls == []
-    assert finalized[0][1]["tools"] == "virustotal"
+    assert finalized[0][1]["tools"] == "virustotal,gemini"
 
 def test_malformed_sandbox_scores_are_null():
     assert task_handlers.calculate_mobsf_danger_score({"security_score": "invalid"}) is None

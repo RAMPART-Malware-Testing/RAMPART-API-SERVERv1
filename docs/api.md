@@ -30,7 +30,7 @@ FastAPI ใช้ path ตามที่ระบุด้านล่าง �
 5. `POST /api/auth/login` รับ `deviceToken` เป็น HTTP header
 6. OAuth ต้องใช้ browser navigation เพราะ server ตอบกลับด้วย HTTP `302`
 7. อย่าตรวจทุก field จากภาษาไทยหรือ HTTP status เพียงอย่างเดียว ให้ดู `success`, `status`, `code`, `detail` ตามรูปแบบ response ด้วย
-8. ค่า `privacy: true` หมายถึง **รายงานสาธารณะ** ส่วน `privacy: false` หมายถึงรายงานส่วนตัว
+8. ค่า `privacy: true` หมายถึง **รายงานส่วนตัว** (ค่าเริ่มต้น) ส่วน `privacy: false` หมายถึงรายงานสาธารณะ
 
 ### ตัวอย่าง client กลาง
 
@@ -311,7 +311,7 @@ Error envelope:
 |---|---|---|---|
 | `POST` | `/api/analy/v1/dashboard/summary` | access token ใน body | สถิติ dashboard |
 | `POST` | `/api/analy/v1/dashboard/recent-activities` | access token ใน body | กิจกรรมล่าสุด |
-| `POST` | `/api/analy/v1/dashboard/reports` | ไม่ | รายงานสาธารณะ |
+| `POST` | `/api/analy/v1/dashboard/reports` | access token ใน body | รายงานสาธารณะ |
 
 ### Admin
 
@@ -867,7 +867,7 @@ Upload token ผูกกับ user ผ่าน Redis และใช้ซ้
 | `sha256` | ใช่ | normalize เป็น lowercase; ต้องเป็น 64 hex |
 | `file_name` | ใช่ | ชื่อไฟล์ |
 | `file_size` | ใช่ | `>= 0` |
-| `privacy` | ไม่ | ค่าเริ่มต้น `true` = สาธารณะ |
+| `privacy` | ไม่ | ค่าเริ่มต้น `true` = ส่วนตัว |
 
 ### ไม่พบงานเดิม
 
@@ -954,7 +954,7 @@ export async function sha256Hex(file: File): Promise<string> {
 | Field | ตำแหน่ง | Required | หมายเหตุ |
 |---|---|---|---|
 | `file` | form file | ใช่ | สูงสุด 1 GB, ห้ามว่าง |
-| `privacy` | form boolean | ไม่ | ค่าเริ่มต้น `true` = สาธารณะ |
+| `privacy` | form boolean | ไม่ | ค่าเริ่มต้น `true` = ส่วนตัว |
 | `token` | query หรือ form | ใช่ | upload token |
 
 ใช้ query:
@@ -1454,7 +1454,7 @@ Response ไม่มี envelope:
 
 ## 8.3 `POST /api/analy/v1/dashboard/reports`
 
-Public endpoint ไม่ต้องส่ง token คืนเฉพาะ analysis ที่ `privacy: true`
+ต้องส่ง access token ใน body (ต้องล็อกอิน) คืนเฉพาะ analysis ที่ `privacy: false` (สาธารณะ) และยังไม่ถูกลบ
 
 ### Request
 
