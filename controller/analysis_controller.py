@@ -11,6 +11,7 @@ from services.admin.admin_service import write_audit_log
 from services.admin.authz import ADMIN_ROLES, AuthError, ensure_not_banned, get_current_user
 from services.analy.analy_service import get_analysis_access_rows_by_md5, get_analysis_history, get_analysis_with_report, get_analysis_with_report_admin, get_public_analysis_with_report
 from services.token_service import TokenService
+from services.dashboard.dashboars_service import invalidate_public_caches
 import os
 from pathlib import Path
 from cores.redis import redis_client
@@ -356,14 +357,14 @@ async def downloadReport_controller(file_name:str, token: str | None = None):
         except AuthError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
-        # The report file name only carries the md5; resolve which Analysis
-        # rows it belongs to and enforce owner/public/admin access on them.
         md5 = FILENAME_REGEX.fullmatch(file_name).group(2)
         rows = await get_analysis_access_rows_by_md5(session, md5)
         if not rows:
             raise HTTPException(status_code=404, detail="Report not found")
-        owner_or_public = any(row.uid == user.uid or row.privacy for row in rows)
-        if user.role in ADMIN_ROLES and not owner_or_public:
+        public_or_owned = any(row.privacy is False for row in rows) or (
+            any(row.uid == user.uid for row in rows) and any(row.rid for row in rows)
+        )
+        if user.role in ADMIN_ROLES and not public_or_owned:
             await write_audit_log(
                 session,
                 actor_uid=user.uid,
@@ -372,7 +373,7 @@ async def downloadReport_controller(file_name:str, token: str | None = None):
                 detail=file_name,
             )
             await session.commit()
-        elif not owner_or_public:
+        elif not public_or_owned:
             raise HTTPException(status_code=403, detail="Access denied")
 
     if not file_path.is_file():
@@ -409,6 +410,7 @@ async def update_privacy_controller(task_id: str, token: str, privacy: bool):
         await session.commit()
         await session.refresh(analysis)
         invalidate_cached(TASK_STATUS_CACHE_NAMESPACE)
+        invalidate_public_caches()
         return {
             "success": True,
             "task_id": str(analysis.task_id),

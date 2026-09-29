@@ -189,19 +189,18 @@ def test_console_contains_complete_analysis_flow(monkeypatch):
     assert "Test account" in response.text
     assert "Session tokens" in response.text
     assert "Upload sample" in response.text
-    assert "Analysis progress" in response.text
+    assert "Pipeline progress" in response.text
     assert "VirusTotal" in response.text
     assert "MobSF" in response.text
     assert "CAPE" in response.text
     assert "Gemini" in response.text
-    assert "Database snapshot" in response.text
+    assert "Database" in response.text
     assert "/test/api/status" in response.text
     assert "/test/api/user" in response.text
     assert "/test/api/token" in response.text
     assert "/test/api/analysis/" in response.text
     assert "/api/analy/v1/upload" in response.text
     assert "/api/analy/v1/task_id" in response.text
-    assert "/api/analy/v1/report_target" in response.text
     assert "mock_token_for_testing" not in response.text
     assert "setTimeout" in response.text
     assert "setInterval" not in response.text

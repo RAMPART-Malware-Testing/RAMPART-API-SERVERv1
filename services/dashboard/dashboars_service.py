@@ -14,8 +14,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, joinedload, selectinload
 from cores.Schema.schema_class import Analysis, User, Reports
 from schemas.analy import AnalysisHistoryParams
+from services.admin.authz import ADMIN_ROLES
+from services.analy.analy_service import ANALYSIS_HISTORY_CACHE_NAMESPACE
 from uuid import UUID
-from utils.cache import build_suffix, cached_async
+from utils.cache import build_suffix, cached_async, invalidate_cached
+
+def invalidate_public_caches() -> None:
+    invalidate_cached(DASHBOARD_SUMMARY_CACHE_NAMESPACE)
+    invalidate_cached(RECENT_ACTIVITIES_CACHE_NAMESPACE)
+    invalidate_cached(REPORTS_HISTORY_CACHE_NAMESPACE)
+    invalidate_cached(ANALYSIS_HISTORY_CACHE_NAMESPACE)
 
 try:
     from zoneinfo import ZoneInfo
@@ -30,12 +38,14 @@ RECENT_ACTIVITIES_CACHE_TTL_SECONDS = 5
 REPORTS_HISTORY_CACHE_NAMESPACE = "dashboard:reports_history"
 REPORTS_HISTORY_CACHE_TTL_SECONDS = 5
 
+IN_FLIGHT_STATUSES = ("pending", "dispatching", "queued", "processing", "analyzing")
+
 async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role: str) -> dict:
     total_q = await session.execute(
         select(
             func.count().label("total"),
             func.count(case((Analysis.status == "success", 1))).label("success"),
-            func.count(case((Analysis.status == "pending", 1))).label("pending"),
+            func.count(case((Analysis.status.in_(IN_FLIGHT_STATUSES), 1))).label("pending"),
             func.count(case((Analysis.status == "failed",  1))).label("failed"),
         ).where(Analysis.deleted_at.is_(None))
     )
@@ -45,7 +55,7 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
         select(
             func.count().label("total"),
             func.count(case((Analysis.status == "success", 1))).label("success"),
-            func.count(case((Analysis.status == "pending", 1))).label("pending"),
+            func.count(case((Analysis.status.in_(IN_FLIGHT_STATUSES), 1))).label("pending"),
             func.count(case((Analysis.status == "failed",  1))).label("failed"),
         ).where(
             Analysis.uid == uid,
@@ -56,7 +66,7 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
 
     total_users = 0
     user_count_q = await session.execute(
-        select(func.count()).select_from(User).where(User.status == "active", User.role=="user")
+        select(func.count()).select_from(User).where(User.is_banned.is_(False), User.role == "user")
     )
     total_users = user_count_q.scalar()
 
@@ -142,7 +152,7 @@ async def _fetch_recent_activities(
     limit: int = 10
 ) -> list[dict]:
     filters = [Analysis.deleted_at.is_(None)]
-    if role != "admin":
+    if role not in ADMIN_ROLES:
         filters.append(Analysis.uid == uid)
 
     q = await session.execute(
@@ -188,15 +198,14 @@ async def _fetch_reports_history(
     params: ReportsHistoryParams
 ) -> dict[str, Any]:
     conditions = [
-        Analysis.privacy == True,
+        Analysis.privacy.is_(False),
         Analysis.deleted_at.is_(None),
     ]
     if params.status:
         conditions.append(Analysis.status == params.status)
     if params.file_type:
-        search_term = f"%{params.file_type}%"
         conditions.append(
-            Analysis.file_type.ilike(params.file_type.strip())
+            Analysis.file_type.ilike(f"%{params.file_type.strip()}%")
         )
     if params.s:
         search_term = f"%{params.s}%"

@@ -32,6 +32,7 @@ from services.admin.authz import (
     ensure_can_manage_file_owner,
     ensure_can_manage_target,
 )
+from services.dashboard.dashboars_service import invalidate_public_caches
 from utils.cache import build_suffix, cached_async, invalidate_cached
 
 AUDIT_LOG_CACHE_NAMESPACE = "admin:audit_logs"
@@ -854,6 +855,7 @@ async def soft_delete_file(
     await _purge_temp_file_if_unreferenced(session, analysis.file_path)
     await session.commit()
     await session.refresh(analysis)
+    invalidate_public_caches()
     return analysis
 
 async def bulk_soft_delete_files(

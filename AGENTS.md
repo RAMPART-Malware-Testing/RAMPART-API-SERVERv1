@@ -59,6 +59,7 @@
 
 - User-facing messages are in **Thai** with English status codes.
 - Response format: `{"success": bool, "status": str, "message": str, "data": ...}` via `utils/response.py`.
+- **`Analysis.privacy = true` means the row is PRIVATE** (upload default). Only `privacy = false` rows are visible to non-owners (`get_public_analysis_with_report`, dashboard public feed, report downloads). Never treat `privacy == true` as public.
 - Password hashing uses **Argon2** via `argon2-cffi` (not bcrypt or pbkdf2).
 - JWT via `python-jose` (`from jose import jwt`), not PyJWT. Every endpoint takes the token in the JSON request body, not an `Authorization` header.
 

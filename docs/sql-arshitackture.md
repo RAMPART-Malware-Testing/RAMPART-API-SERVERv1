@@ -133,7 +133,7 @@ erDiagram
 - `tool_states` — ผลราย tool แบบเครื่องอ่าน (`{tool: {state: success|terminal|gap, reason}}`) ใช้ตัดสินว่าต้องวิเคราะห์ tool ใดซ้ำตอนมีคนอัปโหลดไฟล์เดิมอีกครั้ง
 - `is_malicious`, `blocked_by` — ถ้า VirusTotalตัดสินว่าเป็น malware งานถูก block ทันที (`blocked_by='virustotal'` หมายถึง MobSF/CAPE ถูกข้ามโดยเจตนา ไม่ใช่ช่องโหว่ที่ต้องซ่อม)
 - `deleted_at` / `deleted_by` — soft delete (แถวไม่หาย แค่ซ่อน); partial unique index ด้านล่างทำงานคู่กับคอลัมน์นี้
-- `privacy` — สวิตช์ส่วนตัว/สาธารณะของงาน
+- `privacy` — **`true` = ส่วนตัว (ค่าเริ่มต้น)**, `false` = สาธารณะ; แถวที่ `privacy = false` เท่านั้นที่ผู้ที่ไม่ใช่เจ้าของเห็นได้ผ่าน public report view / ฟีด dashboard / การดาวน์โหลด
 
 ### `reports`
 ผลรวมคะแนนจากทุก tool ของ pipeline หนึ่งรอบ (`virustotal_score`, `mobsf_score`, `cape_score`, `rampart_ai_score` JSONB, `gemini_recommendation`, `malware_signatures` ฯลฯ)

@@ -435,6 +435,7 @@ def make_analysis(aid=None, uid=None, owner=None, deleted_at=None, file_name="f.
         tools="virustotal",
         status="success",
         privacy=True,
+        file_path=None,
         is_malicious=False,
         created_at=None,
         deleted_at=deleted_at,

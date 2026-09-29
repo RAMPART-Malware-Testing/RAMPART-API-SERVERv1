@@ -218,6 +218,12 @@ async def run_upload(monkeypatch, controller, tmp_path, content=b"payload", file
     monkeypatch.setattr(controller, "acquire_analysis_hash_lock", lock, raising=False)
     monkeypatch.setattr(controller, "update_analysis_rows_by_task_id", update_task_rows, raising=False)
     monkeypatch.setattr(controller, "analyze_malware_task", task or FakeTask())
+
+    def invalidate():
+        if events is not None:
+            events.append("invalidate")
+
+    monkeypatch.setattr(controller, "invalidate_public_caches", invalidate, raising=False)
     upload = UploadFile(filename=filename, file=io.BytesIO(content))
     response = await controller.scan_file_controller(upload, "baeb1c2b-3190-431a-a769-69e06e6264d9", True)
     return response, session, inserted, controller.analyze_malware_task
@@ -245,6 +251,7 @@ async def test_upload_runs_dedup_before_persisting_and_dispatching(monkeypatch, 
         "lock",
         "update:queued",
         "commit",
+        "invalidate",
     ]
 
 
@@ -370,7 +377,7 @@ async def test_upload_stops_at_attach_without_dispatching(monkeypatch, upload_mo
         monkeypatch, controller, tmp_path, existing=existing, events=events, task=FakeTask()
     )
 
-    assert events == ["gap-fill-check", "attach"]
+    assert events == ["gap-fill-check", "attach", "invalidate"]
     assert response["queue_state"] == "waiting"
     assert not task.calls
 

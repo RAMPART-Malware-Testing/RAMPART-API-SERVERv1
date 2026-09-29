@@ -73,7 +73,9 @@ async def test_analysis_history_passes_uuid_to_service(monkeypatch):
     monkeypatch.setattr(analysis_controller, "SessionLocal", Session)
     monkeypatch.setattr(analysis_controller, "get_analysis_history", history)
 
-    body = SimpleNamespace(token="token")
+    from schemas.analy import AnalysisHistoryParams
+
+    body = AnalysisHistoryParams(token="token")
     assert await analysis_controller.history_controller(body) == {"success": True}
     assert captured["uid"] == user_id
 

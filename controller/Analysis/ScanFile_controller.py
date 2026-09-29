@@ -26,6 +26,7 @@ from services.analy.analy_service import (
     update_analysis_rows_by_task_id,
     upsert_user_analysis,
 )
+from services.dashboard.dashboars_service import invalidate_public_caches
 from utils.uuid import parse_uuid
 
 UPLOAD_DIR = Path("temps_files")
@@ -110,6 +111,7 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
                 privacy=is_private,
             )
             if gap_outcome == "gap_filled" and gap_analysis is not None:
+                invalidate_public_caches()
                 return upload_response(
                     original_filename,
                     final_md5,
@@ -135,6 +137,7 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
                     detail="Analysis dispatch is in progress. Retry shortly.",
                 )
             if attach_outcome == "attached" and attached is not None:
+                invalidate_public_caches()
                 return upload_response(
                     original_filename,
                     final_md5,
@@ -145,6 +148,7 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
                     "reused" if attached.status == "success" else "waiting",
                     completeness_summary(attached),
                 )
+                invalidate_public_caches()
 
             target_file_path = UPLOAD_DIR / f"{final_sha256}{file_extension}"
             if target_file_path.exists():
@@ -208,6 +212,7 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
                 from_statuses=("dispatching",),
             )
             await db_session.commit()
+            invalidate_public_caches()
 
             return upload_response(
                 original_filename,
