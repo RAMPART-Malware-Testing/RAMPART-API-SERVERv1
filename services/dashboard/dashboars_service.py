@@ -75,10 +75,11 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
     def malware_query(since: datetime):
+        unique_files = func.count(func.distinct(Analysis.rid))
         return (
             select(
                 Reports.type.label("type"),
-                func.count().label("count")
+                unique_files.label("count")
             )
             .join(Analysis, Analysis.rid == Reports.rid)
             .where(
@@ -87,7 +88,7 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
                 Analysis.deleted_at.is_(None)
             )
             .group_by(Reports.type)
-            .order_by(func.count().desc())
+            .order_by(unique_files.desc())
             .limit(10)
         )
 
