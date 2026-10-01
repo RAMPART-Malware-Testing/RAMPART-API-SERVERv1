@@ -74,25 +74,29 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
     day_start   = now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
-    def malware_query(since: datetime):
+    def malware_query(since: datetime | None):
+        unique_files = func.count(func.distinct(Analysis.rid))
+        filters = [
+            Reports.type.isnot(None),
+            Analysis.deleted_at.is_(None),
+        ]
+        if since is not None:
+            filters.append(Analysis.created_at >= since)
         return (
             select(
                 Reports.type.label("type"),
-                func.count().label("count")
+                unique_files.label("count")
             )
             .join(Analysis, Analysis.rid == Reports.rid)
-            .where(
-                Reports.type.isnot(None),
-                Analysis.created_at >= since,
-                Analysis.deleted_at.is_(None)
-            )
+            .where(*filters)
             .group_by(Reports.type)
-            .order_by(func.count().desc())
+            .order_by(unique_files.desc())
             .limit(10)
         )
 
     daily_q   = await session.execute(malware_query(day_start))
     monthly_q = await session.execute(malware_query(month_start))
+    all_q     = await session.execute(malware_query(None))
 
     risk_q = await session.execute(
         select(
@@ -122,6 +126,7 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
         "topMalwareTypes": {
             "daily":   [{"type": r.type, "count": r.count} for r in daily_q],
             "monthly": [{"type": r.type, "count": r.count} for r in monthly_q],
+            "all":     [{"type": r.type, "count": r.count} for r in all_q],
         },
         "riskScores": [
             {

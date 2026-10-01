@@ -110,7 +110,7 @@ async def unread_notification_counts(
                     Analysis.uid == uid,
                     Analysis.deleted_at.is_(None),
                     Analysis.status == "success",
-                    Reports.created_at > reports_since,
+                    func.greatest(Analysis.created_at, Reports.created_at) > reports_since,
                 )
             )
         ).scalar_one()
@@ -122,7 +122,7 @@ async def unread_notification_counts(
                 select(func.count())
                 .select_from(Analysis)
                 .where(
-                    Analysis.privacy.is_(True),
+                    Analysis.privacy.is_(False),
                     Analysis.deleted_at.is_(None),
                     Analysis.created_at > public_since,
                 )
