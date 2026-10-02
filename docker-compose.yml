@@ -6,7 +6,7 @@ services:
     container_name: postgres-rampart
     restart: always
     ports:
-      - "5433:5432"
+      - "10.212.51.8:5433:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -22,7 +22,7 @@ services:
     restart: always
     command: [ "redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes" ]
     ports:
-      - "6379:6379"
+      - "10.212.51.8:6379:6379"
     volumes:
       - redis-rampart:/data
     networks:
