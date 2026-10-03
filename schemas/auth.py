@@ -33,3 +33,7 @@ class ResetPasswdConfirmParame(BaseModel):
 
 class RefreshTokenParame(BaseModel):
     refresh_token: str
+
+class OAuthExchangeParame(BaseModel):
+    id_token: str | None = None
+    access_token: str | None = None

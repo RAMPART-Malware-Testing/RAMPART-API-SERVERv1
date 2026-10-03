@@ -1,19 +1,11 @@
 """Business logic for Google / GitHub OAuth login.
 
-OAuth is one of two supported ways to authenticate (the other being local
-email+password with OTP confirmation, see services/auth/auth_service.py) -
-both resolve to the same `users` row and share the same `role`/`is_banned`
-access-control state. A user who signs in only via OAuth has `password IS
-NULL` on their row; AuthService.login() checks for that and rejects
-password-login for such accounts rather than crashing. The only job of this
-service is:
-
-1. Ask the provider "who is this?" (via `fetch_google_profile` /
-   `fetch_github_profile`), normalized to a small `OAuthProfile`.
-2. Resolve that profile to a `users` row - creating one on first login,
-   reusing the same `uid` on every login after that - via
-   `find_or_create_user`.
-3. Issue the same kind of `access` JWT the rest of the API already expects.
+The web application runs the provider OAuth flow and hands the credential it
+received back to this service: a Google ID token (verified here against
+Google's JWKS, so no client secret is needed) or a GitHub access token (asked
+straight of GitHub, who it belongs to). Both are normalized to a small
+`OAuthProfile`, resolved to a `users` row by `find_or_create_user`, and get
+back the same kind of `access` JWT the rest of the API already expects.
 """
 
 import os
@@ -46,50 +38,64 @@ class OAuthProfile:
 class OAuthError(Exception):
     """Raised when the provider callback can't be trusted (e.g. no verified e-mail)."""
 
-async def fetch_google_profile(token: dict) -> OAuthProfile:
-    userinfo = token.get("userinfo")
-    if not userinfo:
-        from cores.oauth import oauth
+async def profile_from_google_id_token(id_token: str) -> OAuthProfile:
+    from cores.oauth import verify_google_id_token
 
-        userinfo = await oauth.google.userinfo(token=token)
+    claims = await verify_google_id_token(id_token)
 
-    email = userinfo.get("email")
+    email = claims.get("email")
     if not email:
-        raise OAuthError("Google account did not return an e-mail address.")
+        raise OAuthError("บัญชี Google ไม่ได้ส่งที่อยู่อีเมลกลับมา")
+
+    provider_uid = claims.get("sub")
+    if not provider_uid:
+        raise OAuthError("บัญชี Google ไม่ได้ส่งรหัสผู้ใช้กลับมา")
 
     return OAuthProfile(
         provider="google",
-        provider_uid=str(userinfo["sub"]),
+        provider_uid=str(provider_uid),
         email=email.lower(),
-        email_verified=bool(userinfo.get("email_verified", False)),
-        display_name=userinfo.get("name") or userinfo.get("given_name"),
+        email_verified=bool(claims.get("email_verified", False)),
+        display_name=claims.get("name") or claims.get("given_name"),
     )
 
-async def fetch_github_profile(token: dict) -> OAuthProfile:
-    from cores.oauth import oauth
+async def profile_from_github_access_token(access_token: str) -> OAuthProfile:
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "RAMPART-API",
+    }
 
-    profile_resp = await oauth.github.get("user", token=token)
-    profile_resp.raise_for_status()
-    profile = profile_resp.json()
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        profile_resp = await client.get("https://api.github.com/user", headers=headers)
+        if profile_resp.status_code in (401, 403):
+            raise OAuthError("GitHub ไม่ยอมรับ access token ที่ส่งมา")
+        profile_resp.raise_for_status()
+        profile = profile_resp.json()
 
-    email = profile.get("email")
-    email_verified = True if email else False
+        provider_uid = profile.get("id")
+        if not provider_uid:
+            raise OAuthError("บัญชี GitHub ไม่ได้ส่งข้อมูลผู้ใช้กลับมา")
 
-    if not email:
-        emails_resp = await oauth.github.get("user/emails", token=token)
-        emails_resp.raise_for_status()
-        emails = emails_resp.json()
-        primary = next((e for e in emails if e.get("primary") and e.get("verified")), None)
-        if primary is None:
-            primary = next((e for e in emails if e.get("verified")), None)
-        if primary is None:
-            raise OAuthError("GitHub account has no verified e-mail address.")
-        email = primary["email"]
-        email_verified = True
+        email = profile.get("email")
+        email_verified = bool(email)
+
+        if not email:
+            emails_resp = await client.get("https://api.github.com/user/emails", headers=headers)
+            emails_resp.raise_for_status()
+            emails = emails_resp.json()
+            primary = next((e for e in emails if e.get("primary") and e.get("verified")), None)
+            if primary is None:
+                primary = next((e for e in emails if e.get("verified")), None)
+            if primary is None:
+                raise OAuthError("บัญชี GitHub ไม่มีอีเมลที่ยืนยันแล้ว")
+            email = primary["email"]
+            email_verified = True
 
     return OAuthProfile(
         provider="github",
-        provider_uid=str(profile["id"]),
+        provider_uid=str(provider_uid),
         email=email.lower(),
         email_verified=email_verified,
         display_name=profile.get("name") or profile.get("login"),

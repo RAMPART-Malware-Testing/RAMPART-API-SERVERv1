@@ -1,86 +1,74 @@
-"""OAuth client registration for external identity providers.
-
-RAMPART authenticates users exclusively through Google and GitHub. This
-module wires up Authlib's Starlette/FastAPI integration once at import time;
-`routers/oauth.py` and `services/oauth/oauth_service.py` consume the
-registered clients from here.
-"""
-
 import os
-from urllib.parse import urlparse
+import time
 
-from authlib.integrations.starlette_client import OAuth
+import httpx
 from dotenv import load_dotenv
+from jose import jwk, jwt
 
 load_dotenv()
 
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
+GOOGLE_ISSUERS = frozenset({"accounts.google.com", "https://accounts.google.com"})
+JWKS_CACHE_SECONDS = 3600
 
-GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID", "")
-GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "")
+_jwks_cache: dict = {"expires_at": 0.0, "keys": {}}
 
-OAUTH_REDIRECT_BASE_URL = os.getenv("OAUTH_REDIRECT_BASE_URL", "http://localhost:8006").rstrip("/")
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+class OAuthVerificationError(Exception):
+    pass
 
-ALLOWED_ORIGINS = tuple(
-    dict.fromkeys(
-        [FRONTEND_URL]
-        + [
-            origin.strip().rstrip("/")
-            for origin in os.getenv("ALLOWED_ORIGINS", "").split(",")
-            if origin.strip()
-        ]
-    )
-)
 
-oauth = OAuth()
+def google_audience_configured() -> bool:
+    return bool(GOOGLE_CLIENT_ID)
 
-oauth.register(
-    name="google",
-    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
-    client_id=GOOGLE_CLIENT_ID,
-    client_secret=GOOGLE_CLIENT_SECRET,
-    client_kwargs={"scope": "openid email profile"},
-)
 
-oauth.register(
-    name="github",
-    client_id=GITHUB_CLIENT_ID,
-    client_secret=GITHUB_CLIENT_SECRET,
-    access_token_url="https://github.com/login/oauth/access_token",
-    authorize_url="https://github.com/login/oauth/authorize",
-    api_base_url="https://api.github.com/",
-    client_kwargs={"scope": "read:user user:email"},
-)
+async def _google_jwks(force: bool = False) -> dict:
+    now = time.monotonic()
+    if not force and _jwks_cache["keys"] and now < _jwks_cache["expires_at"]:
+        return _jwks_cache["keys"]
 
-def oauth_configured(provider: str) -> bool:
-    if provider == "google":
-        return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
-    if provider == "github":
-        return bool(GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET)
-    return False
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(GOOGLE_JWKS_URL, headers={"Accept": "application/json"})
+        response.raise_for_status()
+        keys = {
+            key["kid"]: key
+            for key in response.json().get("keys", [])
+            if key.get("kid")
+        }
 
-def origin_netloc(value: str) -> str:
-    candidate = value.strip().rstrip("/")
-    if candidate and "://" not in candidate:
-        candidate = f"//{candidate}"
-    return urlparse(candidate).netloc.lower()
+    _jwks_cache["keys"] = keys
+    _jwks_cache["expires_at"] = now + JWKS_CACHE_SECONDS
+    return keys
 
-def resolve_redirect_origin(candidate: str | None) -> str | None:
-    if not candidate:
-        return None
 
-    netloc = origin_netloc(candidate)
-    if not netloc:
-        return None
+async def verify_google_id_token(id_token: str) -> dict:
+    if not GOOGLE_CLIENT_ID:
+        raise OAuthVerificationError("ยังไม่ได้ตั้งค่า GOOGLE_CLIENT_ID บนเซิร์ฟเวอร์")
 
-    for origin in ALLOWED_ORIGINS:
-        if origin_netloc(origin) == netloc:
-            return origin
-    return None
+    try:
+        header = jwt.get_unverified_header(id_token)
+    except Exception as exc:
+        raise OAuthVerificationError(f"รูปแบบ Google ID token ไม่ถูกต้อง: {exc}")
 
-def redirect_uri_for(provider: str, origin: str | None = None) -> str:
-    base = (origin or OAUTH_REDIRECT_BASE_URL).rstrip("/")
-    return f"{base}/api/auth/{provider}/callback"
+    key_data = (await _google_jwks()).get(header.get("kid"))
+    if key_data is None:
+        key_data = (await _google_jwks(force=True)).get(header.get("kid"))
+    if key_data is None:
+        raise OAuthVerificationError("ไม่พบกุญแจของ Google ที่ใช้เซ็น token")
+
+    try:
+        claims = jwt.decode(
+            id_token,
+            key=jwk.construct(key_data),
+            algorithms=["RS256"],
+            audience=GOOGLE_CLIENT_ID,
+            options={"verify_iss": False},
+        )
+    except Exception as exc:
+        raise OAuthVerificationError(f"ยืนยัน Google ID token ไม่สำเร็จ: {exc}")
+
+    if claims.get("iss") not in GOOGLE_ISSUERS:
+        raise OAuthVerificationError("ผู้ออก Google ID token ไม่ถูกต้อง")
+
+    return claims

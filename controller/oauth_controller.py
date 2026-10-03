@@ -1,102 +1,59 @@
-from urllib.parse import urlencode
-
 from fastapi import HTTPException
 from fastapi.requests import Request
-from fastapi.responses import RedirectResponse
 
 from cores.async_pg_db import SessionLocal
-from cores.oauth import FRONTEND_URL, oauth, oauth_configured, redirect_uri_for, resolve_redirect_origin
+from cores.oauth import OAuthVerificationError, google_audience_configured
 from cores.Schema.schema_class import LoginHistory
+from schemas.auth import OAuthExchangeParame
 from services.oauth.oauth_service import (
     OAuthError,
-    fetch_github_profile,
-    fetch_google_profile,
     find_or_create_user,
     issue_access_token,
     issue_device_token,
+    profile_from_github_access_token,
+    profile_from_google_id_token,
     user_public_dict,
 )
+from utils.response import error, success
 from utils.status_code import AuthStatus
 
-_PROFILE_FETCHERS = {
-    "google": fetch_google_profile,
-    "github": fetch_github_profile,
-}
+SUPPORTED_PROVIDERS = ("google", "github")
 
 def _require_supported_provider(provider: str) -> None:
-    if provider not in _PROFILE_FETCHERS:
+    if provider not in SUPPORTED_PROVIDERS:
         raise HTTPException(status_code=404, detail="Unsupported OAuth provider")
-    if not oauth_configured(provider):
+    if provider == "google" and not google_audience_configured():
         raise HTTPException(
             status_code=503,
-            detail=f"{provider.title()} OAuth is not configured on this server. "
-            f"Set the corresponding client id/secret in .env.",
+            detail="Google audience is not configured on this server. Set GOOGLE_CLIENT_ID in .env.",
         )
 
-def _frontend_redirect(path: str, **params) -> RedirectResponse:
-    query = urlencode({k: v for k, v in params.items() if v is not None})
-    url = f"{FRONTEND_URL}{path}"
-    if query:
-        url = f"{url}?{query}"
-    return RedirectResponse(url, status_code=302)
+async def _resolve_profile(provider: str, body: OAuthExchangeParame):
+    if provider == "google":
+        if not body.id_token:
+            raise OAuthError("ไม่พบ Google ID token")
+        return await profile_from_google_id_token(body.id_token)
+    if not body.access_token:
+        raise OAuthError("ไม่พบ GitHub access token")
+    return await profile_from_github_access_token(body.access_token)
 
-async def oauth_login_controller(request: Request, provider: str, redirect_origin: str | None = None):
+async def oauth_exchange_controller(provider: str, body: OAuthExchangeParame, user_agent: str | None, ip: str | None):
     _require_supported_provider(provider)
-    client = oauth.create_client(provider)
-    redirect_uri = redirect_uri_for(provider, resolve_redirect_origin(redirect_origin))
-    try:
-        return await client.authorize_redirect(request, redirect_uri)
-    except Exception as exc:
-        print(f"[OAuth] {provider} authorize_redirect failed: {exc}")
-        raise HTTPException(
-            status_code=503,
-            detail="ไม่สามารถเชื่อมต่อผู้ให้บริการภายนอกได้ กรุณาลองใหม่อีกครั้ง",
-        )
-
-async def oauth_callback_controller(request: Request, provider: str):
-    """Finishes the OAuth dance and hands control back to the browser.
-
-    This is reached by the browser being redirected here by Google/GitHub,
-    so it can't just return JSON - the caller has no way to read a fetch
-    response. Instead it always ends in a 302 back to the Next.js app:
-      - success -> {FRONTEND_URL}/auth/callback?access_token=...&expires_in=...
-      - failure -> {FRONTEND_URL}/login?error=<code>&message=<text>
-    The frontend's /auth/callback route is what actually persists the
-    session (as its own httpOnly cookie) and fetches the profile.
-    """
-    _require_supported_provider(provider)
-    client = oauth.create_client(provider)
 
     try:
-        token = await client.authorize_access_token(request)
-    except Exception as exc:
-        return _frontend_redirect(
-            "/login",
-            error=AuthStatus.OAUTH_PROVIDER_ERROR,
-            message=f"OAuth authorization failed: {exc}",
-        )
-
-    try:
-        profile = await _PROFILE_FETCHERS[provider](token)
+        profile = await _resolve_profile(provider, body)
     except OAuthError as exc:
-        return _frontend_redirect(
-            "/login",
-            error=AuthStatus.OAUTH_EMAIL_MISSING,
-            message=str(exc),
-        )
+        return error(AuthStatus.OAUTH_PROVIDER_ERROR, str(exc))
+    except OAuthVerificationError as exc:
+        return error(AuthStatus.OAUTH_PROVIDER_ERROR, str(exc))
+    except Exception as exc:
+        return error(AuthStatus.OAUTH_PROVIDER_ERROR, f"ยืนยันตัวตนจาก {provider} ไม่สำเร็จ: {exc}")
 
     try:
         async with SessionLocal() as session:
             user = await find_or_create_user(session, profile)
     except OAuthError as exc:
-        return _frontend_redirect(
-            "/login",
-            error=AuthStatus.OAUTH_ACCOUNT_LINKED,
-            message=str(exc),
-        )
-
-    access_token = issue_access_token(user)
-    device_token = issue_device_token(user)
+        return error(AuthStatus.OAUTH_ACCOUNT_LINKED, str(exc))
 
     try:
         async with SessionLocal() as session:
@@ -104,8 +61,8 @@ async def oauth_callback_controller(request: Request, provider: str):
                 LoginHistory(
                     uid=user.uid,
                     provider=profile.provider,
-                    ip=request.client.host if request.client else None,
-                    user_agent=request.headers.get("user-agent"),
+                    ip=ip,
+                    user_agent=user_agent,
                     status="success",
                 )
             )
@@ -113,10 +70,12 @@ async def oauth_callback_controller(request: Request, provider: str):
     except Exception as exc:
         print(f"[LoginHistory] Failed to record login for {user.uid}: {exc}")
 
-    return _frontend_redirect(
-        "/auth/callback",
-        access_token=access_token,
-        token_type="bearer",
-        expires_in=60 * 60 * 24 * 7,
-        device_token=device_token,
+    return success(
+        AuthStatus.LOGIN_SUCCESS,
+        "เข้าสู่ระบบสำเร็จ",
+        {
+            "access_token": issue_access_token(user),
+            "device_token": issue_device_token(user),
+            "data": user_public_dict(user),
+        },
     )

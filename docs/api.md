@@ -138,9 +138,10 @@ await apiFetch("/api/profile", jsonBody({
 ### OAuth
 
 - Provider: `google` หรือ `github`
-- Frontend ต้องเปิด URL ใหม่เต็มหน้า: `/api/auth/google/login` หรือ `/api/auth/github/login`
-- Backend กำหนด `FRONTEND_URL` เป็นปลายทาง callback
-- OAuth คืน access token ชนิดเดียวกับ password login
+- OAuth flow ทั้งหมดเกิดที่ Next.js (`/api/auth/{provider}/login` → provider → `/api/auth/{provider}/callback`) แล้วส่ง credential ที่ได้กลับมาที่นี่
+- Google ส่ง `id_token` (ยืนยันด้วย JWKS ของ Google + `GOOGLE_CLIENT_ID`) — backend ไม่ต้องมี client secret ของ provider เลย
+- GitHub ส่ง `access_token` (ถาม `api.github.com/user` ว่า token นี้เป็นใคร)
+- คืน access token ชนิดเดียวกับ password login
 - OAuth-only account ไม่มีรหัสผ่านใน DB
 - หาก account ผูก OAuth แล้ว การ password login ต้องใช้ OTP เสมอ แม้มี device token
 
@@ -277,8 +278,7 @@ Error envelope:
 | `POST` | `/api/auth/reset-passwd` | ไม่ | ขอ OTP หรือเปลี่ยนรหัสผ่านด้วย access token |
 | `POST` | `/api/auth/reset-passwd/confirm` | reset token | ยืนยัน OTP รีเซ็ตรหัสผ่าน |
 | `POST` | `/api/auth/refresh` | refresh token | ออก access/refresh token ใหม่ |
-| `GET` | `/api/auth/{provider}/login` | ไม่ | เริ่ม OAuth |
-| `GET` | `/api/auth/{provider}/callback` | ไม่ | OAuth callback |
+| `POST` | `/api/auth/{provider}/exchange` | ไม่ | ยืนยัน credential จาก OAuth ที่เว็บแอปทำไว้ |
 
 ### Profile
 
@@ -588,37 +588,29 @@ Endpoint นี้มีสองโหมด
 
 ควรแทน refresh token เดิมทุกครั้งที่ refresh สำเร็จ
 
-## 5.8 `GET /api/auth/{provider}/login`
+## 5.8 `POST /api/auth/{provider}/exchange`
 
 ตัวอย่าง:
 
 ```text
-GET /api/auth/google/login
-GET /api/auth/github/login
+POST /api/auth/google/exchange   {"id_token": "<google id token>"}
+POST /api/auth/github/exchange  {"access_token": "<github access token>"}
 ```
 
-ตอบ `302` ไป provider
+สำเร็จ:
+
+```json
+{"success": true, "status": "LOGIN_SUCCESS", "message": "เข้าสู่ระบบสำเร็จ",
+ "data": {"access_token": "<jwt>", "device_token": "<jwt>", "data": {"uid": "…", "role": "user", …}}}
+```
+
+ล้มเหลว: `{"success": false, "status": "OAUTH_PROVIDER_ERROR", "message": "..."}`
+หรือ `OAUTH_ACCOUNT_LINKED` เมื่อผูกกับบัญชีเดิมไม่ได้
 
 - Provider อื่น: `404 {"detail":"Unsupported OAuth provider"}`
-- Provider ยังไม่ configure: `503 {"detail":"..."}`
+- ยังไม่ตั้ง `GOOGLE_CLIENT_ID`: `503 {"detail":"..."}`
 
-## 5.9 `GET /api/auth/{provider}/callback`
-
-Browser navigation เท่านั้น
-
-สำเร็จ backend redirect ไป:
-
-```text
-{FRONTEND_URL}/auth/callback?access_token=<jwt>&token_type=bearer&expires_in=604800&device_token=<jwt>
-```
-
-ล้มเหลว backend redirect ไป:
-
-```text
-{FRONTEND_URL}/login?error=OAUTH_PROVIDER_ERROR&message=...
-```
-
-หรือ `OAUTH_EMAIL_MISSING`
+Backend ไม่เก็บ client secret ของ provider ใด ๆ — Google ยืนยันจาก JWKS สาธารณะ, GitHub ถาม provider โดยตรง
 
 ---
 

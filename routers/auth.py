@@ -9,10 +9,11 @@ from controller.auth_controller import (
     resetPasswd_confirm_controller,
     resetPasswd_controller,
 )
-from controller.oauth_controller import oauth_callback_controller, oauth_login_controller
+from controller.oauth_controller import oauth_exchange_controller
 from schemas.auth import (
     LoginConfirmParame,
     LoginParame,
+    OAuthExchangeParame,
     RefreshTokenParame,
     RegisterConfirmParame,
     RegisterParame,
@@ -22,23 +23,17 @@ from schemas.auth import (
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
-@router.get("/{provider}/login")
-async def oauth_login(provider: str, request: Request, redirect_origin: str | None = None):
-    """Redirects the browser to Google/GitHub's consent screen.
+@router.post("/{provider}/exchange")
+async def oauth_exchange(provider: str, body: OAuthExchangeParame, request: Request):
+    """Verifies a provider credential produced by the web application's own
+    OAuth flow and issues the same `access` JWT the rest of the API expects.
 
     provider: "google" | "github"
+    google: `id_token`   github: `access_token`
     """
-    return await oauth_login_controller(request, provider, redirect_origin)
-
-@router.get("/{provider}/callback")
-async def oauth_callback(provider: str, request: Request):
-    """Google/GitHub redirects back here after the user grants access.
-
-    On success this issues the same `access` JWT the rest of the API already
-    expects (7 day expiry). Signing in again with the same provider account
-    always resolves to the same `uid`.
-    """
-    return await oauth_callback_controller(request, provider)
+    ua = request.headers.get("user-agent")
+    ip = request.client.host if request.client else None
+    return await oauth_exchange_controller(provider, body, ua, ip)
 
 @router.post("/login")
 async def login(body: LoginParame, request: Request, deviceToken: str = Header("")):

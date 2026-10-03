@@ -1,7 +1,6 @@
 aiofiles
 argon2-cffi
 asyncpg
-authlib
 celery
 fastapi
 google-auth
