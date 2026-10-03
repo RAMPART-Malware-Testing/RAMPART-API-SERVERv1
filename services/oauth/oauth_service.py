@@ -8,7 +8,6 @@ straight of GitHub, who it belongs to). Both are normalized to a small
 back the same kind of `access` JWT the rest of the API already expects.
 """
 
-import os
 import re
 import secrets
 from dataclasses import dataclass
@@ -24,8 +23,6 @@ from utils.jwt import create_token
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
 _USERNAME_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9_.-]")
-
-ROOT_EMAIL = os.getenv("ROOT_EMAIL", "").strip().lower()
 
 @dataclass(frozen=True)
 class OAuthProfile:
@@ -120,26 +117,12 @@ async def find_or_create_user(session: AsyncSession, profile: OAuthProfile) -> U
       to that existing account instead of creating a duplicate user.
     - Otherwise -> brand-new account, avatar_url stays NULL until the user
       explicitly uploads a profile picture.
-    - E-mail matches ROOT_EMAIL (.env) -> always role="master" and never
-      banned, enforced on every login (new account, an existing one that
-      drifted away from master, or one that was somehow left banned).
-    """
-    is_root = bool(ROOT_EMAIL) and profile.email.lower() == ROOT_EMAIL
 
-    def _reconfirm_root(u: User) -> bool:
-        """Self-heal the root account's role/ban state. Returns True if a
-        commit is needed."""
-        changed = False
-        if u.role != "master":
-            u.role = "master"
-            changed = True
-        if u.is_banned:
-            u.is_banned = False
-            u.banned_at = None
-            u.banned_reason = None
-            u.banned_by = None
-            changed = True
-        return changed
+    Accounts created here always get role="user". `master` is granted by
+    exactly one path - the first-run setup endpoint - so that a provider
+    login can never produce an administrator, and so that "setup happens
+    once" stays true regardless of who signs in first.
+    """
 
     linked = await session.execute(
         select(OAuthAccount).where(
@@ -151,9 +134,6 @@ async def find_or_create_user(session: AsyncSession, profile: OAuthProfile) -> U
     if oauth_account is not None:
         user = await session.get(User, oauth_account.uid)
         if user is not None:
-            if is_root and _reconfirm_root(user):
-                await session.commit()
-                await session.refresh(user)
             return user
 
     existing_user_result = await session.execute(
@@ -167,7 +147,7 @@ async def find_or_create_user(session: AsyncSession, profile: OAuthProfile) -> U
             username=username,
             email=profile.email,
             avatar_url=None,
-            role="master" if is_root else "user",
+            role="user",
             status="active",
         )
         session.add(user)
@@ -178,8 +158,6 @@ async def find_or_create_user(session: AsyncSession, profile: OAuthProfile) -> U
                 "This e-mail is already registered with a different sign-in "
                 "method and the provider did not verify this address."
             )
-        if is_root:
-            _reconfirm_root(user)
 
     session.add(
         OAuthAccount(

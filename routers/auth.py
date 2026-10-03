@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Header, Request
 
 from controller.auth_controller import (
+    first_run_setup_controller,
+    first_run_status_controller,
     login_confirm_controller,
     login_controller,
     refresh_token_controller,
@@ -11,6 +13,7 @@ from controller.auth_controller import (
 )
 from controller.oauth_controller import oauth_exchange_controller
 from schemas.auth import (
+    FirstRunSetupParame,
     LoginConfirmParame,
     LoginParame,
     OAuthExchangeParame,
@@ -22,6 +25,26 @@ from schemas.auth import (
 )
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
+
+@router.get("/setup/status")
+async def first_run_status():
+    """Reports whether the first master account still needs to be created.
+
+    Unauthenticated by design - the web app calls it to decide between the
+    setup page and the login page. Returns one boolean and nothing else.
+    """
+    return await first_run_status_controller()
+
+@router.post("/setup/complete")
+async def first_run_setup(body: FirstRunSetupParame, request: Request):
+    """Creates the first master account. Works only while `users` is empty.
+
+    Unauthenticated - there is no account to authenticate as until this call
+    succeeds. See services/auth/first_run_setup.py.
+    """
+    forwarded = request.headers.get("x-forwarded-for")
+    ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
+    return await first_run_setup_controller(body, ip)
 
 @router.post("/{provider}/exchange")
 async def oauth_exchange(provider: str, body: OAuthExchangeParame, request: Request):

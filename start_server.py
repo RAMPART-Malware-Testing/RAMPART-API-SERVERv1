@@ -59,8 +59,6 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     await init_db()
-    from services.admin.root_bootstrap import ensure_root_master_account
-    await ensure_root_master_account()
 
 from routers.auth import router as auth_router
 from routers.profile import router as profile_router

@@ -37,3 +37,9 @@ class RefreshTokenParame(BaseModel):
 class OAuthExchangeParame(BaseModel):
     id_token: str | None = None
     access_token: str | None = None
+
+class FirstRunSetupParame(BaseModel):
+    username: str
+    email: str
+    password: str
+    confirmPassword: str

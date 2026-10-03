@@ -1,0 +1,206 @@
+"""First-run setup: create the very first `master` account from the web UI.
+
+This module replaces the old `ROOT_USERNAME`/`ROOT_PASSWORD`/`ROOT_EMAIL`
+`.env` bootstrap. Those values were a master account smuggled in through
+configuration, which meant the master credential had to live in a file on
+disk and could be read by anything that could read `.env`.
+
+The endpoint that replaces them is unauthenticated - there is nobody to
+authenticate *as* until it succeeds. Three things hold the line:
+
+1. **A fixed-window rate limit per client IP**, so a stuck or scripted client
+   cannot hammer the endpoint.
+2. **A `pg_advisory_xact_lock`** held for the whole transaction, with the
+   "is the users table empty?" re-check performed *inside* that lock. Two
+   concurrent callers therefore serialise, and the second one sees a
+   non-empty table and is rejected. This is the guarantee that setup
+   happens exactly once - a plain read-then-write would let both requests
+   through.
+3. **No information leak from `GET /setup/status`** - it returns one boolean
+   and nothing else.
+
+`master` is granted from here and nowhere else: OAuth logins always
+produce `role="user"` (see `services/oauth/oauth_service.py`), and no other
+API accepts a role.
+"""
+
+import re
+
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from cores.Schema.schema_class import AuditLog, User
+from cores.async_pg_db import SessionLocal
+from utils.cypto.PasswordCreateAndVerify import get_password_hash
+from utils.email_normalize import EMAIL_PATTERN, normalize_email, normalized_email_expr
+from utils.password_policy import validate_password_policy
+from utils.rate_limit import is_rate_limited
+from utils.response import error, success
+from utils.status_code import AuthStatus
+
+USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]{3,50}$")
+USERNAME_MAX_LENGTH = 50
+EMAIL_MAX_LENGTH = 255
+
+# Fixed across restarts on purpose: every caller contends for the same lock,
+# which is the point. Derived from "rampart:first-run-setup".
+_SETUP_ADVISORY_LOCK_KEY = 6010720240713
+
+_ATTEMPT_LIMIT = 10
+_ATTEMPT_WINDOW_SECONDS = 10 * 60
+
+
+async def get_setup_status() -> dict:
+    """Tells the frontend whether to show the setup page. Returns a single
+    boolean - never a count, never a username, never anything else that would
+    help someone enumerate accounts on an unauthenticated endpoint.
+    """
+    async with SessionLocal() as session:
+        total = await session.execute(select(func.count()).select_from(User))
+        user_count = total.scalar_one()
+
+    return success(
+        AuthStatus.FIRST_RUN_SUCCESS,
+        "ตรวจสอบสถานะการตั้งค่าครั้งแรกสำเร็จ",
+        {"needs_setup": user_count == 0},
+    )
+
+
+async def _users_table_is_empty(session: AsyncSession) -> bool:
+    total = await session.execute(select(func.count()).select_from(User))
+    return total.scalar_one() == 0
+
+
+def _validate(body) -> dict | None:
+    """Returns an error response on bad input, None when everything checks out."""
+    username = (body.username or "").strip()
+    raw_email = (body.email or "").strip()
+    password = body.password or ""
+    confirm_password = body.confirmPassword or ""
+
+    if not USERNAME_PATTERN.match(username):
+        return error(
+            AuthStatus.SETUP_INVALID_INPUT,
+            "ชื่อผู้ใช้ต้องมี 3-50 ตัวอักษร และใช้ได้เฉพาะตัวอักษรอังกฤษ ตัวเลข จุด ขีดกลาง และขีดล่าง",
+        )
+    if len(username) > USERNAME_MAX_LENGTH:
+        return error(AuthStatus.SETUP_INVALID_INPUT, "ชื่อผู้ใช้ยาวเกินไป")
+
+    normalized = normalize_email(raw_email)
+    if not EMAIL_PATTERN.match(normalized):
+        return error(AuthStatus.SETUP_INVALID_INPUT, "รูปแบบอีเมลไม่ถูกต้อง")
+    if len(normalized) > EMAIL_MAX_LENGTH:
+        return error(AuthStatus.SETUP_INVALID_INPUT, "อีเมลยาวเกินไป")
+
+    if password != confirm_password:
+        return error(AuthStatus.SETUP_INVALID_INPUT, "รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน")
+
+    policy_error = validate_password_policy(password)
+    if policy_error:
+        return error(AuthStatus.PASSWORD_POLICY_INVALID, policy_error)
+
+    return None
+
+
+async def complete_first_run_setup(body, client_ip: str) -> dict:
+    """Creates the first master account. Refuses once any user exists.
+
+    `client_ip` comes from the caller and is never trusted for authorization
+    - it is only a rate-limit key.
+    """
+    ip = client_ip or "unknown"
+
+    if is_rate_limited("first-run-setup", ip, _ATTEMPT_LIMIT, _ATTEMPT_WINDOW_SECONDS):
+        return error(
+            AuthStatus.SETUP_RATE_LIMITED,
+            "พยายามตั้งค่าหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่",
+        )
+
+    validation_error = _validate(body)
+    if validation_error:
+        return validation_error
+
+    username = body.username.strip()
+    email = normalize_email(body.email.strip())
+
+    try:
+        # An explicit session, not `async with`: AsyncSession's context
+        # manager closes on exit but does NOT commit - every other service in
+        # this codebase commits by hand for the same reason.
+        session = SessionLocal()
+        try:
+            # Serialises every concurrent caller on one advisory lock, held
+            # until the commit or rollback below.
+            await session.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"),
+                {"key": _SETUP_ADVISORY_LOCK_KEY},
+            )
+
+            # Must be re-read here, inside the lock - a check done before
+            # acquiring it would let two simultaneous requests both see an
+            # empty table and both create a master.
+            if not await _users_table_is_empty(session):
+                await session.rollback()
+                return error(
+                    AuthStatus.SETUP_ALREADY_COMPLETED,
+                    "ระบบมีผู้ใช้งานแล้ว ไม่สามารถตั้งค่าครั้งแรกซ้ำได้",
+                )
+
+            taken_username = await session.execute(
+                select(User.uid).where(User.username == username).limit(1)
+            )
+            if taken_username.scalar_one_or_none() is not None:
+                await session.rollback()
+                return error(AuthStatus.USERNAME_TAKEN, "ชื่อผู้ใช้นี้ถูกใช้งานแล้ว")
+
+            taken_email = await session.execute(
+                select(User.uid)
+                .where(normalized_email_expr(User.email) == email)
+                .limit(1)
+            )
+            if taken_email.scalar_one_or_none() is not None:
+                await session.rollback()
+                return error(AuthStatus.EMAIL_TAKEN, "อีเมลนี้ถูกใช้งานแล้ว")
+
+            user = User(
+                username=username,
+                email=email,
+                password=get_password_hash(body.password),
+                avatar_url=None,
+                role="master",
+                status="active",
+                is_banned=False,
+                # The credential was chosen by the operator on this very
+                # request, so there is nothing left to set up.
+                must_setup=False,
+            )
+            session.add(user)
+            await session.flush()
+
+            session.add(
+                AuditLog(
+                    actor_uid=user.uid,
+                    target_uid=user.uid,
+                    action="first_run_setup",
+                    detail=f"ip={ip}",
+                )
+            )
+            await session.commit()
+        finally:
+            await session.close()
+    except IntegrityError as exc:
+        # The unique indexes on username/email are the last line of defence
+        # if a row lands between the lock being taken and this insert.
+        print(f"[FirstRunSetup] IntegrityError during first-run setup: {exc}")
+        return error(
+            AuthStatus.SETUP_ALREADY_COMPLETED,
+            "ระบบมีผู้ใช้งานแล้ว ไม่สามารถตั้งค่าครั้งแรกซ้ำได้",
+        )
+
+    print(f"[FirstRunSetup] Created first master account: {email} (from {ip})")
+    return success(
+        AuthStatus.FIRST_RUN_SUCCESS,
+        "ตั้งค่าบัญชีผู้ดูแลระบบครั้งแรกสำเร็จ กรุณาเข้าสู่ระบบด้วยบัญชีนี้",
+        {"username": user.username},
+    )

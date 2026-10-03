@@ -110,7 +110,7 @@ erDiagram
 
 คอลัมน์สำคัญ:
 - `email` / `username` — unique ทั้งคู่, email คือ canonical identity ที่ใช้เชื่อมบัญชีข้าม provider
-- `role` — `user` / `admin` / `master` (`master` ได้มาจาก `ROOT_EMAIL` ตอน OAuth login เท่านั้น ห้ามผ่าน API/UI)
+- `role` — `user` / `admin` / `master` (`master` ได้จากหน้า setup ครั้งแรกเท่านั้น ผ่าน `POST /api/auth/setup/complete` ซึ่งทำงานได้ต่อเมื่อตาราง `users` ยังว่าง — OAuth login ได้แต่ `user` เสมอ)
 - `is_banned` (+ `banned_at`, `banned_reason`, `banned_by`) — **source of truth** ของ access control; `status` เป็น legacy flag ที่ไม่ authoritative แล้ว
 - `fcm_token` — push notification
 

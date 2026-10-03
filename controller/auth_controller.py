@@ -1,5 +1,14 @@
 from services.auth.auth_service import AuthService
-from schemas.auth import LoginParame, LoginConfirmParame, RegisterParame, RegisterConfirmParame, ResetPasswdParame, ResetPasswdConfirmParame
+from services.auth.first_run_setup import complete_first_run_setup, get_setup_status
+from schemas.auth import (
+    FirstRunSetupParame,
+    LoginConfirmParame,
+    LoginParame,
+    RegisterConfirmParame,
+    RegisterParame,
+    ResetPasswdConfirmParame,
+    ResetPasswdParame,
+)
 
 import random
 import hashlib
@@ -58,5 +67,11 @@ async def resetPasswd_confirm_controller(body: ResetPasswdConfirmParame):
 async def refresh_token_controller(refresh_token:str):
     response = await AuthService.refresh_token(refresh_token)
     return response
+
+async def first_run_status_controller():
+    return await get_setup_status()
+
+async def first_run_setup_controller(body: FirstRunSetupParame, ip: str):
+    return await complete_first_run_setup(body, ip)
 
 
