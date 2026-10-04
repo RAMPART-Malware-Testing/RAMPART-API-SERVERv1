@@ -41,13 +41,7 @@
 
 ## Testing
 
-| Task | Command |
-|------|---------|
-| Full suite | `python -m pytest tests/ -q` |
-| Single file | `python -m pytest tests/test_admin.py -q` |
-| Single test | `python -m pytest tests/test_admin.py::test_name -q` |
-
-`tests/test_virustotal_task.py` may error with `WinError 10013` on Windows (socketpair sandboxing, not a code defect) — run other files individually if that happens.
+Automated test suites are not part of this repository. Verify changes against a running instance instead (API on port 8006, web on port 3000).
 
 ## Known Typos / Gotchas
 
