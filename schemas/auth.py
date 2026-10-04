@@ -34,9 +34,10 @@ class ResetPasswdConfirmParame(BaseModel):
 class RefreshTokenParame(BaseModel):
     refresh_token: str
 
-class OAuthExchangeParame(BaseModel):
-    id_token: str | None = None
-    access_token: str | None = None
+class BridgeTokenParame(BaseModel):
+    """Short-lived HS256 token the web app signs with OAUTH_BRIDGE_SECRET once
+    it has itself verified the provider. See cores/bridge.py."""
+    bridge_token: str
 
 class FirstRunSetupParame(BaseModel):
     username: str

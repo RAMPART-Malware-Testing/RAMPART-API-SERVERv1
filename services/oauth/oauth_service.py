@@ -1,18 +1,21 @@
 """Business logic for Google / GitHub OAuth login.
 
-The web application runs the provider OAuth flow and hands the credential it
-received back to this service: a Google ID token (verified here against
-Google's JWKS, so no client secret is needed) or a GitHub access token (asked
-straight of GitHub, who it belongs to). Both are normalized to a small
-`OAuthProfile`, resolved to a `users` row by `find_or_create_user`, and get
-back the same kind of `access` JWT the rest of the API already expects.
+The web application runs the provider OAuth flow end to end: it exchanges the
+authorization code, verifies Google's ID token against Google's signing keys,
+asks GitHub who the user is, and only then states the outcome to this service
+as a bridge token (see cores/bridge.py). What arrives here is therefore an
+already-verified claim, normalised to a small `OAuthProfile`, resolved to a
+`users` row by `find_or_create_user`, and answered with the same kind of
+`access` JWT the rest of the API already expects.
+
+This service stores user records and issues its own tokens. It never sees an
+OAuth client secret, a redirect URI or a provider access token.
 """
 
 import re
 import secrets
 from dataclasses import dataclass
 
-import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,67 +38,19 @@ class OAuthProfile:
 class OAuthError(Exception):
     """Raised when the provider callback can't be trusted (e.g. no verified e-mail)."""
 
-async def profile_from_google_id_token(id_token: str) -> OAuthProfile:
-    from cores.oauth import verify_google_id_token
+def profile_from_bridge_payload(payload: dict) -> OAuthProfile:
+    """Normalise verified bridge-token claims into an `OAuthProfile`.
 
-    claims = await verify_google_id_token(id_token)
-
-    email = claims.get("email")
-    if not email:
-        raise OAuthError("บัญชี Google ไม่ได้ส่งที่อยู่อีเมลกลับมา")
-
-    provider_uid = claims.get("sub")
-    if not provider_uid:
-        raise OAuthError("บัญชี Google ไม่ได้ส่งรหัสผู้ใช้กลับมา")
-
+    `cores.bridge.verify_bridge_token` has already checked the signature, the
+    expiry, the token type and the presence of `sub`/`email` by the time a
+    payload gets here, so this only shapes it.
+    """
     return OAuthProfile(
-        provider="google",
-        provider_uid=str(provider_uid),
-        email=email.lower(),
-        email_verified=bool(claims.get("email_verified", False)),
-        display_name=claims.get("name") or claims.get("given_name"),
-    )
-
-async def profile_from_github_access_token(access_token: str) -> OAuthProfile:
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "RAMPART-API",
-    }
-
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        profile_resp = await client.get("https://api.github.com/user", headers=headers)
-        if profile_resp.status_code in (401, 403):
-            raise OAuthError("GitHub ไม่ยอมรับ access token ที่ส่งมา")
-        profile_resp.raise_for_status()
-        profile = profile_resp.json()
-
-        provider_uid = profile.get("id")
-        if not provider_uid:
-            raise OAuthError("บัญชี GitHub ไม่ได้ส่งข้อมูลผู้ใช้กลับมา")
-
-        email = profile.get("email")
-        email_verified = bool(email)
-
-        if not email:
-            emails_resp = await client.get("https://api.github.com/user/emails", headers=headers)
-            emails_resp.raise_for_status()
-            emails = emails_resp.json()
-            primary = next((e for e in emails if e.get("primary") and e.get("verified")), None)
-            if primary is None:
-                primary = next((e for e in emails if e.get("verified")), None)
-            if primary is None:
-                raise OAuthError("บัญชี GitHub ไม่มีอีเมลที่ยืนยันแล้ว")
-            email = primary["email"]
-            email_verified = True
-
-    return OAuthProfile(
-        provider="github",
-        provider_uid=str(provider_uid),
-        email=email.lower(),
-        email_verified=email_verified,
-        display_name=profile.get("name") or profile.get("login"),
+        provider=payload["provider"],
+        provider_uid=str(payload["sub"]),
+        email=payload["email"].lower(),
+        email_verified=bool(payload.get("email_verified", False)),
+        display_name=payload.get("display_name") or None,
     )
 
 async def _generate_unique_username(session: AsyncSession, seed: str) -> str:

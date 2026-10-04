@@ -11,12 +11,12 @@ from controller.auth_controller import (
     resetPasswd_confirm_controller,
     resetPasswd_controller,
 )
-from controller.oauth_controller import oauth_exchange_controller
+from controller.oauth_controller import oauth_bridge_controller
 from schemas.auth import (
+    BridgeTokenParame,
     FirstRunSetupParame,
     LoginConfirmParame,
     LoginParame,
-    OAuthExchangeParame,
     RefreshTokenParame,
     RegisterConfirmParame,
     RegisterParame,
@@ -46,17 +46,25 @@ async def first_run_setup(body: FirstRunSetupParame, request: Request):
     ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
     return await first_run_setup_controller(body, ip)
 
-@router.post("/{provider}/exchange")
-async def oauth_exchange(provider: str, body: OAuthExchangeParame, request: Request):
-    """Verifies a provider credential produced by the web application's own
-    OAuth flow and issues the same `access` JWT the rest of the API expects.
+@router.post("/{provider}/bridge")
+async def oauth_bridge(provider: str, body: BridgeTokenParame, request: Request):
+    """Turns a bridge token into the same `access` JWT the rest of the API expects.
 
-    provider: "google" | "github"
-    google: `id_token`   github: `access_token`
+    The web application owns the provider OAuth flow: it runs the redirect,
+    exchanges the authorization code, and verifies the credential it gets back
+    (Google's ID token against Google's signing keys, GitHub's access token
+    against the GitHub API). Only then does it state the result here as a
+    short-lived HS256 token signed with OAUTH_BRIDGE_SECRET.
+
+    This endpoint therefore trusts the web app completely - it never sees a
+    Google client ID, a redirect URI or a provider token, and it only stores
+    the user record it ends up with.
+
+    provider: "google" | "github" - must match the provider inside the token.
     """
     ua = request.headers.get("user-agent")
     ip = request.client.host if request.client else None
-    return await oauth_exchange_controller(provider, body, ua, ip)
+    return await oauth_bridge_controller(provider, body, ua, ip)
 
 @router.post("/login")
 async def login(body: LoginParame, request: Request, deviceToken: str = Header("")):
