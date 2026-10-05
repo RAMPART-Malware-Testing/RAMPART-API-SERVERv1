@@ -27,7 +27,11 @@ from cores.Schema.schema_class import Analysis, Reports
 from cores.sync_pg_db import SyncSessionLocal
 from cores.redis import redis_client
 from calling.GeminiAPI import GeminiAPI
-from bgProcessing.notifications import notify_analysis_failed, notify_analysis_success
+from bgProcessing.notifications import (
+    notify_analysis_failed,
+    notify_analysis_success,
+    push_analysis_result,
+)
 from utils.file_type_detect import detect_from_virustotal, is_spoofed
 
 REPORTS_DIR = Path("reports")
@@ -92,6 +96,10 @@ def fail_task(db, task_id: str, error, *, report_paths=(), tool_notes: dict | No
         notify_analysis_failed(db, task_id, message)
     except Exception as notify_error:
         print(f"[Notify] Failed to send failure email for {task_id}: {notify_error}")
+    try:
+        push_analysis_result(db, task_id, succeeded=False)
+    except Exception as push_error:
+        print(f"[Push] Failed to notify device for {task_id}: {push_error}")
     return {"success": False, "task_id": task_id, "error": message}
 
 def read_report(path: str | Path) -> dict:
@@ -514,6 +522,10 @@ def analyze_malware_task(
                     notify_analysis_success(db, task_id)
                 except Exception as notify_error:
                     print(f"[Notify] Failed to send success email for {task_id}: {notify_error}")
+                try:
+                    push_analysis_result(db, task_id, succeeded=True)
+                except Exception as push_error:
+                    print(f"[Push] Failed to notify device for {task_id}: {push_error}")
                 return {
                     "success": True,
                     "task_id": task_id,
@@ -783,6 +795,10 @@ def analyze_malware_task(
             notify_analysis_success(db, task_id)
         except Exception as notify_error:
             print(f"[Notify] Failed to send success email for {task_id}: {notify_error}")
+        try:
+            push_analysis_result(db, task_id, succeeded=True)
+        except Exception as push_error:
+            print(f"[Push] Failed to notify device for {task_id}: {push_error}")
         publish_progress(
             task_id,
             "complete",

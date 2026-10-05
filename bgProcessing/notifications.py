@@ -1,7 +1,20 @@
+import asyncio
+
+from sqlalchemy import update
+
 from cores.Schema.schema_class import Analysis, Reports, User
+from services.fcm_service import FCMService
 from utils.mailer import send_email
 
 FRONTEND_URL = None
+
+PUSH_ROUTE_RESULT = "/analysis-result"
+PUSH_ROUTE_PROGRESS = "/analysis-progress"
+
+# FCM answers 404 for these once a token can never deliver again (app
+# uninstalled, data cleared, project unlinked). Anything else is a transient
+# failure worth retrying on the next analysis, so the token has to stay.
+DEAD_TOKEN_ERRORS = {"UNREGISTERED", "INVALID_ARGUMENT", "SENDER_ID_MISMATCH"}
 
 
 def _get_frontend_url() -> str:
@@ -10,6 +23,79 @@ def _get_frontend_url() -> str:
         import os
         FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
     return FRONTEND_URL
+
+
+def _first_dead_token_error(result: dict):
+    """FCM reports per-token failures in an array next to the HTTP 200."""
+    detail = (result.get("fcm_response") or {}).get("error", {})
+    for item in detail.get("details") or []:
+        err_type = (item.get("errorCode") or item.get("@type") or "").rsplit("/", 1)[-1]
+        if err_type in DEAD_TOKEN_ERRORS:
+            return err_type
+    return None
+
+
+async def _push_to_user(db, user, title: str, body: str, route: str, task_id: str) -> None:
+    token = user.fcm_token
+    if not token:
+        return
+
+    result = await FCMService.send_notification(
+        token=token,
+        title=title,
+        body=body,
+        data={"route": route, "task_id": task_id},
+    )
+
+    dead = _first_dead_token_error(result)
+    if not dead:
+        return
+
+    print(f"[FCM] Clearing dead token for uid={user.uid}: {dead}")
+    db.execute(update(User).where(User.uid == user.uid).values(fcm_token=None))
+    db.commit()
+
+
+async def _push_analysis_result(db, task_id: str, succeeded: bool) -> None:
+    """Tell the user's phone that the analysis finished.
+
+    The app already knows this payload shape: `data.route` decides which screen
+    opens and `data.task_id` tells it which analysis to open there, so a tap
+    lands on the result rather than on the dashboard.
+
+    The wording is built here rather than at the call site so callers do not
+    have to have the report row in scope just to name it.
+    """
+    row = (
+        db.query(Analysis, Reports, User)
+        .join(User, Analysis.uid == User.uid)
+        .outerjoin(Reports, Analysis.rid == Reports.rid)
+        .filter(Analysis.task_id == task_id)
+        .first()
+    )
+    if row is None:
+        return
+    analysis, report, user = row
+    if not user or not user.fcm_token:
+        return
+
+    file_name = analysis.file_name or "ไฟล์ของคุณ"
+    if succeeded:
+        risk = (report.risk_level if report else None) or "ไม่ระบุความเสี่ยง"
+        title = "วิเคราะห์ไฟล์เสร็จแล้ว"
+        body = f"{file_name} — ความเสี่ยง: {risk}"
+        route = PUSH_ROUTE_RESULT
+    else:
+        title = "วิเคราะห์ไฟล์ไม่สำเร็จ"
+        body = f"{file_name} — กรุณาลองอัปโหลดใหม่อีกครั้ง"
+        route = PUSH_ROUTE_PROGRESS
+
+    await _push_to_user(db, user, title, body, route, task_id)
+
+
+def push_analysis_result(db, task_id: str, succeeded: bool) -> None:
+    """Sync entry point for the Celery worker, which has no event loop."""
+    asyncio.run(_push_analysis_result(db, task_id, succeeded=succeeded))
 
 
 def notify_analysis_success(db, task_id: str) -> None:

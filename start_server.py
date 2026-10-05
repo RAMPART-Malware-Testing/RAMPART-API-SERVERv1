@@ -61,6 +61,7 @@ async def startup_event():
     await init_db()
 
 from routers.auth import router as auth_router
+from routers.fcm import router as fcm_router
 from routers.profile import router as profile_router
 from routers.analysis import router as analy_router
 from routers.test_route import router as test_router
@@ -71,6 +72,7 @@ from routers.admin import router as admin_router
 app.include_router(analy_router)
 app.include_router(test_router, include_in_schema=test_mode_enabled())
 app.include_router(auth_router)
+app.include_router(fcm_router)
 app.include_router(profile_router)
 app.include_router(dashboard_route)
 app.include_router(admin_router)
