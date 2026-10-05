@@ -156,5 +156,6 @@ def user_public_dict(user: User) -> dict:
         "role": user.role,
         "status": user.status,
         "must_setup": bool(user.must_setup),
+        "email_verified": bool(user.email_verified),
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }

@@ -50,7 +50,7 @@ async def start_email_change(session: AsyncSession, actor: User, email: str) -> 
     if await _email_taken_by_other(session, actor.uid, candidate):
         return error(AuthStatus.EMAIL_TAKEN, "อีเมลนี้ถูกใช้งานในระบบแล้ว")
 
-    if not actor.email or not EMAIL_RE.match(actor.email):
+    if actor.email_verified and (not actor.email or not EMAIL_RE.match(actor.email)):
         return error(AuthStatus.INVALID_CREDENTIALS, "บัญชีนี้ยังไม่มีอีเมลเดิมที่ใช้งานได้")
 
     if redis_client is not None:
@@ -58,6 +58,23 @@ async def start_email_change(session: AsyncSession, actor: User, email: str) -> 
             redis_client.setex(_pending_email_key(actor.uid), PENDING_EMAIL_TTL_SECONDS, candidate)
         except Exception as exc:
             print(f"[ChangeEmail] unable to store pending email: {exc}")
+
+    if not actor.email_verified:
+        otp_response = await resend_email_otp(session, actor, action=CHANGE_EMAIL_OTP_ACTION)
+        if not otp_response.get("success"):
+            return otp_response
+        otp_data = otp_response.get("data") or {}
+        return success(
+            AuthStatus.OTP_SENT,
+            otp_response.get("message") or f"ส่งรหัส OTP ไปยังอีเมลใหม่ ({candidate}) แล้ว",
+            {
+                "token": otp_data.get("token"),
+                "new_email": candidate,
+                "old_email_skipped": True,
+                "expires_in": otp_data.get("expires_in"),
+                "email_sent": otp_data.get("email_sent", True),
+            },
+        )
 
     otp_token = create_token(
         subject=str(actor.uid),
@@ -79,6 +96,7 @@ async def start_email_change(session: AsyncSession, actor: User, email: str) -> 
             "token": otp_token,
             "old_email": actor.email,
             "new_email": candidate,
+            "old_email_skipped": False,
             "expires_in": otp_response.get("data", {}).get("expires_in"),
             "email_sent": otp_response.get("data", {}).get("email_sent", True),
         },
@@ -183,6 +201,7 @@ async def confirm_email_change(session: AsyncSession, actor: User, token: str, o
 
     previous_email = target.email
     target.email = pending_email
+    target.email_verified = True
 
     await write_audit_log(
         session,

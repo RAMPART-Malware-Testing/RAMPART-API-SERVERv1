@@ -166,6 +166,32 @@ class AuthService:
                     }
                 )
 
+            if user.role == "master" and not user.email_verified:
+                access_token = create_token(
+                    subject=str(user.uid),
+                    token_type="access",
+                    expires_minutes=60 * 24 * 7
+                )
+                await _record_login_history(
+                    session, uid=user.uid, provider="password", ip=ip,
+                    user_agent=user_agent, status="success_unverified_master",
+                )
+                await session.commit()
+
+                user_dict = user.__dict__.copy()
+                user_dict.pop("password", None)
+                user_dict.pop("_sa_instance_state", None)
+                return success(
+                    AuthStatus.LOGIN_SUCCESS,
+                    "เข้าสู่ระบบสำเร็จ",
+                    {
+                        "access_token": access_token,
+                        "data": user_dict,
+                        "bypass_otp": True,
+                        "must_setup": bool(user.must_setup),
+                    }
+                )
+
             await _record_login_history(
                 session, uid=user.uid, provider="password", ip=ip,
                 user_agent=user_agent, status="otp_required",
@@ -292,7 +318,8 @@ class AuthService:
                 email=payload["sub"],
                 password=get_password_hash(payload["password"]),
                 role="user",
-                status="active"
+                status="active",
+                email_verified=True,
             )
             session.add(new_user)
             await session.commit()

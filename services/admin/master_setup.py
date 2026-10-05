@@ -143,6 +143,7 @@ async def confirm_master_setup(
 
     if pending_email:
         target.email = pending_email
+        target.email_verified = True
     target.password = get_password_hash(new_password)
     target.must_setup = False
 
