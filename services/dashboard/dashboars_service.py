@@ -18,6 +18,7 @@ from services.admin.authz import ADMIN_ROLES
 from services.analy.analy_service import ANALYSIS_HISTORY_CACHE_NAMESPACE
 from uuid import UUID
 from utils.cache import build_suffix, cached_async, invalidate_cached
+from utils.file_type_detect import CATEGORIES
 
 def invalidate_public_caches() -> None:
     invalidate_cached(DASHBOARD_SUMMARY_CACHE_NAMESPACE)
@@ -39,6 +40,10 @@ REPORTS_HISTORY_CACHE_NAMESPACE = "dashboard:reports_history"
 REPORTS_HISTORY_CACHE_TTL_SECONDS = 5
 
 IN_FLIGHT_STATUSES = ("pending", "dispatching", "queued", "processing", "analyzing")
+
+# Below this many scored samples a per-category average is noise - one 90/100
+# sample would outrank a category with twenty files behind it.
+RISK_SCORE_MIN_SAMPLES = 3
 
 async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role: str) -> dict:
     total_q = await session.execute(
@@ -98,24 +103,28 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
     monthly_q = await session.execute(malware_query(month_start))
     all_q     = await session.execute(malware_query(None))
 
+    # Group by the category read off the file's own bytes, never by the
+    # client-supplied suffix - a `.jpg` that is really an ELF would otherwise
+    # quietly poison both groups.
     risk_q = await session.execute(
         select(
-            Analysis.file_type.label("fileType"),
+            Analysis.detected_type.label("detectedType"),
             func.round(func.avg(Reports.score), 2).label("riskScore"),
             func.round(func.avg(Reports.virustotal_score), 2).label("virustotalScore"),
             func.round(func.avg(Reports.mobsf_score), 2).label("mobsfScore"),
             func.round(func.avg(Reports.cape_score), 2).label("capeScore"),
             func.round(func.avg(Reports.rampart_score), 2).label("aiScore"),
+            func.count().label("sampleCount"),
+            func.count(Reports.score).label("scoredCount"),
         )
         .join(Reports, Analysis.rid == Reports.rid)
         .where(
-            Analysis.file_type.isnot(None),
-            Analysis.file_type != "",
-            Reports.score.isnot(None),
-            Analysis.deleted_at.is_(None)
+            Analysis.detected_type.isnot(None),
+            Analysis.deleted_at.is_(None),
         )
-        .group_by(Analysis.file_type)
-        .order_by(func.avg(Reports.score).desc())
+        .group_by(Analysis.detected_type)
+        .having(func.count(Reports.score) >= RISK_SCORE_MIN_SAMPLES)
+        .order_by(func.avg(Reports.score).desc(), func.count().desc())
         .limit(5)
     )
 
@@ -130,18 +139,26 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
         },
         "riskScores": [
             {
-                "fileType": r.fileType,
-                "riskScore": float(r.riskScore),
-                "virustotalScore": float(r.virustotalScore) if r.virustotalScore is not None else None,
-                "mobsfScore": float(r.mobsfScore) if r.mobsfScore is not None else None,
-                "capeScore": float(r.capeScore) if r.capeScore is not None else None,
-                "aiScore": float(r.aiScore) if r.aiScore is not None else None,
+                "fileType": r.detectedType,
+                "label": CATEGORIES.get(r.detectedType, r.detectedType),
+                "riskScore": float(r.riskScore) if r.riskScore is not None else None,
+                # Averages are over the rows that actually have the tool's
+                # score; `null` means the tool never ran, which is not the
+                # same as a score of zero.
+                "tools": {
+                    "virustotal": float(r.virustotalScore) if r.virustotalScore is not None else None,
+                    "mobsf": float(r.mobsfScore) if r.mobsfScore is not None else None,
+                    "cape": float(r.capeScore) if r.capeScore is not None else None,
+                    "ai": float(r.aiScore) if r.aiScore is not None else None,
+                },
+                "sampleCount": r.sampleCount,
+                "scoredCount": r.scoredCount,
             }
             for r in risk_q
         ],
     }
 
-async def get_dashboard_summary(session: AsyncSession, uid: UUID | str, role: str) -> dict:
+async def get_dashboard_summary_service(session: AsyncSession, uid: UUID | str, role: str) -> dict:
     suffix = build_suffix(uid=str(uid), role=role)
     return await cached_async(
         DASHBOARD_SUMMARY_CACHE_NAMESPACE,

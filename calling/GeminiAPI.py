@@ -61,7 +61,14 @@ class GeminiAPICall:
         self.api_keys = self._load_api_keys()
         if not self.api_keys:
             raise RuntimeError("No Gemini API key found. Set GEMINI_API_KEY1.")
-        self.models = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+        # Ordered by preference. Every entry must be a model the keys can
+        # actually reach - a dead model name burns the whole retry budget and
+        # the pipeline reports success with no score at all.
+        self.models = [
+            model
+            for model in (os.getenv("GEMINI_MODELS") or "gemini-3.5-flash-lite,gemini-3.5-flash").split(",")
+            if model.strip()
+        ] or ["gemini-3.5-flash-lite"]
         self.max_retries = 2
 
     @staticmethod
@@ -108,6 +115,13 @@ class GeminiAPICall:
                         return result
                     except (ServerError, ClientError, ValueError) as error:
                         last_error = error
+                        # A 400/404 means this model is unreachable for these
+                        # keys. Retrying it wastes the budget and hides the
+                        # next model's error, so move on immediately.
+                        status_code = getattr(getattr(error, "code", None), "value", None) or getattr(error, "code", None)
+                        if status_code in (400, 403, 404):
+                            print(f"[Gemini] model={model} key={key_index} unreachable ({status_code}), skipping")
+                            break
                         if attempt < self.max_retries:
                             time.sleep(attempt * 2)
         raise RuntimeError(f"Gemini analysis failed: {last_error}")

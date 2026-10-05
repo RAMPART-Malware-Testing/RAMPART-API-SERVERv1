@@ -6,13 +6,13 @@ from schemas.dashboard import ReportsHistoryParams
 router = APIRouter(prefix="/api/analy/v1/dashboard", tags=["Dashboard"])
 
 @router.post("/reports")
-async def get_reports_summary(body: ReportsHistoryParams):
+async def get_reports_summary_route(body: ReportsHistoryParams):
     return await reports_history_controller(body)
 
 @router.post("/summary")
-async def get_dashboard_summary(body: DashboardParams):
+async def get_dashboard_summary_route(body: DashboardParams):
     return await dashboard_summary_controller(body)
 
 @router.post("/recent-activities")
-async def get_recent_activities(body: DashboardParams):
+async def get_recent_activities_route(body: DashboardParams):
     return await recent_activities_controller(body)

@@ -7,7 +7,7 @@ from sqlalchemy import select, text, update
 
 from bgProcessing.celery_app import celery_app
 from bgProcessing.report_evidence import build_gemini_evidence
-from bgProcessing.task_utils import apply_gemini_assessment
+from bgProcessing.task_utils import apply_evidence_fallback, apply_gemini_assessment
 from bgProcessing.task_handlers import (
     calculate_cape_danger_score,
     calculate_mobsf_danger_score,
@@ -28,6 +28,7 @@ from cores.sync_pg_db import SyncSessionLocal
 from cores.redis import redis_client
 from calling.GeminiAPI import GeminiAPI
 from bgProcessing.notifications import notify_analysis_failed, notify_analysis_success
+from utils.file_type_detect import detect_from_virustotal, is_spoofed
 
 REPORTS_DIR = Path("reports")
 ACTIVE_STATUSES = ("dispatching", "queued", "processing")
@@ -229,11 +230,13 @@ def finalize_analysis_report(
             virustotal_score = calculate_threat_scoreVT(vt_report)
             signatures, malicious = virustotal_report_values(vt_report)
             threat_label = virustotal_threat_label(vt_report)
+            file_type_refinement = detect_from_virustotal(vt_report)
             del vt_report
         else:
             virustotal_score = None
             signatures, malicious = [], False
             threat_label = None
+            file_type_refinement = None
         if threat_label is None and signatures:
             threat_label = malware_family_from_signatures(signatures)
         scores = {
@@ -278,6 +281,14 @@ def finalize_analysis_report(
             db.add(report)
             db.flush()
 
+        # `file_type` on the report row is the client's claim; carry the
+        # verified category so the dashboard can group on content, not names.
+        if file_type_refinement is not None:
+            report.detected_type = file_type_refinement.category
+            report.file_type = report.file_type or file_type_refinement.label
+        elif rows[0].detected_type and not report.detected_type:
+            report.detected_type = rows[0].detected_type
+
         values = {
             "status": "success",
             "rid": report.rid,
@@ -286,6 +297,12 @@ def finalize_analysis_report(
         }
         if tool_states:
             values["tool_states"] = tool_states
+        if file_type_refinement is not None:
+            values["detected_type"] = file_type_refinement.category
+            values["detected_source"] = file_type_refinement.source
+            values["file_type_mismatch"] = is_spoofed(
+                rows[0].file_type, file_type_refinement
+            )
         if malicious:
             values.update(is_malicious=True, blocked_by="virustotal")
         result = db.execute(
@@ -490,6 +507,8 @@ def analyze_malware_task(
                 )
                 if assessment:
                     apply_gemini_assessment(report, assessment)
+                else:
+                    apply_evidence_fallback(report)
                 db.commit()
                 try:
                     notify_analysis_success(db, task_id)
@@ -755,7 +774,10 @@ def analyze_malware_task(
             tool_notes=tool_notes or None,
             tool_states=tool_states or None,
         )
-        apply_gemini_assessment(report, assessment)
+        if assessment:
+            apply_gemini_assessment(report, assessment)
+        else:
+            apply_evidence_fallback(report)
         db.commit()
         try:
             notify_analysis_success(db, task_id)

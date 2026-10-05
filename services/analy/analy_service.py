@@ -181,6 +181,9 @@ async def get_file_by_hash(
             Analysis.status,
             Analysis.file_path,
             Analysis.file_type,
+            Analysis.detected_type,
+            Analysis.detected_source,
+            Analysis.file_type_mismatch,
             Analysis.file_size,
             Analysis.file_hash,
             Analysis.file_name,
@@ -220,6 +223,9 @@ async def get_content_row_for_recovery(session: AsyncSession, file_hash: str) ->
             Analysis.status,
             Analysis.file_path,
             Analysis.file_type,
+            Analysis.detected_type,
+            Analysis.detected_source,
+            Analysis.file_type_mismatch,
             Analysis.file_size,
             Analysis.file_hash,
             Analysis.file_name,
@@ -279,6 +285,9 @@ async def attempt_attach_to_existing_analysis(
         file_size=existing.get("file_size") or file_size,
         privacy=privacy,
         md5=existing.get("md5"),
+        detected_type=existing.get("detected_type"),
+        detected_source=existing.get("detected_source"),
+        file_type_mismatch=bool(existing.get("file_type_mismatch")),
         tool_notes=existing.get("tool_notes"),
         tool_states=existing.get("tool_states"),
     )
@@ -331,6 +340,9 @@ async def attempt_gap_fill_redispatch(
         file_size=final_file_size,
         privacy=privacy,
         md5=existing_md5,
+        detected_type=existing.get("detected_type"),
+        detected_source=existing.get("detected_source"),
+        file_type_mismatch=bool(existing.get("file_type_mismatch")),
         tool_notes=json.dumps(carried_notes, ensure_ascii=False) if carried_notes else None,
         tool_states=existing.get("tool_states"),
     )
@@ -381,6 +393,9 @@ async def get_file_by_task_id(session: AsyncSession, task_id: str):
             Analysis.status,
             Analysis.file_path,
             Analysis.file_type,
+            Analysis.detected_type,
+            Analysis.detected_source,
+            Analysis.file_type_mismatch,
             Analysis.file_size,
             Analysis.file_hash,
             Analysis.file_name,
@@ -410,6 +425,9 @@ async def upsert_user_analysis(
     file_size: int,
     privacy: bool,
     md5: str,
+    detected_type: str | None = None,
+    detected_source: str | None = None,
+    file_type_mismatch: bool = False,
     rid: Any | None = None,
     task_id: str | None = None,
     tools: str | None = None,
@@ -450,9 +468,14 @@ async def upsert_user_analysis(
         analy.tools = tools
         analy.status = status
         analy.file_path = file_path
+        analy.file_name = file_name
         analy.file_type = file_type
         analy.file_size = file_size
         analy.md5 = md5
+        if detected_type is not None:
+            analy.detected_type = detected_type
+            analy.detected_source = detected_source
+            analy.file_type_mismatch = file_type_mismatch
         if tool_notes is not None:
             analy.tool_notes = tool_notes
         if tool_states is not None:
@@ -471,6 +494,9 @@ async def upsert_user_analysis(
         file_hash=file_hash,
         file_path=file_path,
         file_type=file_type,
+        detected_type=detected_type,
+        detected_source=detected_source,
+        file_type_mismatch=file_type_mismatch,
         file_size=file_size,
         privacy=privacy,
         md5=md5,
