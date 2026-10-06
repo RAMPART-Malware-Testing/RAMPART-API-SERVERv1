@@ -159,16 +159,6 @@ def build_gemini_evidence(
     mobsf_report_path: str | Path | None,
     cape_report_path: str | Path | None,
 ) -> dict:
-    """Evidence handed to Gemini (external LLM). Deliberately excludes
-    RampartAI: it's RAMPART's own in-house classifier, not a third-party
-    signal, and its output is stored directly on Reports.rampart_ai_score
-    without ever being surfaced to or referenced by the external model.
-
-    Every tool is optional here - VirusTotal, like MobSF and CAPE, can be
-    force-skipped after exhausting its error/rate-limit retry budget (see
-    bgProcessing/tasks.py::evaluate_tool_progress), so the pipeline must
-    still be able to synthesize *some* verdict from whatever subset of
-    tools actually produced evidence."""
     return {
         "schema_version": 1,
         "score_semantics": "All scores use 0=safe/no observed danger and 100=maximum observed danger.",

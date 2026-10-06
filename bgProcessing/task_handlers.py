@@ -399,7 +399,6 @@ def handle_mobsf(
     }
 
 def calculate_rampart_ai_score(report: dict) -> float | None:
-    """0-100 danger score derived from RampartAI's malware_probability (0-1)."""
     probability = report.get("malware_probability")
     if probability is None:
         return None
@@ -415,14 +414,6 @@ def handle_rampart_ai(
     client: RampartAICall | None = None,
     report_path: str | Path | None = None,
 ) -> dict:
-    """Classifies an already-produced MobSF report with the RampartAI model.
-
-    RampartAI only ever consumes a MobSF report file - never the raw
-    uploaded binary and never called on its own. If MobSF was skipped
-    (unsupported file type) or failed, this handler is simply never
-    invoked by the caller, and `rampart_ai_score` stays NULL - this
-    mirrors how the other optional tools degrade gracefully.
-    """
     client = client or RampartAICall()
     report_path = Path(report_path or Path("reports") / f"rampartai-{md5}.json")
     result = client.predict(mobsf_report_path)

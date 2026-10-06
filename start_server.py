@@ -5,7 +5,6 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 from starlette.middleware.sessions import SessionMiddleware
 from cores.Schema.schema_class import init_db
 from dotenv import load_dotenv
@@ -64,13 +63,10 @@ from routers.auth import router as auth_router
 from routers.fcm import router as fcm_router
 from routers.profile import router as profile_router
 from routers.analysis import router as analy_router
-from routers.test_route import router as test_router
-from utils.test_mode import test_mode_enabled
 from routers.dashboar_route import router as dashboard_route
 from routers.admin import router as admin_router
 
 app.include_router(analy_router)
-app.include_router(test_router, include_in_schema=test_mode_enabled())
 app.include_router(auth_router)
 app.include_router(fcm_router)
 app.include_router(profile_router)
@@ -97,10 +93,6 @@ async def validation_exception_handler(request, exc):
 async def root():
     return { "success": True, "message": "RAMPART-API is running" }
 
-@app.get('/scan')
-async def scan_page():
-    return FileResponse('scan.html')
-
 RELOAD_EXCLUDES = [
     "temps_files/*",
     "reports/*",
@@ -115,6 +107,6 @@ if __name__=="__main__":
         "start_server:app",
         host="0.0.0.0",
         port=8006,
-        reload=True,
+        reload=os.getenv("UVICORN_RELOAD", "FALSE").upper() == "TRUE",
         reload_excludes=RELOAD_EXCLUDES,
     )

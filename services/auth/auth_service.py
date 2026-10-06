@@ -33,15 +33,6 @@ from services.otp_service import OTPService, MAX_OTP_ATTEMPTS
 DEVICE_TOKEN_TTL_MINUTES = 60 * 24 * 7
 
 def _issue_device_token(uid, email: str) -> str:
-    """A device token is bound to BOTH the account uid and its email at
-    issuance time (see login_confirm/oauth_callback_controller - both are
-    the only two places that mint one). login()'s bypass check requires
-    both to match the account being logged into, so a device token minted
-    for a@a.com can never skip OTP for a login attempt as b@b.com, and a
-    device token can never be reused for any account other than the one
-    it was issued for even if somehow forged with a different email in
-    isolation - `sub` (uid) is checked independently, not derived from the
-    email claim."""
     return create_token(
         subject=str(uid),
         token_type="device",
@@ -50,8 +41,6 @@ def _issue_device_token(uid, email: str) -> str:
     )
 
 async def _record_login_history(session, *, uid, provider: str, ip, user_agent, status: str) -> None:
-    """Best-effort audit trail row. Never raises - a logging failure must
-    never block an otherwise-successful login."""
     try:
         session.add(
             LoginHistory(
@@ -62,7 +51,7 @@ async def _record_login_history(session, *, uid, provider: str, ip, user_agent, 
                 status=status,
             )
         )
-    except Exception as exc:  # pragma: no cover - defensive
+    except Exception as exc:
         print(f"[login_history] failed to queue row for {uid}: {exc}")
 
 def _otp_error_response(outcome: str, detail: int | None):
@@ -87,7 +76,6 @@ def _otp_error_response(outcome: str, detail: int | None):
     )
 
 class AuthService:
-
     @staticmethod
     async def login(body, user_agent, ip, deviceToken):
         normalized_email = normalize_email(body.email)

@@ -10,7 +10,7 @@
 - Docker network `rampart` must exist before `docker-compose up -d`.
 - MobSF container runs on port **8001** (host) → 8000 (container).
 - RampartAI container runs on port **8081** (host) → 8000 (container).
-- Default root credentials: `rampart` / `rampart` (from `.env`).
+- There is no root account in `.env`. The first `master` is created once from the web app's first-run page (`POST /api/auth/setup/complete`), and only while `users` is empty.
 
 ## Database & Redis
 
@@ -23,10 +23,10 @@
 ## Architecture
 
 - **Layers**: `routers/` → `controller/` → `services/` → `cores/` (DB/Redis). Controllers are thin; business logic lives in `services/`.
-- **Routers**: `auth.py` (prefix `/api/auth`), `analysis.py` (prefix `/api/analy/v1`), `admin.py` (prefix `/api/admin`), `profile.py` (prefix `/api/profile`), `dashboar_route.py` (note filename typo, prefix `/api/analy/v1/dashboard`).
+- **Routers**: `auth.py` (prefix `/api/auth`), `analysis.py` (prefix `/api/analy/v1`), `admin.py` (prefix `/api/admin`), `profile.py` (prefix `/api/profile`), `fcm.py` (prefix `/api/fcm`), `dashboar_route.py` (note filename typo, prefix `/api/analy/v1/dashboard`).
 - **Celery tasks**: `bgProcessing/tasks.py` — single task `analyze_malware_task` orchestrates VirusTotal → MobSF → CAPE → RampartAI → Gemini pipeline with per-tool retry-then-skip. Imports from `calling/` for each external service.
-- **Auth**: dual-path — Google/GitHub OAuth (`POST /api/auth/{provider}/exchange`, `services/oauth/oauth_service.py`) and local email+password+OTP (`services/auth/auth_service.py`) both resolve to the same `users` row. The web app runs the provider flow itself and posts the credential here: a Google `id_token` verified against Google's JWKS (`cores/oauth.py`, audience = `GOOGLE_CLIENT_ID`, RS256 only) or a GitHub `access_token` resolved via `api.github.com/user`. **No provider client secret lives in this repo.** `User.password` is nullable (NULL for OAuth-only accounts). Accounts with any linked `oauth_accounts` row always require OTP on password login, regardless of device-token state.
-- **Device token**: minted only by `login_confirm` and the OAuth exchange, embeds `{sub: uid, email}`. `login()`'s bypass check requires both to match the account being logged into — never trust a device token by validity alone.
+- **Auth**: dual-path — Google/GitHub OAuth (`POST /api/auth/{provider}/bridge`, `services/oauth/oauth_service.py`) and local email+password+OTP (`services/auth/auth_service.py`) both resolve to the same `users` row. The web app runs the entire provider flow itself (Google ID token against Google's JWKS, GitHub access token against `api.github.com/user`), then signs a short-lived HS256 **bridge token** with `OAUTH_BRIDGE_SECRET` and posts it here. `cores/bridge.py` verifies only that signature, the expiry, `type=oauth_bridge` and that the token's `provider` matches the URL — this repo never sees a provider token or client secret, and both sides must share the same `OAUTH_BRIDGE_SECRET`. `User.password` is nullable (NULL for OAuth-only accounts). Accounts with any linked `oauth_accounts` row always require OTP on password login, regardless of device-token state.
+- **Device token**: minted only by `login_confirm` and the OAuth bridge, embeds `{sub: uid, email}`. `login()`'s bypass check requires both to match the account being logged into — never trust a device token by validity alone.
 - **OTP**: 6-digit codes in Redis under `otp:{action}:{token}`, 5-minute TTL. Delivery via Gmail SMTP (`GMAIL_USERNAME`/`GMAIL_PASSWORD`) or generic `SMTP_*`, falls back to console print if neither is set. Wrong-attempt lockout is keyed by `otp_lockout:{action}:{identifier}` (identifier = email for register, uid for login/reset-passwd) — NOT by token, so retrying with a fresh token cannot bypass an active lockout. Max 5 wrong attempts before lockout.
 - **RBAC**: three-tier `master`/`admin`/`user` on `User.role`. `master` is granted by exactly one path — the first-run setup endpoint (`services/auth/first_run_setup.py`, `POST /api/auth/setup/complete`), which works only while `users` is empty. Every authorization decision funnels through `services/admin/authz.py::ensure_can_manage_target`.
 - **First-run setup**: `GET /api/auth/setup/status` returns only `{needs_setup: bool}`. `POST /api/auth/setup/complete` is unauthenticated — there is no account to authenticate as until it succeeds — and is rate-limited per client IP and re-checks "is `users` empty" **inside** a `pg_advisory_xact_lock` so exactly one concurrent caller can win. OAuth logins always produce `role="user"` — no env var can promote an account.
@@ -41,13 +41,12 @@
 
 ## Testing
 
-Automated test suites are not part of this repository. Verify changes against a running instance instead (API on port 8006, web on port 3000).
+Automated test suites and the `/test` console are not part of this repository. Verify changes against a running instance instead (API on port 8006, web on port 3000).
 
 ## Known Typos / Gotchas
 
 - Filename: `dashboar_route.py` (missing 'd').
 - `auth_service.py` variable `deiveToken` (kept for backend-compat, do not silently rename without checking every caller on both repos).
-- `.env` has duplicate key `VIRUSTOTAL_KEY2` defined twice; second overwrites first.
 - File size limit: 1 GB max, 32 MB threshold for VirusTotal hash-only analysis.
 
 ## Style

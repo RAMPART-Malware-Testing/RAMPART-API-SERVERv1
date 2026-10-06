@@ -1,25 +1,3 @@
-"""Profile read/update logic: username changes and avatar picture uploads.
-
-A brand-new OAuth user always has `avatar_url = NULL` (see
-`services/oauth/oauth_service.find_or_create_user`). This module is the only
-place that ever sets it to a non-NULL value, once the user explicitly
-uploads a picture via `POST /api/profile/avatar`.
-
-Avatar uploads are treated as untrusted input end-to-end (OWASP A03/A04 -
-Injection / Unrestricted File Upload):
-  - The client-supplied `Content-Type` is only a cheap pre-filter; the real
-    gate is actually decoding the bytes with Pillow and re-encoding them
-    from scratch, which rejects anything that isn't a genuine, bounded-size
-    raster image (defeats mislabeled files, polyglots, and disguised
-    scripts such as HTML/SVG-with-script or PHP saved with a `.png` name).
-  - Re-encoding also strips EXIF/metadata and any trailing bytes a polyglot
-    file might smuggle after valid image data.
-  - Stored filenames are an unguessable random token, not the user's own
-    uid (OWASP A01 - Broken Access Control): the old `{uid}.ext` naming let
-    anyone who learned/guessed a uid fetch that user's picture directly,
-    since the download route requires no authentication.
-"""
-
 import io
 import secrets
 import uuid
@@ -132,23 +110,10 @@ async def unread_notification_counts(
     return {"reports": int(finished_reports), "public": int(new_public_files)}
 
 def _assert_within_size_cap(total_size: int) -> None:
-    """Raises 413 the moment the running total crosses the size cap."""
     if total_size > MAX_AVATAR_SIZE:
         raise HTTPException(status_code=413, detail="Avatar image exceeds the 5MB limit.")
 
 def _decode_and_normalize_image(raw: bytes) -> tuple[bytes, str]:
-    """Decodes `raw` as a real raster image and re-encodes it from scratch.
-
-    This is the actual security boundary for the upload (OWASP A04 -
-    Unrestricted File Upload): the client's `Content-Type` header and
-    filename are never trusted. Only bytes that Pillow can successfully
-    decode as PNG/JPEG/WEBP - and that fit within the configured pixel-count
-    ceiling - are accepted. Re-encoding (rather than saving the original
-    bytes) also drops EXIF metadata and discards any extra bytes appended
-    after the image data (a common polyglot-file trick).
-
-    Returns (encoded_bytes, extension).
-    """
     try:
         with Image.open(io.BytesIO(raw)) as probe:
             probe.verify()
@@ -200,24 +165,9 @@ def _decode_and_normalize_image(raw: bytes) -> tuple[bytes, str]:
         )
 
 def _generate_avatar_token() -> str:
-    """Unguessable filename stem, independent of the user's uid.
-
-    The download route (`GET /api/profile/avatar/{file_name}`) has no
-    auth check by design (avatars are meant to be publicly viewable once
-    set), so the filename itself is the only thing standing between "you
-    know the URL" and "you can see anyone's picture". A uid-based name is
-    disclosed everywhere the profile is rendered/returned; a random token
-    is not guessable from anything else the API exposes.
-    """
     return secrets.token_hex(AVATAR_TOKEN_BYTES)
 
 def _delete_stored_avatar(avatar_url: str | None) -> None:
-    """Best-effort removal of a previously stored avatar file.
-
-    Resolves the filename the same way the download route does (basename
-    only, must resolve inside AVATAR_DIR) so a corrupted/legacy
-    `avatar_url` value can never be used to delete an arbitrary path.
-    """
     if not avatar_url:
         return
     file_name = avatar_url.rsplit("/", 1)[-1]

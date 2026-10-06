@@ -35,8 +35,6 @@ class RefreshTokenParame(BaseModel):
     refresh_token: str
 
 class BridgeTokenParame(BaseModel):
-    """Short-lived HS256 token the web app signs with OAUTH_BRIDGE_SECRET once
-    it has itself verified the provider. See cores/bridge.py."""
     bridge_token: str
 
 class FirstRunSetupParame(BaseModel):

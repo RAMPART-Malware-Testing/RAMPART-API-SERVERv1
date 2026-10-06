@@ -1,17 +1,3 @@
-"""Business logic for Google / GitHub OAuth login.
-
-The web application runs the provider OAuth flow end to end: it exchanges the
-authorization code, verifies Google's ID token against Google's signing keys,
-asks GitHub who the user is, and only then states the outcome to this service
-as a bridge token (see cores/bridge.py). What arrives here is therefore an
-already-verified claim, normalised to a small `OAuthProfile`, resolved to a
-`users` row by `find_or_create_user`, and answered with the same kind of
-`access` JWT the rest of the API already expects.
-
-This service stores user records and issues its own tokens. It never sees an
-OAuth client secret, a redirect URI or a provider access token.
-"""
-
 import re
 import secrets
 from dataclasses import dataclass
@@ -36,15 +22,9 @@ class OAuthProfile:
     display_name: str | None
 
 class OAuthError(Exception):
-    """Raised when the provider callback can't be trusted (e.g. no verified e-mail)."""
+    pass
 
 def profile_from_bridge_payload(payload: dict) -> OAuthProfile:
-    """Normalise verified bridge-token claims into an `OAuthProfile`.
-
-    `cores.bridge.verify_bridge_token` has already checked the signature, the
-    expiry, the token type and the presence of `sub`/`email` by the time a
-    payload gets here, so this only shapes it.
-    """
     return OAuthProfile(
         provider=payload["provider"],
         provider_uid=str(payload["sub"]),
@@ -65,20 +45,6 @@ async def _generate_unique_username(session: AsyncSession, seed: str) -> str:
         candidate = f"{base}-{secrets.token_hex(3)}"[:50]
 
 async def find_or_create_user(session: AsyncSession, profile: OAuthProfile) -> User:
-    """Resolve a provider profile to a durable `users` row.
-
-    - Same (provider, provider_uid) seen again -> same uid, every time.
-    - New provider but an existing verified e-mail -> link the new provider
-      to that existing account instead of creating a duplicate user.
-    - Otherwise -> brand-new account, avatar_url stays NULL until the user
-      explicitly uploads a profile picture.
-
-    Accounts created here always get role="user". `master` is granted by
-    exactly one path - the first-run setup endpoint - so that a provider
-    login can never produce an administrator, and so that "setup happens
-    once" stays true regardless of who signs in first.
-    """
-
     linked = await session.execute(
         select(OAuthAccount).where(
             OAuthAccount.provider == profile.provider,

@@ -9,14 +9,10 @@ from utils.mailer import send_email
 PUSH_ROUTE_RESULT = "/analysis-result"
 PUSH_ROUTE_PROGRESS = "/analysis-progress"
 
-# FCM answers 404 for these once a token can never deliver again (app
-# uninstalled, data cleared, project unlinked). Anything else is a transient
-# failure worth retrying on the next analysis, so the token has to stay.
 DEAD_TOKEN_ERRORS = {"UNREGISTERED", "INVALID_ARGUMENT", "SENDER_ID_MISMATCH"}
 
 
 def _first_dead_token_error(result: dict):
-    """FCM reports per-token failures in an array next to the HTTP 200."""
     detail = (result.get("fcm_response") or {}).get("error", {})
     for item in detail.get("details") or []:
         err_type = (item.get("errorCode") or item.get("@type") or "").rsplit("/", 1)[-1]
@@ -28,8 +24,6 @@ def _first_dead_token_error(result: dict):
 async def _push_to_user(db, user, title: str, body: str, route: str, task_id: str) -> None:
     token = user.fcm_token
     if not token:
-        # Silently skipping here is what makes "I saw no notification" impossible
-        # to diagnose from the outside - say which user had no device attached.
         print(f"[Push] Skipped {task_id}: uid={user.uid} has no registered device")
         return
 
@@ -42,9 +36,6 @@ async def _push_to_user(db, user, title: str, body: str, route: str, task_id: st
             data={"route": route, "task_id": task_id},
         )
     except Exception as exc:
-        # A dead service-account key surfaces as a bare "invalid_grant: Invalid
-        # JWT Signature" from google-auth, which reads like a code bug rather
-        # than "regenerate the key in Firebase console".
         raise RuntimeError(
             f"ส่ง FCM ไม่ได้ - ตรวจ service account ที่ FCM_SERVICE_ACCOUNT_PATH "
             f"ว่ายังไม่ถูก revoke ({exc})"
@@ -63,15 +54,6 @@ async def _push_to_user(db, user, title: str, body: str, route: str, task_id: st
 
 
 async def _push_analysis_result(db, task_id: str, succeeded: bool) -> None:
-    """Tell the user's phone that the analysis finished.
-
-    The app already knows this payload shape: `data.route` decides which screen
-    opens and `data.task_id` tells it which analysis to open there, so a tap
-    lands on the result rather than on the dashboard.
-
-    The wording is built here rather than at the call site so callers do not
-    have to have the report row in scope just to name it.
-    """
     row = (
         db.query(Analysis, Reports, User)
         .join(User, Analysis.uid == User.uid)
@@ -102,7 +84,6 @@ async def _push_analysis_result(db, task_id: str, succeeded: bool) -> None:
 
 
 def push_analysis_result(db, task_id: str, succeeded: bool) -> None:
-    """Sync entry point for the Celery worker, which has no event loop."""
     asyncio.run(_push_analysis_result(db, task_id, succeeded=succeeded))
 
 
@@ -128,8 +109,6 @@ def notify_analysis_success(db, task_id: str) -> None:
     score_text = f"{score}/100" if score is not None else "ไม่ระบุ"
     malware_text = "ตรวจพบความเสี่ยง" if analysis.is_malicious else "ไม่พบความเสี่ยง"
 
-    # อีเมลแจ้งผลอย่างเดียว ไม่มีปุ่ม/ลิงก์ให้กดดูรายละเอียด (ผู้ใช้อัปโหลดจาก
-    # แอปอยู่แล้วและเปิดดูผลในแอปได้) จึงไม่ต้องประกอบ URL ของหน้าเว็บที่นี่
     text_body = (
         f"การวิเคราะห์ไฟล์ '{file_name}' เสร็จสมบูรณ์แล้ว\n\n"
         f"ระดับความเสี่ยง: {risk_text}\n"

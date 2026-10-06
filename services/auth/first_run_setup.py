@@ -1,29 +1,3 @@
-"""First-run setup: create the very first `master` account from the web UI.
-
-This module replaces the old `ROOT_USERNAME`/`ROOT_PASSWORD`/`ROOT_EMAIL`
-`.env` bootstrap. Those values were a master account smuggled in through
-configuration, which meant the master credential had to live in a file on
-disk and could be read by anything that could read `.env`.
-
-The endpoint that replaces them is unauthenticated - there is nobody to
-authenticate *as* until it succeeds. Three things hold the line:
-
-1. **A fixed-window rate limit per client IP**, so a stuck or scripted client
-   cannot hammer the endpoint.
-2. **A `pg_advisory_xact_lock`** held for the whole transaction, with the
-   "is the users table empty?" re-check performed *inside* that lock. Two
-   concurrent callers therefore serialise, and the second one sees a
-   non-empty table and is rejected. This is the guarantee that setup
-   happens exactly once - a plain read-then-write would let both requests
-   through.
-3. **No information leak from `GET /setup/status`** - it returns one boolean
-   and nothing else.
-
-`master` is granted from here and nowhere else: OAuth logins always
-produce `role="user"` (see `services/oauth/oauth_service.py`), and no other
-API accepts a role.
-"""
-
 import re
 
 from sqlalchemy import func, select, text
@@ -43,8 +17,6 @@ USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]{3,50}$")
 USERNAME_MAX_LENGTH = 50
 EMAIL_MAX_LENGTH = 255
 
-# Fixed across restarts on purpose: every caller contends for the same lock,
-# which is the point. Derived from "rampart:first-run-setup".
 _SETUP_ADVISORY_LOCK_KEY = 6010720240713
 
 _ATTEMPT_LIMIT = 10
@@ -52,10 +24,6 @@ _ATTEMPT_WINDOW_SECONDS = 10 * 60
 
 
 async def get_setup_status() -> dict:
-    """Tells the frontend whether to show the setup page. Returns a single
-    boolean - never a count, never a username, never anything else that would
-    help someone enumerate accounts on an unauthenticated endpoint.
-    """
     async with SessionLocal() as session:
         total = await session.execute(select(func.count()).select_from(User))
         user_count = total.scalar_one()
@@ -73,7 +41,6 @@ async def _users_table_is_empty(session: AsyncSession) -> bool:
 
 
 def _validate(body) -> dict | None:
-    """Returns an error response on bad input, None when everything checks out."""
     username = (body.username or "").strip()
     raw_email = (body.email or "").strip()
     password = body.password or ""
@@ -104,11 +71,6 @@ def _validate(body) -> dict | None:
 
 
 async def complete_first_run_setup(body, client_ip: str) -> dict:
-    """Creates the first master account. Refuses once any user exists.
-
-    `client_ip` comes from the caller and is never trusted for authorization
-    - it is only a rate-limit key.
-    """
     ip = client_ip or "unknown"
 
     if is_rate_limited("first-run-setup", ip, _ATTEMPT_LIMIT, _ATTEMPT_WINDOW_SECONDS):
@@ -125,21 +87,13 @@ async def complete_first_run_setup(body, client_ip: str) -> dict:
     email = normalize_email(body.email.strip())
 
     try:
-        # An explicit session, not `async with`: AsyncSession's context
-        # manager closes on exit but does NOT commit - every other service in
-        # this codebase commits by hand for the same reason.
         session = SessionLocal()
         try:
-            # Serialises every concurrent caller on one advisory lock, held
-            # until the commit or rollback below.
             await session.execute(
                 text("SELECT pg_advisory_xact_lock(:key)"),
                 {"key": _SETUP_ADVISORY_LOCK_KEY},
             )
 
-            # Must be re-read here, inside the lock - a check done before
-            # acquiring it would let two simultaneous requests both see an
-            # empty table and both create a master.
             if not await _users_table_is_empty(session):
                 await session.rollback()
                 return error(
@@ -171,8 +125,6 @@ async def complete_first_run_setup(body, client_ip: str) -> dict:
                 role="master",
                 status="active",
                 is_banned=False,
-                # The credential was chosen by the operator on this very
-                # request, so there is nothing left to set up.
                 must_setup=False,
             )
             session.add(user)
@@ -190,8 +142,6 @@ async def complete_first_run_setup(body, client_ip: str) -> dict:
         finally:
             await session.close()
     except IntegrityError as exc:
-        # The unique indexes on username/email are the last line of defence
-        # if a row lands between the lock being taken and this insert.
         print(f"[FirstRunSetup] IntegrityError during first-run setup: {exc}")
         return error(
             AuthStatus.SETUP_ALREADY_COMPLETED,

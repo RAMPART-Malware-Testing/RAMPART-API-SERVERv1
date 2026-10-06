@@ -1,20 +1,3 @@
-"""HTTP-facing wrappers for the admin panel.
-
-Every function here follows the same gate sequence, in order:
-
-    1. get_current_user(session, token)   -- fresh-from-DB, never trusts JWT claims
-    2. ensure_not_banned(actor)           -- a banned admin/master loses access too
-    3. ensure_role(actor, ADMIN_ROLES)    -- must be admin or master
-    4. (mutating/privileged-read actions) service call, which itself also
-       runs ensure_can_manage_target as defense in depth, then writes an
-       audit_logs row atomically with the mutation.
-
-AuthError is caught once, here, and translated into this project's existing
-{"success": False, "status": ..., "message": ...} response shape via
-utils/response.py - controllers never construct that shape by hand for an
-authz failure, so every admin endpoint reports errors identically.
-"""
-
 from __future__ import annotations
 
 from fastapi import HTTPException
@@ -55,8 +38,6 @@ def _auth_error_response(exc: AuthError):
     return error(exc.code, exc.message)
 
 async def _resolve_admin_actor(session, token: str):
-    """Shared gate 1-3. Raises AuthError on any failure - callers must be
-    inside a try/except AuthError block."""
     actor = await get_current_user(session, token)
     ensure_not_banned(actor)
     ensure_role(actor, ADMIN_ROLES)

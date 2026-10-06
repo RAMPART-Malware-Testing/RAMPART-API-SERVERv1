@@ -138,9 +138,9 @@ await apiFetch("/api/profile", jsonBody({
 ### OAuth
 
 - Provider: `google` หรือ `github`
-- OAuth flow ทั้งหมดเกิดที่ Next.js (`/api/auth/{provider}/login` → provider → `/api/auth/{provider}/callback`) แล้วส่ง credential ที่ได้กลับมาที่นี่
-- Google ส่ง `id_token` (ยืนยันด้วย JWKS ของ Google + `GOOGLE_CLIENT_ID`) — backend ไม่ต้องมี client secret ของ provider เลย
-- GitHub ส่ง `access_token` (ถาม `api.github.com/user` ว่า token นี้เป็นใคร)
+- OAuth flow ทั้งหมดเกิดที่ Next.js (`/api/auth/{provider}/login` → provider → `/api/auth/{provider}/callback`) แล้วเว็บแอปยืนยัน credential ที่ได้เอง (Google `id_token` ด้วย JWKS, GitHub `access_token` ด้วย `api.github.com/user`)
+- เมื่อยืนยันแล้ว เว็บแอปเซ็น bridge token (HS256, secret = `OAUTH_BRIDGE_SECRET` ต้องตรงกันสองฝั่ง) ส่งมาที่ `POST /api/auth/{provider}/bridge`
+- Backend ไม่มี client secret ของ provider และไม่เคยเห็น provider token — ตรวจแค่ลายเซ็นและอายุของ bridge token
 - คืน access token ชนิดเดียวกับ password login
 - OAuth-only account ไม่มีรหัสผ่านใน DB
 - หาก account ผูก OAuth แล้ว การ password login ต้องใช้ OTP เสมอ แม้มี device token
@@ -226,7 +226,6 @@ Error envelope:
 | HTTP | ความหมาย |
 |---:|---|
 | `200` | สำเร็จ หรือ business error ที่ controller คืนเป็น `success: false` |
-| `201` | สร้าง test user ใหม่ |
 | `302` | OAuth redirect |
 | `400` | ข้อมูล/path ไม่ถูกต้อง |
 | `401` | token ไม่ถูกต้อง หมดอายุ หรือไม่มีสิทธิ์เข้าถึง resource |
@@ -262,7 +261,6 @@ Error envelope:
 | Method | Path | Auth | รายละเอียด |
 |---|---|---|---|
 | `GET` | `/` | ไม่ | health check |
-| `GET` | `/scan` | ไม่ | คืนไฟล์ `scan.html` |
 | `GET` | `/docs` | ไม่ | Swagger UI ที่ FastAPI สร้าง |
 | `GET` | `/redoc` | ไม่ | ReDoc ที่ FastAPI สร้าง |
 | `GET` | `/openapi.json` | ไม่ | OpenAPI schema |
@@ -278,7 +276,7 @@ Error envelope:
 | `POST` | `/api/auth/reset-passwd` | ไม่ | ขอ OTP หรือเปลี่ยนรหัสผ่านด้วย access token |
 | `POST` | `/api/auth/reset-passwd/confirm` | reset token | ยืนยัน OTP รีเซ็ตรหัสผ่าน |
 | `POST` | `/api/auth/refresh` | refresh token | ออก access/refresh token ใหม่ |
-| `POST` | `/api/auth/{provider}/exchange` | ไม่ | ยืนยัน credential จาก OAuth ที่เว็บแอปทำไว้ |
+| `POST` | `/api/auth/{provider}/bridge` | ไม่ | แลก bridge token จากเว็บแอปเป็น session ของระบบ |
 
 ### Profile
 
@@ -345,18 +343,6 @@ Error envelope:
 | `POST` | `/api/admin/tasks/cancel` | cancel task |
 | `POST` | `/api/admin/rate-limits` | ดู OTP/profile rate limits |
 | `POST` | `/api/admin/rate-limits/clear` | ล้าง rate-limit key |
-
-### Test mode
-
-ใช้ได้เมื่อ environment เปิด `TEST_MODE=TRUE` เท่านั้น เป็นเครื่องมือทดสอบ ห้ามใช้เป็น auth ของ production
-
-| Method | Path | รายละเอียด |
-|---|---|---|
-| `GET` | `/test` | test console HTML |
-| `GET` | `/test/api/status` | สถานะ test mode/DB/Redis/user |
-| `POST` | `/test/api/user` | สร้างหรือ reactivate test user |
-| `POST` | `/test/api/token` | สร้าง test access/upload token |
-| `GET` | `/test/api/analysis/{task_id}` | ดู diagnostics ของ task |
 
 ---
 
@@ -588,14 +574,28 @@ Endpoint นี้มีสองโหมด
 
 ควรแทน refresh token เดิมทุกครั้งที่ refresh สำเร็จ
 
-## 5.8 `POST /api/auth/{provider}/exchange`
+## 5.8 `POST /api/auth/{provider}/bridge`
+
+เว็บแอปเป็นเจ้าของ OAuth flow ทั้งหมด แล้วส่ง bridge token มาแลก session
+`provider` ใน path ต้องเป็น `google` หรือ `github` และต้องตรงกับ claim `provider` ใน token
 
 ตัวอย่าง:
 
 ```text
-POST /api/auth/google/exchange   {"id_token": "<google id token>"}
-POST /api/auth/github/exchange  {"access_token": "<github access token>"}
+POST /api/auth/google/bridge   {"bridge_token": "<HS256 jwt ที่เว็บแอปเซ็น>"}
 ```
+
+Bridge token เป็น JWT อัลกอริทึม HS256 เซ็นด้วย `OAUTH_BRIDGE_SECRET` (ต้องเป็นค่าเดียวกันทั้งสองฝั่ง) และต้องมี claim:
+
+| Claim | บังคับ | ความหมาย |
+|---|---|---|
+| `type` | ใช่ | ต้องเป็น `oauth_bridge` |
+| `provider` | ใช่ | `google` หรือ `github` |
+| `sub` | ใช่ | provider user id |
+| `email` | ใช่ | อีเมลจาก provider |
+| `exp` | ใช่ | ต้องมีและยังไม่หมดอายุ — เว็บแอปเป็นผู้ออกที่ 120 วินาที |
+| `email_verified` | ไม่ | ใช้ตัดสินการ auto-link บัญชีเดิม |
+| `display_name` | ไม่ | ชื่อที่ใช้ตั้ง username เริ่มต้น |
 
 สำเร็จ:
 
@@ -608,9 +608,9 @@ POST /api/auth/github/exchange  {"access_token": "<github access token>"}
 หรือ `OAUTH_ACCOUNT_LINKED` เมื่อผูกกับบัญชีเดิมไม่ได้
 
 - Provider อื่น: `404 {"detail":"Unsupported OAuth provider"}`
-- ยังไม่ตั้ง `GOOGLE_CLIENT_ID`: `503 {"detail":"..."}`
+- ยังไม่ตั้ง `OAUTH_BRIDGE_SECRET`: คืน `OAUTH_PROVIDER_ERROR` พร้อมข้อความบอกให้ตั้งค่า
 
-Backend ไม่เก็บ client secret ของ provider ใด ๆ — Google ยืนยันจาก JWKS สาธารณะ, GitHub ถาม provider โดยตรง
+Backend ไม่เก็บ client secret ของ provider ใด ๆ และไม่เคยเห็น provider token — เว็บแอปยืนยัน credential กับ provider เอง (Google `id_token` ด้วย JWKS, GitHub `access_token` ด้วย `api.github.com/user`) แล้วจึงเซ็น bridge token
 
 ---
 
@@ -2202,116 +2202,6 @@ Health response cache 15 วินาที
 
 ---
 
-## 10. Test Mode API
-
-## 10.1 `GET /test`
-
-คืน test console HTML
-
-## 10.2 `GET /test/api/status`
-
-```json
-{
-  "test_mode": true,
-  "database": true,
-  "redis": true,
-  "user": "active"
-}
-```
-
-`user`: `missing`, `active`, `inactive`, `conflicting`
-
-## 10.3 `POST /test/api/user`
-
-ไม่มี body
-
-สร้างใหม่ได้ HTTP `201`:
-
-```json
-{
-  "state": "created",
-  "user": {
-    "uid": "<uuid>",
-    "username": "<configured-test-username>",
-    "email": "<configured-test-email>",
-    "role": "test",
-    "status": "active"
-  }
-}
-```
-
-ถ้ามีอยู่แล้วหรือ reactivate คืน HTTP `200` ด้วย `state: existing` หรือ `reactivated`
-
-## 10.4 `POST /test/api/token`
-
-ต้องสร้าง test user ก่อน
-
-```json
-{
-  "access_token": "<access-jwt>",
-  "upload_token": "<upload-jwt>",
-  "token_type": "bearer",
-  "expires_in": 900
-}
-```
-
-Access token ของ test mode มีอายุ 60 นาที ส่วน upload token มีอายุ 900 วินาที
-
-## 10.5 `GET /test/api/analysis/{task_id}`
-
-```json
-{
-  "task_id": "<task-uuid>",
-  "database": {
-    "status": "success",
-    "tools": "virustotal,mobsf,cape,gemini",
-    "md5": "<md5>",
-    "file_name": "sample.apk",
-    "file_type": "apk",
-    "file_size": 123456,
-    "file_hash": "<sha256>",
-    "rid": "<uuid>",
-    "is_malicious": false,
-    "blocked_by": null,
-    "created_at": "2026-09-24T10:30:00+00:00",
-    "scores": {
-      "virustotal": 0,
-      "mobsf": 65,
-      "cape": 78.5,
-      "gemini": 82.3,
-      "rampart_ai": 85
-    },
-    "assessment": {
-      "risk_level": "High",
-      "summary": "...",
-      "recommendation": "...",
-      "verdict": "...",
-      "indicators": []
-    }
-  },
-  "progress": {},
-  "reports": {
-    "virustotal": {
-      "exists": true,
-      "path": "reports/virustotal-<md5>.json",
-      "size": 1234
-    },
-    "mobsf": {
-      "exists": true,
-      "path": "reports/mobsf-<md5>.json",
-      "size": 1234
-    },
-    "cape": {
-      "exists": false,
-      "path": "reports/cape-<md5>.json",
-      "size": null
-    }
-  }
-}
-```
-
----
-
 ## 11. Analysis lifecycle สำหรับ frontend
 
 ### ลำดับสถานะ
@@ -2614,7 +2504,6 @@ function extractApiError(body: unknown): string {
 15. ไม่มี idempotency key แยกต่างหาก แต่ dedup ด้วย SHA-256 ทำให้การอัปโหลดเนื้อหาเดิมใช้ task เดิม
 16. ไม่มี websocket สำหรับ progress; ใช้ polling
 17. OAuth callback ใช้ query token; ควรแทนที่ session ฝั่ง frontend แล้วลบ token ออกจาก URL ตาม security policy ของแอป
-18. ห้ามเปิด test mode ใน production
 
 ---
 
@@ -2635,4 +2524,4 @@ if (status === "queued" || status === "processing" || status === "dispatching") 
 }
 ```
 
-เอกสารนี้ครอบคลุม route ที่ประกาศใน `start_server.py` และ `routers/*.py` รวม 60 method/path declarations รวม route ระบบและ test mode โดย response ที่ไม่มี `response_model` อาจเปลี่ยน field เพิ่มภายหลังได้ จึงควรใช้ optional parsing และตรวจ `success` ทุกครั้ง
+เอกสารนี้ครอบคลุม route ที่ประกาศใน `start_server.py` และ `routers/*.py` รวม 68 method/path declarations โดย response ที่ไม่มี `response_model` อาจเปลี่ยน field เพิ่มภายหลังได้ จึงควรใช้ optional parsing และตรวจ `success` ทุกครั้ง

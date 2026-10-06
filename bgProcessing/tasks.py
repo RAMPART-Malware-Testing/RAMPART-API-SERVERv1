@@ -289,8 +289,6 @@ def finalize_analysis_report(
             db.add(report)
             db.flush()
 
-        # `file_type` on the report row is the client's claim; carry the
-        # verified category so the dashboard can group on content, not names.
         if file_type_refinement is not None:
             report.detected_type = file_type_refinement.category
             report.file_type = report.file_type or file_type_refinement.label

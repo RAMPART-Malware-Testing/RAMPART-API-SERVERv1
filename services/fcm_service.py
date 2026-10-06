@@ -9,7 +9,6 @@ SCOPES = ["https://www.googleapis.com/auth/firebase.messaging"]
 
 
 class FCMService:
-
     @staticmethod
     def _get_credentials():
         path = os.getenv("FCM_SERVICE_ACCOUNT_PATH")

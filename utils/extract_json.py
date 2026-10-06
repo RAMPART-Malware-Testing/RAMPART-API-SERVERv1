@@ -2,7 +2,6 @@ import re
 import json
 
 def normalize_attributes(attributes):
-    """Normalize attributes to have consistent format"""
     normalized = []
     seen_keys = {}
 
@@ -33,7 +32,6 @@ def normalize_attributes(attributes):
     return normalized
 
 def extract_json(text):
-    """Extract and normalize JSON from text response"""
     pattern_array = r"```(?:json)?\s*(\[.*?\])\s*```"
     pattern_object = r"```(?:json)?\s*(\{.*?\})\s*```"
 

@@ -1,13 +1,3 @@
-"""Hash-only pre-upload dedup check.
-
-The frontend computes the sha256 of a file locally (Web Crypto API) before
-ever sending any bytes to the server. If that content hash has already been
-analyzed (or is currently being analyzed), we attach the caller to the
-existing task and hand back its current status/report immediately - no
-upload, no re-analysis. Only on a genuine cache miss does the client fall
-back to the full upload flow.
-"""
-
 import re
 
 from fastapi import HTTPException, status

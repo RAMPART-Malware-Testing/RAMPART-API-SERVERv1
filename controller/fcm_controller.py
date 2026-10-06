@@ -1,11 +1,3 @@
-"""Storing the device's FCM token on the user row.
-
-There is no device table, so `users.fcm_token` holds one token per account.
-That is a deliberate trade-off: signing in on a second phone overwrites the
-first one's token and the first phone stops receiving pushes. Going beyond one
-device needs either a dedicated table or a JSON array in this same column.
-"""
-
 from sqlalchemy import update
 
 from cores.Schema.schema_class import User
@@ -40,11 +32,6 @@ async def register_fcm_token_controller(body: FcmTokenParams):
 
 
 async def unregister_fcm_token_controller(body: FcmUnregisterParams):
-    """Clear the token on sign-out.
-
-    Without this the phone keeps receiving pushes for whoever signs in next on
-    the same account.
-    """
     uid = await _uid_from_token(body.token)
     if not uid:
         return error(AuthStatus.TOKEN_INVALID, "โทเค็นไม่ถูกต้องหรือหมดอายุ")

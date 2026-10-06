@@ -41,8 +41,6 @@ REPORTS_HISTORY_CACHE_TTL_SECONDS = 5
 
 IN_FLIGHT_STATUSES = ("pending", "dispatching", "queued", "processing", "analyzing")
 
-# Below this many scored samples a per-category average is noise - one 90/100
-# sample would outrank a category with twenty files behind it.
 RISK_SCORE_MIN_SAMPLES = 3
 
 async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role: str) -> dict:
@@ -103,9 +101,6 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
     monthly_q = await session.execute(malware_query(month_start))
     all_q     = await session.execute(malware_query(None))
 
-    # Group by the category read off the file's own bytes, never by the
-    # client-supplied suffix - a `.jpg` that is really an ELF would otherwise
-    # quietly poison both groups.
     risk_q = await session.execute(
         select(
             Analysis.detected_type.label("detectedType"),
@@ -142,9 +137,6 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
                 "fileType": r.detectedType,
                 "label": CATEGORIES.get(r.detectedType, r.detectedType),
                 "riskScore": float(r.riskScore) if r.riskScore is not None else None,
-                # Averages are over the rows that actually have the tool's
-                # score; `null` means the tool never ran, which is not the
-                # same as a score of zero.
                 "tools": {
                     "virustotal": float(r.virustotalScore) if r.virustotalScore is not None else None,
                     "mobsf": float(r.mobsfScore) if r.mobsfScore is not None else None,

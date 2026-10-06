@@ -31,11 +31,6 @@ async def uploadFile(
 
 @router.post("/check-hash")
 async def checkHash(body: CheckHashParams):
-    """Hash-only dedup pre-check: lets the client hash a file locally and
-    ask "has this content already been analyzed?" before uploading any
-    bytes. Uses an access token (not an upload token) since no file is
-    actually being sent here.
-    """
     payload, err = TokenService.verify_token(body.token, "access")
     if err: raise HTTPException(status_code=401, detail="Invalid access token")
     uid = payload['sub']
@@ -58,9 +53,6 @@ async def getAnalysisReport(body: AnalysisReportParamsTarget):
 
 @router.get("/download/report/{file_name}")
 async def download_report(file_name: str, request: Request, token: str | None = None):
-    # Access token comes from the Authorization: Bearer header first, with a
-    # `token` query parameter as fallback (the frontend triggers browser
-    # downloads via a plain URL, so the query string must keep working).
     auth_header = request.headers.get("Authorization") or ""
     bearer = auth_header[7:].strip() if auth_header.startswith("Bearer ") else None
     print(file_name)

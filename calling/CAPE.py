@@ -40,10 +40,6 @@ class CleanCapeReport:
         return None
 
     def get_mitre_ttps(self):
-        """
-        ดึงข้อมูล MITRE ATT&CK TTPs
-        สิ่งนี้สำคัญมากสำหรับ AI เพราะมันบอก 'เจตนา' ของไฟล์ (เช่น ขโมยข้อมูล, ซ่อนตัว)
-        """
         if not self.data:
             return []
 
@@ -63,10 +59,6 @@ class CleanCapeReport:
         return list(ttps_set)
 
     def get_signatures(self):
-        """
-        ดึงพฤติกรรมที่น่าสงสัย (Signatures)
-        คัดเฉพาะที่มี Severity สูงๆ เพื่อไม่ให้รก
-        """
         if not self.data:
             return []
 
@@ -85,9 +77,6 @@ class CleanCapeReport:
         return signatures[:10]
 
     def get_network_activity(self):
-        """
-        ดึงข้อมูล Network ฉบับปรับปรุง (รองรับ Raw IP/TCP)
-        """
         if not self.data:
             return {}
             
@@ -148,7 +137,6 @@ class CleanCapeReport:
         }
 
     def get_behavior_summary(self):
-        """สรุปการกระทำกับไฟล์และระบบ"""
         if not self.data:
             return {}
             
@@ -164,7 +152,6 @@ class CleanCapeReport:
         }
 
     def clean_data(self):
-        """รวมข้อมูลทั้งหมดเป็น JSON ก้อนเล็ก"""
         if not self.data:
             return None
 

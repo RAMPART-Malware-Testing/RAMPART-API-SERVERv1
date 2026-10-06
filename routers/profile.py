@@ -33,11 +33,6 @@ router = APIRouter(prefix="/api/profile", tags=["Profile"])
 
 @router.post("")
 async def get_profile(body: ProfileTokenParams):
-    """Returns the current user's profile, including `avatar_url`.
-
-    `avatar_url` is `null` until the user uploads a picture via
-    `POST /api/profile/avatar`.
-    """
     return await get_profile_controller(body.token)
 
 
@@ -88,11 +83,6 @@ async def get_notification_counts(body: NotificationCountsParams):
 
 @router.post("/avatar")
 async def upload_avatar(token: str = Form(...), file: UploadFile = File(...)):
-    """Uploads/replaces the user's profile picture (PNG/JPEG/WEBP, max 5MB).
-
-    On success, `users.avatar_url` is set to a URL path serving the stored
-    file (`/api/profile/avatar/{uid}.{ext}`), replacing the NULL default.
-    """
     return await update_avatar_controller(token, file)
 
 

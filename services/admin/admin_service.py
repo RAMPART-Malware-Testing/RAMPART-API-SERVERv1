@@ -1,15 +1,3 @@
-"""Business logic backing the admin panel: user listing, ban/unban, role
-changes (master-only), cross-user analysis history, system dashboard, and
-audit logging.
-
-Every mutating (and every privileged cross-user read) function here takes
-the acting `User` object - not just an actor uid string - so
-`services.admin.authz.ensure_can_manage_target` can be enforced right here
-in the service layer too, as defense in depth on top of the controller-level
-check. A function in this module must never be reachable in a way that
-skips that call.
-"""
-
 from __future__ import annotations
 
 import json
@@ -72,10 +60,6 @@ async def write_audit_log(
     action: str,
     detail: str | None = None,
 ) -> None:
-    """Appends one row to `audit_logs`. Caller is responsible for committing
-    (or letting the surrounding transaction commit) - this only adds to the
-    session so it can be written atomically alongside the mutation it is
-    logging (e.g. the ban itself)."""
     session.add(
         AuditLog(
             actor_uid=actor_uid,
@@ -449,15 +433,6 @@ async def get_user_analysis_history_admin(
     target_uid: uuid.UUID,
     params: AdminUserHistoryParams,
 ) -> dict[str, Any]:
-    """Same shape as services.analy.analy_service.get_analysis_history, but
-    deliberately implemented as a separate function rather than a
-    parameterized version of that one: the self-service endpoint's
-    hard-coded `Analysis.uid == uid` scoping must never be able to
-    accidentally acquire an admin-override path through a shared code
-    path. Also intentionally does NOT filter on `privacy` - admin/master
-    see private files too, per explicit product requirement, and every
-    call to this function is expected to have already gone through
-    `ensure_can_manage_target` and produced an audit log entry."""
     conditions = [
         Analysis.uid == target_uid,
         Analysis.deleted_at.is_(None),
@@ -663,9 +638,6 @@ async def list_all_files(
     page: int,
     limit: int,
 ) -> dict[str, Any]:
-    """System-wide file listing across every user, unlike
-    get_user_analysis_history_admin (which is scoped to one target uid).
-    Always excludes soft-deleted rows."""
     conditions = [Analysis.deleted_at.is_(None)]
     if status_filter:
         conditions.append(Analysis.status == status_filter)
@@ -722,10 +694,6 @@ async def list_reports(
     page: int,
     limit: int,
 ) -> dict[str, Any]:
-    """Same shape as list_all_files, hard-filtered to completed analyses
-    that actually have a report attached (status == 'success' and rid is
-    set) - "จัดการ Report" only ever shows finished results, unlike
-    "จัดการไฟล์" which shows every file regardless of analysis state."""
     conditions = [
         Analysis.deleted_at.is_(None),
         Analysis.status == "success",
@@ -781,20 +749,6 @@ async def list_reports(
     }
 
 async def _purge_temp_file_if_unreferenced(session: AsyncSession, file_path: str | None) -> None:
-    """Deletes the on-disk upload under temps_files/ ONLY if no other
-    (non-soft-deleted) Analysis row still points at the same file_path.
-
-    file_path is content-hash-named and deliberately reused across
-    multiple Analysis rows by the dedup logic in
-    services.analy.analy_service.attempt_attach_to_existing_analysis (e.g.
-    two different users uploading the same APK, or the same user
-    re-uploading it under a different display name, all reuse one on-disk
-    copy). Soft-deleting ANY one of those rows must never delete the file
-    out from under the others still relying on it - this check runs
-    within the same DB transaction as the soft-delete itself, right
-    before commit, so the count it sees already reflects this call's own
-    deleted_at write.
-    """
     if not file_path:
         return
     still_referenced = await session.execute(
@@ -816,20 +770,6 @@ async def soft_delete_file(
     aid: uuid.UUID,
     reason: str,
 ) -> Analysis:
-    """Soft-deletes one Analysis row (sets deleted_at/deleted_by), then
-    removes the on-disk upload under temps_files/ if no other row still
-    references it (see _purge_temp_file_if_unreferenced). Every existing
-    query that reads Analysis already filters `deleted_at IS NULL`
-    (get_analysis_history, get_reports_history,
-    get_user_analysis_history_admin, list_all_files/list_reports above,
-    and the admin dashboard's total_analyses count) - so a deleted file
-    disappears from the owner's history, the public feed, and every stat
-    automatically, with no other query needing to change.
-
-    Follows the exact same actor/target permission rule as ban/unban:
-    admin can delete a plain user's file, but not another admin's or
-    master's file; master can delete anyone's file except another
-    master's."""
     analysis = await session.get(Analysis, aid, options=[joinedload(Analysis.user)])
     if analysis is None:
         raise AuthError(404, "TARGET_NOT_FOUND", "ไม่พบไฟล์เป้าหมาย")
@@ -1004,11 +944,6 @@ async def change_user_role(
     target_uid: uuid.UUID,
     new_role: str,
 ) -> User:
-    """Master-only (enforced by the caller via ensure_role before this is
-    ever invoked, and re-checked here). `new_role` is validated by
-    schemas.admin.AdminChangeRoleParams against ASSIGNABLE_ROLES
-    ({"user", "admin"}) before it ever reaches this function, so "master"
-    can never be passed in even by a request crafted by hand."""
     if actor.role != ROLE_MASTER:
         raise AuthError(403, "INSUFFICIENT_ROLE", "เฉพาะ master เท่านั้นที่เปลี่ยน role ได้")
 
@@ -1034,13 +969,6 @@ async def change_user_role(
     return target
 
 async def get_admin_dashboard_summary(session: AsyncSession, *, trend_days: int = 14) -> dict[str, Any]:
-    """Aggregate stats for the admin/master backend dashboard: user/role
-    counts, ban count, analysis totals, malicious count, a daily upload
-    trend for the last `trend_days` days, breakdowns by risk level /
-    analysis status / file type, per-tool usage counts, and the most
-    recent privileged admin actions. All queries are read-only aggregates
-    over the whole system - no per-user scoping (this endpoint is already
-    gated to admin/master by the controller)."""
     total_users = (
         await session.execute(select(func.count()).select_from(User))
     ).scalar_one()

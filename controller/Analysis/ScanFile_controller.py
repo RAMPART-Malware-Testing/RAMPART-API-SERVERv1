@@ -158,10 +158,6 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
                 shutil.move(str(temp_file_path), str(target_file_path))
             temp_file_path = None
 
-            # Read the category off disk rather than trusting `file_extension`,
-            # which is whatever the client called the file. VirusTotal has not
-            # seen the file yet at this point, so only the local classifier runs
-            # here; `finalize_analysis_report` refines the answer later.
             detection = await run_in_threadpool(detect_from_file, target_file_path, file_extension)
 
             recovery_row = await get_content_row_for_recovery(db_session, final_sha256)

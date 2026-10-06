@@ -80,11 +80,6 @@ def _validate_search_text(v: str | None) -> str | None:
 
 
 class AdminTokenParams(BaseModel):
-    """Base shape shared by every admin-panel request: just the caller's
-    own access token. Every admin controller resolves `actor` from this
-    token via services.admin.authz.get_current_user - never from a target
-    uid supplied by the client."""
-
     model_config = ConfigDict(extra="forbid")
 
     token: str

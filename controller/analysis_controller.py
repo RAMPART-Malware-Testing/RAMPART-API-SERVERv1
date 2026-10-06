@@ -51,9 +51,6 @@ def decode_redis_data(data):
     return {k.decode('utf-8'): v.decode('utf-8') for k, v in data.items()}
 
 def _parse_tool_notes(raw: str | None) -> dict | None:
-    """Best-effort decode of Analysis.tool_notes (JSON-encoded dict of
-    {tool_name: reason}, populated only when a tool was force-skipped
-    after exhausting its retry budget - see bgProcessing/tasks.py)."""
     if not raw:
         return None
     try:
@@ -134,14 +131,6 @@ async def generateToken_controller(token):
     }
 
 def _read_task_progress(task_id: str) -> dict | None:
-    """Best-effort read of the live per-tool progress a running Celery task
-    publishes to Redis (see bgProcessing/tasks.py::publish_progress).
-
-    Returns None if unavailable (Redis down, key expired, or nothing
-    published yet) - callers must treat that as "no extra detail available"
-    rather than an error, since polling status must never hard-fail just
-    because the progress side-channel is empty.
-    """
     try:
         raw = redis_client.get(f"analysis_progress:{task_id}")
     except Exception:

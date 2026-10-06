@@ -1,13 +1,3 @@
-"""One-off schema migration for content-derived file typing.
-
-The project has no Alembic environment (no alembic.ini, empty versions/), so
-`Base.metadata.create_all` cannot add columns to existing tables - it only
-creates missing ones. This script performs the additive ALTERs directly and is
-safe to re-run: every statement is guarded on the column's absence.
-
-Run with:  ./venv/bin/python -m utils.migrate_detected_type
-"""
-
 import asyncio
 
 from sqlalchemy import text

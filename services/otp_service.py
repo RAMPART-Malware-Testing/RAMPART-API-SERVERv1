@@ -16,7 +16,6 @@ MAX_OTP_ATTEMPTS = 5
 VerifyOutcome = Literal["ok", "wrong", "locked", "expired"]
 
 class OTPService:
-
     @staticmethod
     def _generate() -> str:
         return f"{random.randint(100000, 999999)}"

@@ -4,7 +4,6 @@ from utils.status_code import AuthStatus
 
 
 class TokenService:
-
     @staticmethod
     def verify_token(token: str, expected_type: str):
         try:

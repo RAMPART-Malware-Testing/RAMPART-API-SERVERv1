@@ -16,12 +16,6 @@ def apply_gemini_assessment(report, assessment: dict) -> None:
 
 
 def apply_evidence_fallback(report) -> None:
-    """Give a report a score from tool evidence when the AI step did not run.
-
-    Without this the report keeps a NULL `score`, which drops it out of every
-    average on the dashboard - the file was analysed, it just never got graded.
-    The score is tagged `tools` so it is never shown as an AI verdict.
-    """
     computed = evidence_score({
         "virustotal": report.virustotal_score,
         "mobsf": report.mobsf_score,
@@ -40,9 +34,6 @@ def apply_evidence_fallback(report) -> None:
         )
 
 def map_final_data_to_report(final_data: dict) -> dict:
-    """
-    จับคู่ข้อมูลจาก Gemini ให้ตรงกับคอลัมน์ใน Database
-    """
     return {
         "package":          final_data.get("app_metadata", {}).get("package"),
         "type":             final_data.get("app_metadata", {}).get("type"),
@@ -55,9 +46,6 @@ def map_final_data_to_report(final_data: dict) -> dict:
     }
 
 async def predict_rampart_ai(path_mobsf_report: str) -> dict:
-    """
-    พยากรณ์ความน่าจะเป็นของมัลแวร์ด้วย RampartAI
-    """
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             with open(path_mobsf_report, 'rb') as f:

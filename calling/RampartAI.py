@@ -1,12 +1,3 @@
-"""Client for the RampartAI malware-probability classifier.
-
-This is a small internal model that only understands the shape of a MobSF
-JSON report (see README/predict endpoint docs: "Upload a MobSF JSON report
-and get malware probability."). It is intentionally NOT a general-purpose
-classifier - it is only ever called with a report that MobSF itself already
-produced, never with the raw uploaded file.
-"""
-
 import os
 
 import requests

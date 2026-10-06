@@ -1,16 +1,3 @@
-"""Verification of the short-lived bridge token the web app hands us.
-
-The web application runs the entire provider OAuth flow. Once it has verified
-Google's ID token against Google's signing keys, or asked GitHub who the user
-is, it states the result as a token this service can check on its own: an
-HS256 JWT signed with OAUTH_BRIDGE_SECRET.
-
-That secret is the entire trust boundary. Whoever holds it can assert any
-identity here, so it never leaves the web app, and the token's lifetime is
-measured in minutes rather than days - it exists only to cross one hop, not to
-hold a session.
-"""
-
 import os
 
 from jose import jwt, JWTError
@@ -20,13 +7,9 @@ BRIDGE_ALGORITHM = "HS256"
 BRIDGE_TYPE = "oauth_bridge"
 SUPPORTED_PROVIDERS = ("google", "github")
 
-# Ceiling on the token's own lifetime. The web app issues these with a shorter
-# TTL; this is the backstop for a token that somehow arrives already stale.
-BRIDGE_MAX_AGE_SECONDS = 120
-
 
 class BridgeTokenError(Exception):
-    """Raised when a bridge token is missing, forged, expired or malformed."""
+    pass
 
 
 def bridge_configured() -> bool:
@@ -34,7 +17,6 @@ def bridge_configured() -> bool:
 
 
 def verify_bridge_token(token: str) -> dict:
-    """Return the verified claims, or raise BridgeTokenError."""
     if not BRIDGE_SECRET:
         raise BridgeTokenError(
             "ยังไม่ได้ตั้งค่า OAUTH_BRIDGE_SECRET บนเซิร์ฟเวอร์ "

@@ -43,12 +43,6 @@ class User(Base):
     audit_logs_as_target = relationship("AuditLog", foreign_keys="AuditLog.target_uid", back_populates="target")
 
 class OAuthAccount(Base):
-    """Links a user to one external OAuth identity (Google or GitHub).
-
-    A repeat login is resolved to the *same* uid by looking this table up
-    on (provider, provider_uid) - that pair is what the provider guarantees
-    is stable and unique for a given external account.
-    """
     __tablename__ = "oauth_accounts"
 
     __table_args__ = (
@@ -84,7 +78,6 @@ class Analysis(Base):
         Index("ix_analysis_uid_created_at", "uid", text("created_at DESC")),
         Index("ix_analysis_md5", "md5"),
         Index("ix_analysis_created_at", text("created_at DESC")),
-        # The dashboard groups danger scores by content-derived category.
         Index("ix_analysis_detected_type", "detected_type"),
     )
 
@@ -97,14 +90,9 @@ class Analysis(Base):
     file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     file_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # What the client called the file. Attacker-controlled, so it is kept for
-    # display and filtering only - never as the basis for grouping or routing.
     file_type: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # What the bytes say the file is, read from disk at upload time.
     detected_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    # Which classifier produced `detected_type`: magic / virustotal / extension.
     detected_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    # True when the uploaded suffix contradicts the detected category.
     file_type_mismatch: Mapped[bool] = mapped_column(Boolean, server_default=text("FALSE"))
     tools: Mapped[str | None] = mapped_column(Text, nullable=True)
     tool_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -130,15 +118,11 @@ class Reports(Base):
     package: Mapped[str | None] = mapped_column(Text, nullable=True)
     type: Mapped[str | None] = mapped_column(String(255), nullable=True)
     score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
-    # Where `score` came from: gemini (AI synthesis) or tools (weighted
-    # fallback computed from tool evidence). A computed score must never be
-    # presented as an AI verdict.
     score_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
     risk_level: Mapped[str | None] = mapped_column(String(128), nullable=True)
     recommendation: Mapped[str | None] = mapped_column(Text, nullable=True)
     analysis_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     risk_indicators: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
-    # Category derived from the file's content, mirroring analysis.detected_type.
     detected_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     file_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     virustotal_score: Mapped[int | None] = mapped_column(Integer, nullable=True)

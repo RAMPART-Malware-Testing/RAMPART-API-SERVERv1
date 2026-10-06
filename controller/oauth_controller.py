@@ -32,9 +32,6 @@ async def oauth_bridge_controller(
     except BridgeTokenError as exc:
         return error(AuthStatus.OAUTH_PROVIDER_ERROR, str(exc))
 
-    # The token states which provider it describes; the URL states which one
-    # was asked for. They must agree, or a valid Google token could be replayed
-    # through the GitHub path.
     if payload.get("provider") != provider:
         return error(
             AuthStatus.OAUTH_PROVIDER_ERROR,

@@ -11,8 +11,6 @@ Pillow
 psutil
 psycopg2-binary
 pydantic
-pytest
-pytest-asyncio
 python-dotenv
 python-jose[cryptography]
 python-multipart
