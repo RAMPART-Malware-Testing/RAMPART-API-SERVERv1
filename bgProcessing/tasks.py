@@ -84,7 +84,7 @@ def fail_task(db, task_id: str, error, *, report_paths=(), tool_notes: dict | No
         except OSError as cleanup_error:
             print(f"[Analysis] Failed to remove report {report_path}: {cleanup_error}")
     db.rollback()
-    update_task_rows(
+    changed = update_task_rows(
         db,
         task_id,
         "failed",
@@ -92,6 +92,11 @@ def fail_task(db, task_id: str, error, *, report_paths=(), tool_notes: dict | No
         tool_notes=json.dumps(tool_notes, ensure_ascii=False) if tool_notes else None,
     )
     db.commit()
+    # แถวที่จบไปแล้ว (success/failed) จะไม่ถูกเปลี่ยนสถานะ — ห้ามส่งอีเมล/push
+    # ว่า "ไม่สำเร็จ" เพราะผู้ใช้จะได้แจ้งเตือนขัดกับรายงานที่วิเคราะห์สำเร็จแล้ว
+    if not changed:
+        print(f"[Notify] skip failure notice for {task_id}: task already finished")
+        return {"success": False, "task_id": task_id, "error": message}
     try:
         notify_analysis_failed(db, task_id, message)
     except Exception as notify_error:
