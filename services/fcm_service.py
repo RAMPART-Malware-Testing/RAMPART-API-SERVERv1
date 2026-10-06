@@ -4,7 +4,7 @@ import httpx
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request as GoogleRequest
 
-FCM_V1_URL = "https://fcm.googleapis.com/v1/projects/rampart-f25c5/messages:send"
+FCM_V1_URL = "https://fcm.googleapis.com/v1/projects/rampart-d15ed/messages:send"
 SCOPES = ["https://www.googleapis.com/auth/firebase.messaging"]
 
 
