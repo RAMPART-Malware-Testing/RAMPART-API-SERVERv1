@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import HTTPException
 
 from cores.async_pg_db import SessionLocal
@@ -30,6 +32,8 @@ from services.admin.authz import ADMIN_ROLES, AuthError, ensure_not_banned, ensu
 from utils.response import error, success
 from utils.status_code import AuthStatus
 from utils.uuid import parse_uuid
+
+logger = logging.getLogger("rampart.admin")
 
 def _auth_error_response(exc: AuthError):
     return error(exc.code, exc.message)
@@ -113,6 +117,7 @@ async def get_user_history_controller(body: AdminUserHistoryParams):
         except HTTPException:
             raise
         except Exception:
+            logger.exception("admin user history failed")
             raise HTTPException(status_code=500, detail="Internal server error")
 
 async def ban_user_controller(body: AdminBanUserParams):

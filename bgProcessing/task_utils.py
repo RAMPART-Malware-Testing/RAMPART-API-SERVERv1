@@ -2,7 +2,7 @@ import os
 import httpx
 import json
 
-from utils.evidence_score import evidence_score, risk_level_for
+from utils.evidence_score import evidence_score, rampart_ai_score, risk_level_for
 
 
 def apply_gemini_assessment(report, assessment: dict) -> None:
@@ -20,7 +20,7 @@ def apply_evidence_fallback(report) -> None:
         "virustotal": report.virustotal_score,
         "mobsf": report.mobsf_score,
         "cape": report.cape_score,
-        "ai": report.rampart_ai_score,
+        "ai": rampart_ai_score(report.rampart_ai_score),
     })
     if computed is None:
         return

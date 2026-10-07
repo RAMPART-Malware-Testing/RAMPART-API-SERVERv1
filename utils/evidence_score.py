@@ -22,6 +22,18 @@ def _as_score(value) -> float | None:
     return max(0.0, min(score, MAX_SCORE))
 
 
+def rampart_ai_score(value) -> float | None:
+    if isinstance(value, dict):
+        probability = value.get("malware_probability")
+        if probability is None:
+            return None
+        try:
+            return _as_score(float(probability) * 100)
+        except (TypeError, ValueError):
+            return None
+    return _as_score(value)
+
+
 def evidence_score(scores: dict) -> float | None:
     usable = {
         tool: _as_score(value)

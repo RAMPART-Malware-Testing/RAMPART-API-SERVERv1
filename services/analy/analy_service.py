@@ -10,6 +10,7 @@ from bgProcessing.tasks import analyze_malware_task
 from bgProcessing.task_handlers import CAPE_PACKAGE_MAP, MOBSF_SUPPORTED_EXTS, VIRUSTOTAL_MAX_SIZE
 from cores.Schema.schema_class import Analysis, User, Reports
 from schemas.analy import AnalysisHistoryParams
+from utils.evidence_score import rampart_ai_score
 from uuid import UUID, uuid4
 
 REPORTS_DIR = Path("reports")
@@ -632,7 +633,6 @@ async def get_analysis_history(
 
     stmt = (
         select(Analysis)
-        .options(joinedload(Analysis.report))
         .where(where_clause)
         .order_by(*order_by)
         .offset((params.page - 1) * params.limit)
@@ -670,7 +670,7 @@ async def get_analysis_history(
             r = a.report
             item["report"] = {
                 "score":            float(r.score) if r.score is not None else None,
-                "rampart_score":    float(r.rampart_ai_score) if r.rampart_ai_score is not None else None,
+                "rampart_score":    rampart_ai_score(r.rampart_ai_score),
                 "risk_level":       r.risk_level,
                 "virustotal_score": r.virustotal_score,
                 "mobsf_score":      float(r.mobsf_score) if r.mobsf_score is not None else None,

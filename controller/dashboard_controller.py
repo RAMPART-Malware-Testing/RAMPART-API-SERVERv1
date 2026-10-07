@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import HTTPException
 from cores.async_pg_db import SessionLocal
 from schemas.dashboard import ReportsHistoryParams
@@ -6,6 +8,8 @@ from services.dashboard.dashboars_service import get_dashboard_summary_service, 
 from services.token_service import TokenService
 from pydantic import BaseModel
 from utils.uuid import parse_uuid
+
+logger = logging.getLogger("rampart.dashboard")
 
 class DashboardParams(BaseModel):
     token: str
@@ -21,6 +25,7 @@ async def dashboard_summary_controller(body: DashboardParams):
         try:
             return await get_dashboard_summary_service(session, user.uid, user.role)
         except Exception:
+            logger.exception("dashboard summary failed uid=%s role=%s", user.uid, user.role)
             raise HTTPException(status_code=500, detail="Internal server error")
 
 async def recent_activities_controller(body: DashboardParams):
@@ -34,6 +39,7 @@ async def recent_activities_controller(body: DashboardParams):
         try:
             return await get_recent_activities(session, user.uid, user.role)
         except Exception:
+            logger.exception("recent activities failed uid=%s role=%s", user.uid, user.role)
             raise HTTPException(status_code=500, detail="Internal server error")
         
 async def reports_history_controller(body: ReportsHistoryParams):
@@ -49,5 +55,6 @@ async def reports_history_controller(body: ReportsHistoryParams):
         except HTTPException:
             raise
         except Exception:
+            logger.exception("reports history failed uid=%s", user.uid)
             raise HTTPException(status_code=500, detail="Internal server error")
 

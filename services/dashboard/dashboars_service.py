@@ -1,11 +1,12 @@
 from typing import Any
 
-from sqlalchemy import select, func, case, and_, text, Float
+from sqlalchemy import select, func, case, and_, text, Numeric
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta, timezone
 
 from cores.Schema.schema_class import Analysis, User, Reports
 from schemas.dashboard import ReportsHistoryParams
+from utils.evidence_score import rampart_ai_score
 
 from datetime import datetime, timezone
 from typing import Any, List, Optional
@@ -108,7 +109,12 @@ async def _fetch_dashboard_summary(session: AsyncSession, uid: UUID | str, role:
             func.round(func.avg(Reports.virustotal_score), 2).label("virustotalScore"),
             func.round(func.avg(Reports.mobsf_score), 2).label("mobsfScore"),
             func.round(func.avg(Reports.cape_score), 2).label("capeScore"),
-            func.round(func.avg(Reports.rampart_ai_score.astext.cast(Float)), 2).label("aiScore"),
+            func.round(
+                func.avg(
+                    Reports.rampart_ai_score["malware_probability"].astext.cast(Numeric) * 100
+                ),
+                2,
+            ).label("aiScore"),
             func.count().label("sampleCount"),
             func.count(Reports.score).label("scoredCount"),
         )
@@ -305,7 +311,7 @@ async def _fetch_reports_history(
             r = a.report
             item["report"] = {
                 "score":            float(r.score) if r.score is not None else None,
-                "rampart_score":    float(r.rampart_ai_score) if r.rampart_ai_score is not None else None,
+                "rampart_score":    rampart_ai_score(r.rampart_ai_score),
                 "risk_level":       r.risk_level,
                 "virustotal_score": r.virustotal_score,
                 "mobsf_score":      float(r.mobsf_score) if r.mobsf_score is not None else None,

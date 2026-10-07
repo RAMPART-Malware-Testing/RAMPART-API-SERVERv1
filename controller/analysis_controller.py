@@ -1,4 +1,5 @@
 from pathlib import Path
+import logging
 import re
 import aiofiles
 from fastapi import UploadFile, HTTPException
@@ -23,6 +24,8 @@ import json
 
 TASK_STATUS_CACHE_NAMESPACE = "analy:task_status"
 TASK_STATUS_CACHE_TTL_SECONDS = 3
+
+logger = logging.getLogger("rampart.analysis")
 
 UPLOAD_DIR = Path("temps_files")
 REPORTS_DIR = Path("reports")
@@ -441,4 +444,5 @@ async def history_controller(body: AnalysisHistoryParams):
         except HTTPException:
             raise
         except Exception:
+            logger.exception("analysis history failed uid=%s", user.uid)
             raise HTTPException(status_code=500, detail="Internal server error")

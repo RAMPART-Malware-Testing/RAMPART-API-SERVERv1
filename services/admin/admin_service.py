@@ -12,6 +12,7 @@ from sqlalchemy.orm import contains_eager, joinedload
 
 from cores.Schema.schema_class import AuditLog, Analysis, DownloadHistory, LoginHistory, Reports, User
 from schemas.admin import AdminUserHistoryParams
+from utils.evidence_score import rampart_ai_score
 from utils.uuid import parse_uuid
 from services.admin.authz import (
     ROLE_ADMIN,
@@ -515,7 +516,7 @@ async def get_user_analysis_history_admin(
             r = a.report
             item["report"] = {
                 "score": float(r.score) if r.score is not None else None,
-                "rampart_score": float(r.rampart_ai_score) if r.rampart_ai_score is not None else None,
+                "rampart_score": rampart_ai_score(r.rampart_ai_score),
                 "risk_level": r.risk_level,
                 "virustotal_score": r.virustotal_score,
                 "mobsf_score": float(r.mobsf_score) if r.mobsf_score is not None else None,

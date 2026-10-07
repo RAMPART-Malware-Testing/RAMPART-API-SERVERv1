@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from cores.Schema.schema_class import Analysis, Reports
 from cores.sync_pg_db import SyncSessionLocal
-from utils.evidence_score import evidence_score, risk_level_for
+from utils.evidence_score import evidence_score, rampart_ai_score, risk_level_for
 from utils.file_type_detect import detect_from_virustotal, is_spoofed, resolve
 
 REPORTS_DIR = Path("reports")
@@ -83,7 +83,7 @@ def backfill(session: Session, *, dry_run: bool = False, force: bool = False) ->
                     "virustotal": report.virustotal_score,
                     "mobsf": report.mobsf_score,
                     "cape": report.cape_score,
-                    "ai": report.rampart_ai_score,
+                    "ai": rampart_ai_score(report.rampart_ai_score),
                 }
             )
             if computed is not None:
