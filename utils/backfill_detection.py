@@ -76,7 +76,6 @@ def backfill(session: Session, *, dry_run: bool = False, force: bool = False) ->
             analysis.detected_type = detection.category
             analysis.detected_source = detection.source
             analysis.file_type_mismatch = mismatch
-            report.detected_type = detection.category
 
         if report.score is None:
             computed = evidence_score(
@@ -84,7 +83,7 @@ def backfill(session: Session, *, dry_run: bool = False, force: bool = False) ->
                     "virustotal": report.virustotal_score,
                     "mobsf": report.mobsf_score,
                     "cape": report.cape_score,
-                    "ai": report.rampart_score,
+                    "ai": report.rampart_ai_score,
                 }
             )
             if computed is not None:

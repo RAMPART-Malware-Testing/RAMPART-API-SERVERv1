@@ -38,13 +38,10 @@ CREATE TABLE "reports" (
     "recommendation" TEXT,
     "analysis_summary" TEXT,
     "risk_indicators" TEXT[],
-    "detected_type" VARCHAR(50),
-    "file_type" VARCHAR(50),
     "virustotal_score" INTEGER,
     "mobsf_score" NUMERIC(5, 2),
     "cape_score" NUMERIC(5, 2),
     "rampart_ai_score" JSONB,
-    "rampart_score" NUMERIC(5, 2),
     "gemini_recommendation" TEXT,
     "malware_signatures" TEXT[],
     "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP

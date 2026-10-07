@@ -20,7 +20,7 @@ def apply_evidence_fallback(report) -> None:
         "virustotal": report.virustotal_score,
         "mobsf": report.mobsf_score,
         "cape": report.cape_score,
-        "ai": report.rampart_score,
+        "ai": report.rampart_ai_score,
     })
     if computed is None:
         return

@@ -283,7 +283,6 @@ def finalize_analysis_report(
                 report.type = threat_label
         else:
             report = Reports(
-                file_type=Path(file_path).suffix.lstrip(".") or None,
                 type=threat_label,
                 virustotal_score=scores["virustotal_score"],
                 mobsf_score=scores["mobsf_score"],
@@ -293,12 +292,6 @@ def finalize_analysis_report(
             )
             db.add(report)
             db.flush()
-
-        if file_type_refinement is not None:
-            report.detected_type = file_type_refinement.category
-            report.file_type = report.file_type or file_type_refinement.label
-        elif rows[0].detected_type and not report.detected_type:
-            report.detected_type = rows[0].detected_type
 
         values = {
             "status": "success",

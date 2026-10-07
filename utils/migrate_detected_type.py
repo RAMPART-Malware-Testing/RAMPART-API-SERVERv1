@@ -8,7 +8,6 @@ STATEMENTS = [
     "ALTER TABLE analysis ADD COLUMN IF NOT EXISTS detected_type VARCHAR(50)",
     "ALTER TABLE analysis ADD COLUMN IF NOT EXISTS detected_source VARCHAR(20)",
     "ALTER TABLE analysis ADD COLUMN IF NOT EXISTS file_type_mismatch BOOLEAN NOT NULL DEFAULT FALSE",
-    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS detected_type VARCHAR(50)",
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS score_source VARCHAR(20)",
     "CREATE INDEX IF NOT EXISTS ix_analysis_detected_type ON analysis (detected_type)",
 ]

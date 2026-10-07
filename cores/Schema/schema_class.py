@@ -121,13 +121,10 @@ class Reports(Base):
     recommendation: Mapped[str | None] = mapped_column(Text, nullable=True)
     analysis_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     risk_indicators: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
-    detected_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    file_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     virustotal_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mobsf_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     cape_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     rampart_ai_score: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    rampart_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     gemini_recommendation: Mapped[str | None] = mapped_column(Text, nullable=True)
     malware_signatures: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

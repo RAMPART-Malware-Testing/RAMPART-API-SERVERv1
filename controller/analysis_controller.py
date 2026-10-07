@@ -231,7 +231,7 @@ async def _compute_analysis_report(uid: str, task_id: str):
                 "deleted_at": analysis.deleted_at.isoformat() if analysis.deleted_at else None,
                 "deleted_by": str(analysis.deleted_by) if analysis.deleted_by else None,
                 "created_at": analysis.created_at.isoformat() if analysis.created_at else None,
-                "report_file_type": report.file_type,
+                "report_file_type": analysis.file_type,
                 "virustotal_score": report.virustotal_score,
                 "mobsf_score": float(report.mobsf_score) if report.mobsf_score is not None else None,
                 "cape_score": float(report.cape_score) if report.cape_score is not None else None,

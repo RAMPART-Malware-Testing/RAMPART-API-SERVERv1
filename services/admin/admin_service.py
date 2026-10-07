@@ -515,7 +515,7 @@ async def get_user_analysis_history_admin(
             r = a.report
             item["report"] = {
                 "score": float(r.score) if r.score is not None else None,
-                "rampart_score": float(r.rampart_score) if r.rampart_score is not None else None,
+                "rampart_score": float(r.rampart_ai_score) if r.rampart_ai_score is not None else None,
                 "risk_level": r.risk_level,
                 "virustotal_score": r.virustotal_score,
                 "mobsf_score": float(r.mobsf_score) if r.mobsf_score is not None else None,

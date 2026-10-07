@@ -58,7 +58,6 @@ class Reports(Base):
     __tablename__ = "reports"
 
     rid: Mapped[int] = mapped_column(primary_key=True)
-    rampart_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     package: Mapped[str | None] = mapped_column(Text, nullable=True)
     type: Mapped[str | None] = mapped_column(String(255), nullable=True)
     score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
