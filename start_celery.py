@@ -14,7 +14,7 @@ load_dotenv()
 PROJECT_ROOT = Path(__file__).resolve().parent
 WATCH_EXTENSIONS = {".py"}
 IGNORED_DIR_NAMES = {
-    ".venv", "__pycache__", ".git", "node_modules",
+    ".venv","venv", "__pycache__", ".git", "node_modules",
     "reports", "results", "temps_files", "avatars", "Files",
 }
 DEBOUNCE_SECONDS = 1.5

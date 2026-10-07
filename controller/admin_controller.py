@@ -24,11 +24,8 @@ from schemas.admin import (
     AdminUnbanUserParams,
     AdminUserHistoryParams,
     AdminUserSubHistoryParams,
-    MasterSetupConfirmParams,
-    MasterSetupEmailParams,
 )
 from services.admin import admin_service
-from services.admin.master_setup import confirm_master_setup, start_master_setup
 from services.admin.authz import ADMIN_ROLES, AuthError, ensure_not_banned, ensure_role, get_current_user
 from utils.response import error, success
 from utils.status_code import AuthStatus
@@ -427,24 +424,6 @@ async def rate_limit_clear_controller(body: AdminClearLockoutParams):
             )
             await session.commit()
             return result
-        except AuthError as exc:
-            return _auth_error_response(exc)
-
-async def master_setup_email_controller(body: MasterSetupEmailParams):
-    async with SessionLocal() as session:
-        try:
-            actor = await _resolve_admin_actor(session, body.token)
-            return await start_master_setup(session, actor, body.email)
-        except AuthError as exc:
-            return _auth_error_response(exc)
-
-async def master_setup_confirm_controller(body: MasterSetupConfirmParams):
-    async with SessionLocal() as session:
-        try:
-            actor = await _resolve_admin_actor(session, body.token)
-            return await confirm_master_setup(
-                session, actor, body.otp_token, body.otp, body.newPasswd, skip_otp=body.skip_otp
-            )
         except AuthError as exc:
             return _auth_error_response(exc)
 

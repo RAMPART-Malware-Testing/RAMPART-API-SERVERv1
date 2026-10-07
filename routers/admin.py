@@ -22,8 +22,6 @@ from controller.admin_controller import (
     list_files_controller,
     list_reports_controller,
     list_users_controller,
-    master_setup_confirm_controller,
-    master_setup_email_controller,
     rate_limit_clear_controller,
     rate_limit_snapshot_controller,
     system_health_controller,
@@ -54,8 +52,6 @@ from schemas.admin import (
     AdminUnbanUserParams,
     AdminUserHistoryParams,
     AdminUserSubHistoryParams,
-    MasterSetupConfirmParams,
-    MasterSetupEmailParams,
 )
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
@@ -192,16 +188,6 @@ async def rate_limit_snapshot(body: AdminTokenParams):
 @router.post("/rate-limits/clear")
 async def rate_limit_clear(body: AdminClearLockoutParams):
     return await rate_limit_clear_controller(body)
-
-
-@router.post("/setup/email")
-async def master_setup_email(body: MasterSetupEmailParams):
-    return await master_setup_email_controller(body)
-
-
-@router.post("/setup/confirm")
-async def master_setup_confirm(body: MasterSetupConfirmParams):
-    return await master_setup_confirm_controller(body)
 
 
 @router.post("/users/history-delete")

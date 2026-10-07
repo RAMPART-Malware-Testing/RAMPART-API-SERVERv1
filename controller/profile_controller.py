@@ -12,6 +12,7 @@ from services.profile.email_change import (
     confirm_email_change,
     resend_email_otp,
     start_email_change,
+    start_email_verification,
     verify_old_email_otp,
 )
 from services.profile.profile_service import (
@@ -257,6 +258,28 @@ async def change_email_controller(token: str, email: str):
         user = await get_user_or_404(session, uid)
         try:
             return await start_email_change(session, user, email)
+        except AuthError as exc:
+            return error(exc.code, exc.message)
+
+async def verify_email_controller(token: str, email: str):
+    uid, err = _resolve_uid_or_error(token)
+    if err:
+        return err
+
+    async with SessionLocal() as session:
+        user = await get_user_or_404(session, uid)
+        try:
+            ensure_not_banned(user)
+        except AuthError as exc:
+            return error(exc.code, exc.message)
+
+    if is_rate_limited("profile:email", str(uid), _EMAIL_CHANGE_LIMIT, _EMAIL_CHANGE_WINDOW_SECONDS):
+        return error(AuthStatus.RATE_LIMITED, "คุณขอยืนยันอีเมลบ่อยเกินไป กรุณาลองใหม่ภายหลัง")
+
+    async with SessionLocal() as session:
+        user = await get_user_or_404(session, uid)
+        try:
+            return await start_email_verification(session, user, email)
         except AuthError as exc:
             return error(exc.code, exc.message)
 

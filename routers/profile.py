@@ -5,6 +5,7 @@ from controller.profile_controller import (
     change_password_controller,
     confirm_email_controller,
     resend_email_otp_controller,
+    verify_email_controller,
     verify_old_email_controller,
     download_avatar_controller,
     get_download_history_controller,
@@ -94,6 +95,11 @@ async def get_avatar(file_name: str):
 @router.post("/change-email")
 async def change_email(body: ChangeEmailParams):
     return await change_email_controller(body.token, body.email)
+
+
+@router.post("/verify-email")
+async def verify_email(body: ChangeEmailParams):
+    return await verify_email_controller(body.token, body.email)
 
 
 @router.post("/confirm-email")

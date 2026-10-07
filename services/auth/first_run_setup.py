@@ -6,8 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cores.Schema.schema_class import AuditLog, User
 from cores.async_pg_db import SessionLocal
+from services.master_config import record_master_identity
+from services.oauth.oauth_service import user_public_dict
 from utils.cypto.PasswordCreateAndVerify import get_password_hash
 from utils.email_normalize import EMAIL_PATTERN, normalize_email, normalized_email_expr
+from utils.jwt import create_token
 from utils.password_policy import validate_password_policy
 from utils.rate_limit import is_rate_limited
 from utils.response import error, success
@@ -21,6 +24,8 @@ _SETUP_ADVISORY_LOCK_KEY = 6010720240713
 
 _ATTEMPT_LIMIT = 10
 _ATTEMPT_WINDOW_SECONDS = 10 * 60
+
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
 
 async def get_setup_status() -> dict:
@@ -125,10 +130,10 @@ async def complete_first_run_setup(body, client_ip: str) -> dict:
                 role="master",
                 status="active",
                 is_banned=False,
-                must_setup=False,
             )
             session.add(user)
             await session.flush()
+            master_uid = user.uid
 
             session.add(
                 AuditLog(
@@ -139,6 +144,8 @@ async def complete_first_run_setup(body, client_ip: str) -> dict:
                 )
             )
             await session.commit()
+            await session.refresh(user)
+            master_payload = user_public_dict(user)
         finally:
             await session.close()
     except IntegrityError as exc:
@@ -148,9 +155,24 @@ async def complete_first_run_setup(body, client_ip: str) -> dict:
             "ระบบมีผู้ใช้งานแล้ว ไม่สามารถตั้งค่าครั้งแรกซ้ำได้",
         )
 
+    try:
+        record_master_identity(master_uid, email)
+    except OSError as exc:
+        print(f"[FirstRunSetup] unable to record master config: {exc}")
+
+    access_token = create_token(
+        subject=str(master_uid),
+        token_type="access",
+        expires_minutes=ACCESS_TOKEN_EXPIRE_MINUTES,
+    )
+
     print(f"[FirstRunSetup] Created first master account: {email} (from {ip})")
     return success(
         AuthStatus.FIRST_RUN_SUCCESS,
-        "ตั้งค่าบัญชีผู้ดูแลระบบครั้งแรกสำเร็จ กรุณาเข้าสู่ระบบด้วยบัญชีนี้",
-        {"username": user.username},
+        "ตั้งค่าบัญชีผู้ดูแลระบบครั้งแรกสำเร็จ",
+        {
+            "username": master_payload.get("username"),
+            "access_token": access_token,
+            "data": master_payload,
+        },
     )

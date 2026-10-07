@@ -28,6 +28,7 @@ from cores.Schema.schema_class import LoginHistory, OAuthAccount, User
 from utils.cypto.PasswordCreateAndVerify import get_password_hash, verify_password
 from utils.email_normalize import normalize_email, normalized_email_expr
 from utils.jwt import create_token
+from services.master_config import is_master_email_verified
 from services.otp_service import OTPService, MAX_OTP_ATTEMPTS
 
 DEVICE_TOKEN_TTL_MINUTES = 60 * 24 * 7
@@ -144,17 +145,15 @@ class AuthService:
                 user_dict.pop("_sa_instance_state", None)
                 return success(
                     AuthStatus.LOGIN_SUCCESS,
-                    "เข้าสู่ระบบสำเร็จ (บัญชีเริ่มต้น — กรุณาตั้งค่าใหม่)"
-                    if user.must_setup else "เข้าสู่ระบบสำเร็จ",
+                    "เข้าสู่ระบบสำเร็จ",
                     {
                         "access_token": access_token,
                         "data": user_dict,
                         "bypass_otp": True,
-                        "must_setup": bool(user.must_setup),
                     }
                 )
 
-            if user.role == "master" and not user.email_verified:
+            if user.role == "master" and not is_master_email_verified(user.uid):
                 access_token = create_token(
                     subject=str(user.uid),
                     token_type="access",
@@ -176,7 +175,6 @@ class AuthService:
                         "access_token": access_token,
                         "data": user_dict,
                         "bypass_otp": True,
-                        "must_setup": bool(user.must_setup),
                     }
                 )
 
@@ -307,7 +305,6 @@ class AuthService:
                 password=get_password_hash(payload["password"]),
                 role="user",
                 status="active",
-                email_verified=True,
             )
             session.add(new_user)
             await session.commit()

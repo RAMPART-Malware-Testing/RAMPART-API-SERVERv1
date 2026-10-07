@@ -12,10 +12,8 @@ CREATE TABLE "users" (
     "banned_at" TIMESTAMPTZ NULL,
     "banned_reason" TEXT NULL,
     "banned_by" UUID NULL REFERENCES "users"("uid"),
-    "must_setup" BOOLEAN NOT NULL DEFAULT FALSE,
     "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "email_verified" BOOLEAN NOT NULL DEFAULT FALSE
+    "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE "oauth_accounts" (

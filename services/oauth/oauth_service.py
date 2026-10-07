@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cores.Schema.schema_class import OAuthAccount, User
+from services.master_config import is_master_email_verified
 from utils.email_normalize import normalize_email, normalized_email_expr
 from utils.jwt import create_token
 
@@ -114,6 +115,7 @@ def issue_device_token(user: User) -> str:
     )
 
 def user_public_dict(user: User) -> dict:
+    email_verified = is_master_email_verified(user.uid) if user.role == "master" else True
     return {
         "uid": str(user.uid),
         "username": user.username,
@@ -121,7 +123,6 @@ def user_public_dict(user: User) -> dict:
         "avatar_url": user.avatar_url,
         "role": user.role,
         "status": user.status,
-        "must_setup": bool(user.must_setup),
-        "email_verified": bool(user.email_verified),
+        "email_verified": email_verified,
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }

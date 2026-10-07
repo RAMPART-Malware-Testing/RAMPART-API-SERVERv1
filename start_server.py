@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from cores.Schema.schema_class import init_db
+from services.master_config import reset_if_installation_has_no_users
 from dotenv import load_dotenv
 import uvicorn
 
@@ -58,6 +59,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     await init_db()
+    await reset_if_installation_has_no_users()
 
 from routers.auth import router as auth_router
 from routers.fcm import router as fcm_router

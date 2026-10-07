@@ -1,0 +1,71 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rampart-api:local
+    container_name: rampart-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: host.docker.internal
+      REDIS_HOST: host.docker.internal
+      REDIS_PORT: "6379"
+      UVICORN_RELOAD: "FALSE"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8006:8006"
+    volumes:
+      - ./temps_files:/app/temps_files
+      - ./reports:/app/reports
+      - ./results:/app/results
+      - ./avatars:/app/avatars
+      - ./config:/app/config
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8006/', timeout=5).status==200 else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rampart-api:local
+    container_name: rampart-celery
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: host.docker.internal
+      REDIS_HOST: host.docker.internal
+      REDIS_PORT: "6379"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command:
+      - python
+      - -m
+      - celery
+      - -A
+      - bgProcessing.celery_app
+      - worker
+      - --loglevel=info
+      - --pool=prefork
+      - --concurrency=1
+      - --without-gossip
+      - --without-mingle
+    volumes:
+      - ./temps_files:/app/temps_files
+      - ./reports:/app/reports
+      - ./results:/app/results
+      - ./avatars:/app/avatars
