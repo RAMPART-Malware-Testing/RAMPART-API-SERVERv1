@@ -6,15 +6,8 @@ from fastapi.responses import FileResponse
 
 from cores.async_pg_db import SessionLocal
 from services.admin.admin_service import write_audit_log
-from services.admin.authz import AuthError, ensure_not_banned
+from services.admin.authz import AuthError, ensure_active, ensure_not_banned, get_current_user
 from services.oauth.oauth_service import user_public_dict
-from services.profile.email_change import (
-    confirm_email_change,
-    resend_email_otp,
-    start_email_change,
-    start_email_verification,
-    verify_old_email_otp,
-)
 from services.profile.profile_service import (
     AVATAR_DIR,
     ALLOWED_IMAGE_FORMATS,
@@ -24,12 +17,10 @@ from services.profile.profile_service import (
     update_avatar,
     update_username,
 )
-from services.token_service import TokenService
 from utils.cache import build_suffix, cached_async, invalidate_cached
 from utils.rate_limit import is_rate_limited
 from utils.response import error, success
 from utils.status_code import AuthStatus
-from utils.uuid import parse_uuid
 from sqlalchemy import func, select
 from cores.Schema.schema_class import AuditLog, DownloadHistory, LoginHistory
 from schemas.profile import HISTORY_DEFAULT_LIMIT, HISTORY_MAX_LIMIT
@@ -66,7 +57,7 @@ def _history_response(message: str, result: dict) -> dict:
     }
 
 async def record_download_controller(token: str, file_name: str | None, tool: str | None, md5: str | None):
-    uid, err = _resolve_uid_or_error(token)
+    uid, err = await _resolve_uid_or_error(token)
     if err:
         return err
 
@@ -115,7 +106,7 @@ async def _fetch_download_history(session, uid, page: int, limit: int):
 async def get_download_history_controller(
     token: str, page: int = 1, limit: int = HISTORY_DEFAULT_LIMIT
 ):
-    uid, err = _resolve_uid_or_error(token)
+    uid, err = await _resolve_uid_or_error(token)
     if err:
         return err
     page, limit = _normalize_page_params(page, limit)
@@ -163,7 +154,7 @@ async def _fetch_login_history(session, uid, page: int, limit: int):
 async def get_login_history_controller(
     token: str, page: int = 1, limit: int = HISTORY_DEFAULT_LIMIT
 ):
-    uid, err = _resolve_uid_or_error(token)
+    uid, err = await _resolve_uid_or_error(token)
     if err:
         return err
     page, limit = _normalize_page_params(page, limit)
@@ -221,7 +212,7 @@ async def _fetch_password_history(session, uid, page: int, limit: int):
 async def get_password_history_controller(
     token: str, page: int = 1, limit: int = HISTORY_DEFAULT_LIMIT
 ):
-    uid, err = _resolve_uid_or_error(token)
+    uid, err = await _resolve_uid_or_error(token)
     if err:
         return err
     page, limit = _normalize_page_params(page, limit)
@@ -236,113 +227,6 @@ async def get_password_history_controller(
         )
         return _history_response("ดึงประวัติการเปลี่ยนรหัสผ่านสำเร็จ", result)
 
-_EMAIL_CHANGE_LIMIT = 5
-_EMAIL_CHANGE_WINDOW_SECONDS = 60 * 10
-
-async def change_email_controller(token: str, email: str):
-    uid, err = _resolve_uid_or_error(token)
-    if err:
-        return err
-
-    async with SessionLocal() as session:
-        user = await get_user_or_404(session, uid)
-        try:
-            ensure_not_banned(user)
-        except AuthError as exc:
-            return error(exc.code, exc.message)
-
-    if is_rate_limited("profile:email", str(uid), _EMAIL_CHANGE_LIMIT, _EMAIL_CHANGE_WINDOW_SECONDS):
-        return error(AuthStatus.RATE_LIMITED, "คุณขอเปลี่ยนอีเมลบ่อยเกินไป กรุณาลองใหม่ภายหลัง")
-
-    async with SessionLocal() as session:
-        user = await get_user_or_404(session, uid)
-        try:
-            return await start_email_change(session, user, email)
-        except AuthError as exc:
-            return error(exc.code, exc.message)
-
-async def verify_email_controller(token: str, email: str):
-    uid, err = _resolve_uid_or_error(token)
-    if err:
-        return err
-
-    async with SessionLocal() as session:
-        user = await get_user_or_404(session, uid)
-        try:
-            ensure_not_banned(user)
-        except AuthError as exc:
-            return error(exc.code, exc.message)
-
-    if is_rate_limited("profile:email", str(uid), _EMAIL_CHANGE_LIMIT, _EMAIL_CHANGE_WINDOW_SECONDS):
-        return error(AuthStatus.RATE_LIMITED, "คุณขอยืนยันอีเมลบ่อยเกินไป กรุณาลองใหม่ภายหลัง")
-
-    async with SessionLocal() as session:
-        user = await get_user_or_404(session, uid)
-        try:
-            return await start_email_verification(session, user, email)
-        except AuthError as exc:
-            return error(exc.code, exc.message)
-
-async def verify_old_email_controller(token: str, otp_token: str, otp: str):
-    uid, err = _resolve_uid_or_error(token)
-    if err:
-        return err
-
-    async with SessionLocal() as session:
-        user = await get_user_or_404(session, uid)
-        try:
-            ensure_not_banned(user)
-        except AuthError as exc:
-            return error(exc.code, exc.message)
-
-        try:
-            return await verify_old_email_otp(session, user, otp_token, otp)
-        except AuthError as exc:
-            return error(exc.code, exc.message)
-
-async def resend_email_otp_controller(token: str):
-    uid, err = _resolve_uid_or_error(token)
-    if err:
-        return err
-
-    async with SessionLocal() as session:
-        user = await get_user_or_404(session, uid)
-        try:
-            ensure_not_banned(user)
-        except AuthError as exc:
-            return error(exc.code, exc.message)
-
-    if is_rate_limited("profile:email-otp", str(uid), _EMAIL_CHANGE_LIMIT, _EMAIL_CHANGE_WINDOW_SECONDS):
-        return error(AuthStatus.RATE_LIMITED, "คุณขอรหัส OTP บ่อยเกินไป กรุณาลองใหม่ภายหลัง")
-
-    async with SessionLocal() as session:
-        user = await get_user_or_404(session, uid)
-        try:
-            return await resend_email_otp(session, user)
-        except AuthError as exc:
-            return error(exc.code, exc.message)
-
-async def confirm_email_controller(token: str, otp_token: str, otp: str):
-    uid, err = _resolve_uid_or_error(token)
-    if err:
-        return err
-
-    async with SessionLocal() as session:
-        user = await get_user_or_404(session, uid)
-        try:
-            ensure_not_banned(user)
-        except AuthError as exc:
-            return error(exc.code, exc.message)
-
-        try:
-            result = await confirm_email_change(session, user, otp_token, otp)
-        except AuthError as exc:
-            return error(exc.code, exc.message)
-
-    if result.get("success"):
-        invalidate_cached(PROFILE_CACHE_NAMESPACE)
-    return result
-
 _PASSWORD_CHANGE_LIMIT = 5
 _PASSWORD_CHANGE_WINDOW_SECONDS = 60 * 10
 
@@ -353,13 +237,14 @@ async def change_password_controller(
     user_agent: str | None = None,
     ip: str | None = None,
 ):
-    uid, err = _resolve_uid_or_error(token)
+    uid, err = await _resolve_uid_or_error(token)
     if err:
         return err
 
     async with SessionLocal() as session:
         user = await get_user_or_404(session, uid)
         try:
+            ensure_active(user)
             ensure_not_banned(user)
         except AuthError as exc:
             return error(exc.code, exc.message)
@@ -397,7 +282,7 @@ def _password_error_status(status_code: int) -> str:
     return AuthStatus.PASSWORD_POLICY_INVALID
 
 async def get_notification_counts_controller(token: str, reports_since=None, public_since=None):
-    uid, err = _resolve_uid_or_error(token)
+    uid, err = await _resolve_uid_or_error(token)
     if err:
         return err
 
@@ -419,14 +304,14 @@ _MEDIA_TYPES = {
     ".webp": "image/webp",
 }
 
-def _resolve_uid_or_error(token: str):
-    payload, err = TokenService.verify_token(token, "access")
-    if err:
-        return None, err
+async def _resolve_uid_or_error(token: str):
     try:
-        return parse_uuid(payload["sub"]), None
-    except (TypeError, ValueError, KeyError):
-        return None, error(AuthStatus.TOKEN_INVALID, "ข้อมูลผู้ใช้ในโทเค็นไม่ถูกต้อง")
+        async with SessionLocal() as session:
+            user = await get_current_user(session, token)
+            ensure_not_banned(user)
+            return user.uid, None
+    except AuthError as exc:
+        return None, error(exc.code, exc.message)
 
 async def _fetch_profile(session, uid):
     user = await get_user_or_404(session, uid)
@@ -434,7 +319,7 @@ async def _fetch_profile(session, uid):
     return user_public_dict(user)
 
 async def get_profile_controller(token: str):
-    uid, err = _resolve_uid_or_error(token)
+    uid, err = await _resolve_uid_or_error(token)
     if err:
         return err
 
@@ -452,7 +337,7 @@ async def get_profile_controller(token: str):
         return success(AuthStatus.LOGIN_SUCCESS, "ดึงข้อมูลโปรไฟล์สำเร็จ", data)
 
 async def update_username_controller(token: str, username: str | None):
-    uid, err = _resolve_uid_or_error(token)
+    uid, err = await _resolve_uid_or_error(token)
     if err:
         return err
     if not username:
@@ -461,6 +346,7 @@ async def update_username_controller(token: str, username: str | None):
     async with SessionLocal() as session:
         user = await get_user_or_404(session, uid)
         try:
+            ensure_active(user)
             ensure_not_banned(user)
         except AuthError as exc:
             return error(exc.code, exc.message)
@@ -474,13 +360,14 @@ async def update_username_controller(token: str, username: str | None):
         return success(AuthStatus.PROFILE_UPDATE_SUCCESS, "อัปเดตโปรไฟล์สำเร็จ", user_public_dict(user))
 
 async def update_avatar_controller(token: str, file: UploadFile):
-    uid, err = _resolve_uid_or_error(token)
+    uid, err = await _resolve_uid_or_error(token)
     if err:
         return err
 
     async with SessionLocal() as session:
         user = await get_user_or_404(session, uid)
         try:
+            ensure_active(user)
             ensure_not_banned(user)
         except AuthError as exc:
             return error(exc.code, exc.message)

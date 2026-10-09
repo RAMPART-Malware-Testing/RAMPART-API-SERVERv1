@@ -151,7 +151,7 @@ await apiFetch("/api/profile", jsonBody({
 |---|---|
 | `user` | ใช้งานระบบวิเคราะห์และดูรายงานส่วนตัว |
 | `admin` | เข้า admin panel; จัดการผู้ใช้และไฟล์ของ `user` |
-| `master` | ทุกสิทธิ์ของ admin; เปลี่ยน role เป็น `user` หรือ `admin` ได้ |
+| `master` | ทุกสิทธิ์ของ admin |
 
 กฎ admin:
 
@@ -324,10 +324,11 @@ Error envelope:
 | `POST` | `/api/admin/users/download-history` | ประวัติดาวน์โหลดของผู้ใช้ |
 | `POST` | `/api/admin/users/ban` | ban ผู้ใช้ |
 | `POST` | `/api/admin/users/unban` | unban ผู้ใช้ |
-| `POST` | `/api/admin/users/role` | เปลี่ยน role โดย master |
 | `POST` | `/api/admin/users/bulk-ban` | ban หลายผู้ใช้ |
 | `POST` | `/api/admin/dashboard/summary` | สถิติระบบสำหรับ admin |
-| `POST` | `/api/admin/audit-logs` | audit logs |
+| `POST` | `/api/admin/users/create` | master สร้างบัญชีผู้ใช้หรือแอดมิน |
+| `POST` | `/api/admin/audit-logs` | ค้นหาและกรอง audit logs |
+| `POST` | `/api/admin/audit-logs/delete-older-than` | master ลบ audit logs เก่าตามเดือน |
 | `POST` | `/api/admin/files` | รายการไฟล์ทั้งระบบ |
 | `POST` | `/api/admin/files/delete` | soft delete ไฟล์ |
 | `POST` | `/api/admin/files/bulk-delete` | soft delete หลายไฟล์ |
@@ -1556,7 +1557,8 @@ List response ส่วนใหญ่ใช้:
   "limit": 20,
   "q": "analyst",
   "role": ["user", "admin"],
-  "banned": false
+  "banned": false,
+  "status": "active"
 }
 ```
 
@@ -1567,6 +1569,7 @@ List response ส่วนใหญ่ใช้:
 | `q` | null | ค้น username/email ยาวไม่เกิน 100 |
 | `role` | null | string หรือ array จาก `user`, `admin`, `master` |
 | `banned` | null | true/false/null |
+| `status` | active | `active`, `deleted`, หรือ `all` |
 
 `data` แต่ละ item:
 
@@ -1650,7 +1653,39 @@ List response ส่วนใหญ่ใช้:
 
 ## 9.3 จัดการผู้ใช้
 
-### `POST /api/admin/users/ban`
+### `POST /api/admin/users/delete`
+
+ลบบัญชีแบบ logical deletion โดยไม่ลบประวัติ analysis, login, download หรือ audit log บัญชีจะเปลี่ยนเป็น `status: "deleted"`, เข้าสู่ระบบไม่ได้ และไม่สามารถใช้บัญชีที่ถูกลบซ้ำได้
+
+```json
+{
+  "token": "<access-jwt>",
+  "target_uid": "<uuid>"
+}
+```
+
+- `master` ลบได้เฉพาะ target ที่ไม่ใช่ `master`
+- `admin` ลบได้เฉพาะ `user`
+- ลบบัญชีตัวเองและบัญชีที่ถูกลบแล้วไม่ได้
+- บันทึก audit action `delete_user`
+
+### `POST /api/admin/users/password-reset`
+
+ตั้งรหัสผ่านใหม่ให้ target โดยระบบ hash ด้วย Argon2 และไม่คืนค่า password หรือ hash กลับไปยัง client
+
+```json
+{
+  "token": "<access-jwt>",
+  "target_uid": "<uuid>",
+  "new_password": "NewPassword!123"
+}
+```
+
+- ใช้สิทธิ์ target เดียวกับการลบบัญชี: `master` จัดการ `user/admin`, `admin` จัดการเฉพาะ `user`
+- target ต้องมีสถานะ `active` และห้ามเป็น `master`
+- password ต้องยาว 8–128 ตัวอักษร มีตัวพิมพ์ใหญ่ ตัวพิมพ์เล็ก ตัวเลข และอักขระพิเศษ
+- บันทึก audit action `admin_reset_password`
+
 
 ```json
 {
@@ -1672,20 +1707,6 @@ List response ส่วนใหญ่ใช้:
 ```
 
 คืน `UNBAN_SUCCESS` พร้อม User
-
-### `POST /api/admin/users/role`
-
-ใช้ได้เฉพาะ `master`
-
-```json
-{
-  "token": "<master-access-jwt>",
-  "target_uid": "<uuid>",
-  "new_role": "admin"
-}
-```
-
-`new_role` อนุญาตเฉพาะ `user` หรือ `admin` ไม่สามารถตั้งเป็น `master` ผ่าน API
 
 ### `POST /api/admin/users/bulk-ban`
 
@@ -1798,11 +1819,14 @@ List response ส่วนใหญ่ใช้:
   "page": 1,
   "limit": 20,
   "actor_uid": "<uuid>",
-  "action": "ban"
+  "action": "ban",
+  "q": "admin01",
+  "date_from": "2026-09-01",
+  "date_to": "2026-09-30"
 }
 ```
 
-`actor_uid`, `action` เป็น optional
+`actor_uid`, `action`, `q`, `date_from`, `date_to` เป็น optional โดย `q` ค้นหาชื่อผู้กระทำ ชื่อเป้าหมาย และรายละเอียดจากฐานข้อมูลก่อนแบ่งหน้า ช่วงวันที่ใช้ UTC และรวมวันที่สิ้นสุดทั้งวัน วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด
 
 แต่ละ item:
 
@@ -1818,6 +1842,26 @@ List response ส่วนใหญ่ใช้:
   "created_at": "2026-09-24T10:30:00+00:00"
 }
 ```
+
+### `POST /api/admin/audit-logs/delete-older-than`
+
+เฉพาะ master ส่ง `{ "token": "<access-jwt>", "months": 2 }` โดย `months` อยู่ระหว่าง 1–120 ลบเฉพาะข้อมูลที่เก่ากว่า `30 × months` วัน และตอบกลับ `data: { "deleted": 123 }` พร้อมบันทึกการลบด้วย action `delete_audit_logs` การลบนี้ไม่ใช้ตัวกรองค้นหา/ช่วงวันที่ของหน้ารายการ
+
+### `POST /api/admin/users/create`
+
+เฉพาะ master สร้างบัญชีโดยตรงด้วยข้อมูล:
+
+```json
+{
+  "token": "<access-jwt>",
+  "username": "admin02",
+  "email": "admin02@example.com",
+  "password": "StrongPassword9!",
+  "role": "admin"
+}
+```
+
+`role` รองรับ `user` และ `admin` เท่านั้น ไม่สามารถสร้าง master ผ่าน endpoint นี้ ชื่อผู้ใช้มี 3–50 ตัวอักษร (ภาษาอังกฤษ ตัวเลข `.`, `_`, `-`) อีเมล/ชื่อผู้ใช้ต้องไม่ซ้ำ รหัสผ่านมี 8–128 ตัวอักษร พร้อมตัวพิมพ์ใหญ่ ตัวพิมพ์เล็ก ตัวเลข และอักขระพิเศษ บัญชีเป็น `active` ทันที ไม่มีขั้นตอนยืนยันอีเมลสำหรับการสร้างโดย master ตอบกลับ object ผู้ใช้ใน `data` โดยไม่มีรหัสผ่าน และบันทึก action `create_user`
 
 ## 9.6 ไฟล์และ report
 

@@ -10,7 +10,7 @@ itsdangerous
 Pillow
 psutil
 psycopg2-binary
-pydantic
+pydantic[email]
 python-dotenv
 python-jose[cryptography]
 python-multipart

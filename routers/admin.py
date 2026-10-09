@@ -8,7 +8,9 @@ from controller.admin_controller import (
     broadcast_email_controller,
     bulk_ban_users_controller,
     bulk_delete_files_controller,
-    change_role_controller,
+    create_user_controller,
+    delete_audit_logs_controller,
+    delete_user_controller,
     delete_file_controller,
     delete_user_history_controller,
     export_audit_logs_csv_controller,
@@ -17,6 +19,7 @@ from controller.admin_controller import (
     get_user_detail_controller,
     get_user_download_history_controller,
     get_user_password_history_controller,
+    reset_user_password_controller,
     get_user_history_controller,
     get_user_login_history_controller,
     list_files_controller,
@@ -37,11 +40,14 @@ from schemas.admin import (
     AdminBroadcastEmailParams,
     AdminBulkBanUsersParams,
     AdminBulkDeleteFilesParams,
-    AdminChangeRoleParams,
     AdminClearLockoutParams,
+    AdminCreateUserParams,
     AdminDashboardParams,
+    AdminDeleteAuditLogsParams,
     AdminDeleteFileParams,
     AdminDeleteHistoryParams,
+    AdminDeleteUserParams,
+    AdminResetUserPasswordParams,
     AdminListFilesParams,
     AdminListReportsParams,
     AdminListUsersParams,
@@ -91,10 +97,19 @@ async def ban_user(body: AdminBanUserParams):
 async def unban_user(body: AdminUnbanUserParams):
     return await unban_user_controller(body)
 
+@router.post("/users/create")
+async def create_user(body: AdminCreateUserParams):
+    return await create_user_controller(body)
 
-@router.post("/users/role")
-async def change_role(body: AdminChangeRoleParams):
-    return await change_role_controller(body)
+
+@router.post("/users/delete")
+async def delete_user(body: AdminDeleteUserParams):
+    return await delete_user_controller(body)
+
+
+@router.post("/users/password-reset")
+async def reset_user_password(body: AdminResetUserPasswordParams):
+    return await reset_user_password_controller(body)
 
 
 @router.post("/users/bulk-ban")
@@ -110,6 +125,10 @@ async def admin_dashboard_summary(body: AdminDashboardParams):
 @router.post("/audit-logs")
 async def audit_logs(body: AdminAuditLogParams):
     return await audit_logs_controller(body)
+
+@router.post("/audit-logs/delete-older-than")
+async def delete_audit_logs(body: AdminDeleteAuditLogsParams):
+    return await delete_audit_logs_controller(body)
 
 
 @router.post("/files")

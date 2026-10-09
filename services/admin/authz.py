@@ -36,7 +36,13 @@ async def get_current_user(session, token: str) -> User:
     user = await session.get(User, uid)
     if user is None:
         raise AuthError(401, "USER_NOT_FOUND", "ไม่พบบัญชีผู้ใช้")
+    ensure_active(user)
     return user
+
+def ensure_active(user: User) -> None:
+    if (user.status or "").lower() != "active":
+        raise AuthError(401, "ACCOUNT_INACTIVE", "บัญชีผู้ใช้ไม่พร้อมใช้งาน")
+
 
 def ensure_not_banned(user: User) -> None:
     if user.is_banned:
@@ -51,16 +57,41 @@ def ensure_role(user: User, allowed: set[str]) -> None:
         raise AuthError(403, "INSUFFICIENT_ROLE", "คุณไม่มีสิทธิ์เข้าถึงส่วนนี้")
 
 def ensure_can_manage_target(actor: User, target: User) -> None:
+    if actor.role == ROLE_MASTER:
+        return None
+
+    if actor.role == ROLE_ADMIN and target.role == ROLE_USER:
+        return None
+
     if target.role == ROLE_MASTER:
         raise AuthError(403, "MASTER_PROTECTED", "ไม่สามารถดำเนินการกับบัญชี master ได้")
 
-    if actor.role == ROLE_ADMIN and target.role in ADMIN_ROLES:
+    if actor.role == ROLE_ADMIN and target.role == ROLE_ADMIN:
         raise AuthError(403, "ADMIN_TARGET_FORBIDDEN", "ผู้ดูแลไม่สามารถดำเนินการกับผู้ดูแลด้วยกันได้")
 
-    if actor.role not in ADMIN_ROLES:
-        raise AuthError(403, "INSUFFICIENT_ROLE", "คุณไม่มีสิทธิ์เข้าถึงส่วนนี้")
+    raise AuthError(403, "INSUFFICIENT_ROLE", "คุณไม่มีสิทธิ์เข้าถึงส่วนนี้")
 
-    return None
+def ensure_can_manage_non_master_target(actor: User, target: User) -> None:
+    if target.role == ROLE_MASTER:
+        raise AuthError(403, "MASTER_PROTECTED", "ไม่สามารถดำเนินการกับบัญชี master ได้")
+    ensure_can_manage_target(actor, target)
+
+
+def ensure_can_ban_target(actor: User, target: User) -> None:
+    if target.role == ROLE_MASTER:
+        raise AuthError(403, "MASTER_PROTECTED", "ไม่สามารถแบนหรือปลดแบนบัญชี master ได้")
+
+    if actor.role == ROLE_MASTER:
+        return None
+
+    if actor.role == ROLE_ADMIN and target.role == ROLE_USER:
+        return None
+
+    if actor.role == ROLE_ADMIN and target.role == ROLE_ADMIN:
+        raise AuthError(403, "ADMIN_TARGET_FORBIDDEN", "ผู้ดูแลไม่สามารถแบนหรือปลดแบนผู้ดูแลด้วยกันได้")
+
+    raise AuthError(403, "INSUFFICIENT_ROLE", "คุณไม่มีสิทธิ์เข้าถึงส่วนนี้")
+
 
 def ensure_can_manage_file_owner(actor: User, owner: User) -> None:
     if actor.uid == owner.uid:

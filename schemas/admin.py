@@ -1,12 +1,15 @@
 import re
+from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, model_validator
 
 from services.admin.authz import ASSIGNABLE_ROLES
+from utils.password_policy import validate_password_policy
 
 MAX_SEARCH_LENGTH = 100
 MAX_LIMIT = 100
 MAX_REASON_LENGTH = 500
+USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]{3,50}$")
 
 class AdminDeleteHistoryParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -56,6 +59,7 @@ class AdminListUsersParams(AdminTokenParams):
     q: str | None = None
     role: str | list[str] | None = None
     banned: bool | None = None
+    status: str | None = "active"
 
     @field_validator("page")
     @classmethod
@@ -79,6 +83,16 @@ class AdminListUsersParams(AdminTokenParams):
     @classmethod
     def validate_q(cls, v: str | None) -> str | None:
         return _validate_search_text(v)
+
+    @field_validator("status")
+    @classmethod
+    def validate_user_status(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().lower()
+        if v not in {"active", "deleted", "all"}:
+            raise ValueError("status must be one of: active, deleted, all")
+        return v
 
     @field_validator("role")
     @classmethod
@@ -182,18 +196,65 @@ class AdminUnbanUserParams(AdminTargetUserParams):
     pass
 
 
-class AdminChangeRoleParams(AdminTargetUserParams):
-    new_role: str
+class AdminDeleteUserParams(AdminTargetUserParams):
+    pass
 
-    @field_validator("new_role")
+
+class AdminResetUserPasswordParams(AdminTargetUserParams):
+    new_password: str
+
+    @field_validator("new_password")
     @classmethod
-    def validate_new_role(cls, v: str) -> str:
+    def validate_new_password(cls, v: str) -> str:
+        if not v:
+            raise ValueError("Password is required")
+        policy_error = validate_password_policy(v)
+        if policy_error:
+            raise ValueError(policy_error)
+        return v
+
+
+class AdminCreateUserParams(AdminTokenParams):
+    username: str
+    email: EmailStr
+    password: str
+    role: str
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not USERNAME_PATTERN.match(v):
+            raise ValueError("Username must be 3-50 chars and use only A-Z, a-z, 0-9, '.', '_', '-'")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if not v:
+            raise ValueError("Password is required")
+        return v
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
         v = (v or "").strip().lower()
         if v not in ASSIGNABLE_ROLES:
             raise ValueError(
-                f"new_role must be one of: {', '.join(sorted(ASSIGNABLE_ROLES))}"
+                f"role must be one of: {', '.join(sorted(ASSIGNABLE_ROLES))}"
             )
         return v
+
+class AdminDeleteAuditLogsParams(AdminTokenParams):
+    months: int
+
+    @field_validator("months")
+    @classmethod
+    def validate_months(cls, v: int) -> int:
+        if v < 1 or v > 120:
+            raise ValueError("months must be between 1 and 120")
+        return v
+
 
 
 class AdminAuditLogParams(AdminTokenParams):
@@ -201,6 +262,9 @@ class AdminAuditLogParams(AdminTokenParams):
     limit: int = 20
     actor_uid: str | None = None
     action: str | None = None
+    q: str | None = None
+    date_from: str | None = None
+    date_to: str | None = None
 
     @field_validator("page")
     @classmethod
@@ -220,10 +284,32 @@ class AdminAuditLogParams(AdminTokenParams):
             raise ValueError(f"Limit must be <= {MAX_LIMIT}")
         return v
 
-    @field_validator("action")
+    @field_validator("action", "q")
     @classmethod
-    def validate_action(cls, v: str | None) -> str | None:
-        return _validate_search_text(v)
+    def validate_search(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if len(v) > MAX_SEARCH_LENGTH:
+            raise ValueError(f"คำค้นหาต้องไม่เกิน {MAX_SEARCH_LENGTH} ตัวอักษร")
+        return v or None
+
+    @field_validator("date_from", "date_to")
+    @classmethod
+    def validate_date(cls, v: str | None) -> str | None:
+        if v is None or not v.strip():
+            return None
+        v = v.strip()
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+            raise ValueError("วันที่ต้องอยู่ในรูปแบบ YYYY-MM-DD")
+        datetime.strptime(v, "%Y-%m-%d")
+        return v
+
+    @model_validator(mode="after")
+    def validate_date_range(self):
+        if self.date_from and self.date_to and self.date_from > self.date_to:
+            raise ValueError("วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด")
+        return self
 
 
 ALLOWED_ANALYSIS_STATUSES = {"pending", "processing", "success", "failed"}

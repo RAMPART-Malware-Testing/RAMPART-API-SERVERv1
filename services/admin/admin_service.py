@@ -6,8 +6,9 @@ from datetime import datetime, timedelta as _timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import and_, asc, desc, func, or_, select
+from sqlalchemy import and_, asc, delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import contains_eager, joinedload
 
 from cores.Schema.schema_class import AuditLog, Analysis, DownloadHistory, LoginHistory, Reports, User
@@ -15,14 +16,20 @@ from schemas.admin import AdminUserHistoryParams
 from utils.evidence_score import rampart_ai_score
 from utils.uuid import parse_uuid
 from services.admin.authz import (
+    ASSIGNABLE_ROLES,
     ROLE_ADMIN,
     ROLE_MASTER,
     AuthError,
     ensure_can_manage_file_owner,
     ensure_can_manage_target,
+    ensure_can_manage_non_master_target,
+    ensure_can_ban_target,
 )
 from services.dashboard.dashboars_service import invalidate_public_caches
 from utils.cache import build_suffix, cached_async, invalidate_cached
+from utils.cypto.PasswordCreateAndVerify import get_password_hash
+from utils.email_normalize import normalize_email, normalized_email_expr
+from utils.password_policy import validate_password_policy
 
 AUDIT_LOG_CACHE_NAMESPACE = "admin:audit_logs"
 AUDIT_LOG_CACHE_TTL_SECONDS = 5
@@ -77,12 +84,35 @@ async def _fetch_audit_logs(
     limit: int,
     actor_uid: uuid.UUID | None,
     action: str | None,
+    q: str | None,
+    date_from: str | None,
+    date_to: str | None,
 ) -> dict[str, Any]:
     conditions = []
     if actor_uid is not None:
         conditions.append(AuditLog.actor_uid == actor_uid)
     if action:
         conditions.append(AuditLog.action.ilike(f"%{action}%"))
+    if q:
+        search_term = f"%{q}%"
+        conditions.append(
+            or_(
+                AuditLog.actor.has(User.username.ilike(search_term)),
+                AuditLog.target.has(User.username.ilike(search_term)),
+                AuditLog.detail.ilike(search_term),
+            )
+        )
+    if date_from:
+        conditions.append(
+            AuditLog.created_at
+            >= datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        )
+    if date_to:
+        conditions.append(
+            AuditLog.created_at
+            < datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            + _timedelta(days=1)
+        )
     where_clause = and_(*conditions) if conditions else None
 
     count_stmt = select(func.count()).select_from(AuditLog)
@@ -135,17 +165,32 @@ async def list_audit_logs(
     limit: int,
     actor_uid: uuid.UUID | None = None,
     action: str | None = None,
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> dict[str, Any]:
     suffix = build_suffix(
         page=page,
         limit=limit,
         actor_uid=str(actor_uid) if actor_uid else None,
         action=action,
+        q=q,
+        date_from=date_from,
+        date_to=date_to,
     )
     return await cached_async(
         AUDIT_LOG_CACHE_NAMESPACE,
         AUDIT_LOG_CACHE_TTL_SECONDS,
-        lambda: _fetch_audit_logs(session, page=page, limit=limit, actor_uid=actor_uid, action=action),
+        lambda: _fetch_audit_logs(
+            session,
+            page=page,
+            limit=limit,
+            actor_uid=actor_uid,
+            action=action,
+            q=q,
+            date_from=date_from,
+            date_to=date_to,
+        ),
         suffix=suffix,
     )
 
@@ -170,6 +215,7 @@ async def _fetch_users(
     q: str | None,
     role_filter: str | list[str] | None,
     banned_filter: bool | None,
+    status_filter: str | None,
     page: int,
     limit: int,
 ) -> dict[str, Any]:
@@ -186,6 +232,8 @@ async def _fetch_users(
             conditions.append(User.role.in_(role_filter))
     if banned_filter is not None:
         conditions.append(User.is_banned == banned_filter)
+    if status_filter and status_filter != "all":
+        conditions.append(User.status == status_filter)
 
     where_clause = and_(*conditions) if conditions else None
 
@@ -225,20 +273,31 @@ async def list_users(
     q: str | None,
     role_filter: str | list[str] | None,
     banned_filter: bool | None,
+    status_filter: str | None,
     page: int,
     limit: int,
 ) -> dict[str, Any]:
+    print(f"[DEBUG] list_users: role_filter={role_filter}, banned_filter={banned_filter}, status_filter={status_filter}")
     suffix = build_suffix(
         q=q,
         role=",".join(role_filter) if isinstance(role_filter, list) else role_filter,
         banned=banned_filter,
+        status=status_filter,
         page=page,
         limit=limit,
     )
     return await cached_async(
         USER_LIST_CACHE_NAMESPACE,
         USER_LIST_CACHE_TTL_SECONDS,
-        lambda: _fetch_users(session, q=q, role_filter=role_filter, banned_filter=banned_filter, page=page, limit=limit),
+        lambda: _fetch_users(
+            session,
+            q=q,
+            role_filter=role_filter,
+            banned_filter=banned_filter,
+            status_filter=status_filter,
+            page=page,
+            limit=limit,
+        ),
         suffix=suffix,
     )
 
@@ -314,8 +373,8 @@ async def _fetch_user_password_history(
     limit: int,
 ) -> dict[str, Any]:
     condition = and_(
-        AuditLog.actor_uid == target_uid,
-        AuditLog.action == "change_password",
+        AuditLog.target_uid == target_uid,
+        AuditLog.action.in_(["change_password", "admin_reset_password"]),
     )
     total = (
         await session.execute(
@@ -853,8 +912,10 @@ async def ban_user(
     target = await session.get(User, target_uid)
     if target is None:
         raise AuthError(404, "TARGET_NOT_FOUND", "ไม่พบผู้ใช้เป้าหมาย")
+    if (target.status or "").lower() != "active":
+        raise AuthError(409, "ACCOUNT_INACTIVE", "ไม่สามารถแบนบัญชีที่ไม่ active ได้")
 
-    ensure_can_manage_target(actor, target)
+    ensure_can_ban_target(actor, target)
 
     target.is_banned = True
     target.banned_at = datetime.now(timezone.utc)
@@ -888,7 +949,10 @@ async def bulk_ban_users(
             if target is None:
                 failed.append({"uid": str(target_uid), "reason": "ไม่พบผู้ใช้"})
                 continue
-            ensure_can_manage_target(actor, target)
+            if (target.status or "").lower() != "active":
+                failed.append({"uid": str(target_uid), "reason": "บัญชีไม่ active"})
+                continue
+            ensure_can_ban_target(actor, target)
             target.is_banned = True
             target.banned_at = datetime.now(timezone.utc)
             target.banned_reason = reason
@@ -918,8 +982,10 @@ async def unban_user(
     target = await session.get(User, target_uid)
     if target is None:
         raise AuthError(404, "TARGET_NOT_FOUND", "ไม่พบผู้ใช้เป้าหมาย")
+    if (target.status or "").lower() != "active":
+        raise AuthError(409, "ACCOUNT_INACTIVE", "ไม่สามารถปลดแบนบัญชีที่ไม่ active ได้")
 
-    ensure_can_manage_target(actor, target)
+    ensure_can_ban_target(actor, target)
 
     target.is_banned = False
     target.banned_at = None
@@ -938,36 +1004,170 @@ async def unban_user(
     _invalidate_user_caches(target.uid)
     return target
 
-async def change_user_role(
+async def delete_user(
     session: AsyncSession,
     *,
     actor: User,
     target_uid: uuid.UUID,
-    new_role: str,
 ) -> User:
-    if actor.role != ROLE_MASTER:
-        raise AuthError(403, "INSUFFICIENT_ROLE", "เฉพาะ master เท่านั้นที่เปลี่ยน role ได้")
-
     target = await session.get(User, target_uid)
     if target is None:
         raise AuthError(404, "TARGET_NOT_FOUND", "ไม่พบผู้ใช้เป้าหมาย")
+    if actor.uid == target.uid:
+        raise AuthError(403, "SELF_DELETE_FORBIDDEN", "ไม่สามารถลบบัญชีของตนเองได้")
+    ensure_can_manage_non_master_target(actor, target)
+    if target.status == "deleted":
+        raise AuthError(409, "ALREADY_DELETED", "บัญชีนี้ถูกลบไปแล้ว")
 
-    ensure_can_manage_target(actor, target)
-
-    old_role = target.role
-    target.role = new_role
-
+    target.status = "deleted"
+    target.password = None
+    target.fcm_token = None
+    target.is_banned = False
+    target.banned_at = None
+    target.banned_reason = None
+    target.banned_by = None
     await write_audit_log(
         session,
         actor_uid=actor.uid,
         target_uid=target.uid,
-        action="role_change",
-        detail=f"{old_role}->{new_role}",
+        action="delete_user",
+        detail="logical_delete",
     )
     await session.commit()
     await session.refresh(target)
     _invalidate_user_caches(target.uid)
+    invalidate_cached(USER_LOGIN_HISTORY_CACHE_NAMESPACE, str(target.uid))
+    invalidate_cached(USER_DOWNLOAD_HISTORY_CACHE_NAMESPACE, str(target.uid))
+    invalidate_cached(USER_PASSWORD_HISTORY_CACHE_NAMESPACE, str(target.uid))
+    invalidate_cached("profile:me", str(target.uid))
+    invalidate_cached(DASHBOARD_CACHE_NAMESPACE)
     return target
+
+
+async def reset_user_password(
+    session: AsyncSession,
+    *,
+    actor: User,
+    target_uid: uuid.UUID,
+    new_password: str,
+) -> User:
+    target = await session.get(User, target_uid)
+    if target is None:
+        raise AuthError(404, "TARGET_NOT_FOUND", "ไม่พบผู้ใช้เป้าหมาย")
+    ensure_can_manage_non_master_target(actor, target)
+    if target.status == "deleted":
+        raise AuthError(409, "ACCOUNT_INACTIVE", "ไม่สามารถตั้งรหัสผ่านให้บัญชีที่ถูกลบได้")
+
+    target.password = get_password_hash(new_password)
+    await write_audit_log(
+        session,
+        actor_uid=actor.uid,
+        target_uid=target.uid,
+        action="admin_reset_password",
+        detail="password_reset_by_admin",
+    )
+    await session.commit()
+    await session.refresh(target)
+    invalidate_cached(USER_PASSWORD_HISTORY_CACHE_NAMESPACE, str(target.uid))
+    invalidate_cached(AUDIT_LOG_CACHE_NAMESPACE)
+    return target
+
+
+async def create_user_by_master(
+    session: AsyncSession,
+    *,
+    actor: User,
+    username: str,
+    email: str,
+    password: str,
+    role: str,
+) -> User:
+    if actor.role != ROLE_MASTER:
+        raise AuthError(403, "INSUFFICIENT_ROLE", "เฉพาะ master เท่านั้นที่สร้างบัญชีได้")
+    if role not in ASSIGNABLE_ROLES:
+        raise AuthError(400, "INVALID_REQUEST", "สิทธิ์ต้องเป็นผู้ใช้หรือผู้ดูแลเท่านั้น")
+
+    normalized_email = normalize_email(email.strip())
+
+    taken_email = await session.execute(
+        select(User.uid).where(normalized_email_expr(User.email) == normalized_email).limit(1)
+    )
+    if taken_email.scalar_one_or_none() is not None:
+        raise AuthError(409, "EMAIL_TAKEN", "มีอีเมลผู้ใช้งานนี้ในระบบแล้ว")
+
+    taken_username = await session.execute(
+        select(User.uid).where(User.username == username).limit(1)
+    )
+    if taken_username.scalar_one_or_none() is not None:
+        raise AuthError(409, "USERNAME_TAKEN", "มีชื่อผู้ใช้นี้ในระบบแล้ว")
+
+    policy_error = validate_password_policy(password)
+    if policy_error:
+        raise AuthError(400, "PASSWORD_POLICY_INVALID", policy_error)
+
+    new_user = User(
+        username=username,
+        email=normalized_email,
+        password=get_password_hash(password),
+        role=role,
+        status="active",
+        created_by=actor.uid,
+    )
+    session.add(new_user)
+    try:
+        await session.flush()
+        await write_audit_log(
+            session,
+            actor_uid=actor.uid,
+            target_uid=new_user.uid,
+            action="create_user",
+            detail=f"role={role}",
+        )
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        taken_email = await session.execute(
+            select(User.uid).where(normalized_email_expr(User.email) == normalized_email).limit(1)
+        )
+        if taken_email.scalar_one_or_none() is not None:
+            raise AuthError(409, "EMAIL_TAKEN", "มีอีเมลผู้ใช้งานนี้ในระบบแล้ว")
+        taken_username = await session.execute(
+            select(User.uid).where(User.username == username).limit(1)
+        )
+        if taken_username.scalar_one_or_none() is not None:
+            raise AuthError(409, "USERNAME_TAKEN", "มีชื่อผู้ใช้นี้ในระบบแล้ว")
+        raise
+    await session.refresh(new_user)
+    _invalidate_user_caches(new_user.uid)
+    return new_user
+
+async def delete_audit_logs_older_than(
+    session: AsyncSession,
+    *,
+    actor: User,
+    months: int,
+) -> dict[str, Any]:
+    if actor.role != ROLE_MASTER:
+        raise AuthError(403, "INSUFFICIENT_ROLE", "เฉพาะ master เท่านั้นที่ลบ audit log ได้")
+    if type(months) is not int or not 1 <= months <= 120:
+        raise AuthError(400, "INVALID_REQUEST", "จำนวนเดือนต้องอยู่ระหว่าง 1–120")
+
+    cutoff = datetime.now(timezone.utc) - _timedelta(days=30 * months)
+    result = await session.execute(delete(AuditLog).where(AuditLog.created_at < cutoff))
+    deleted = result.rowcount or 0
+
+    await write_audit_log(
+        session,
+        actor_uid=actor.uid,
+        target_uid=None,
+        action="delete_audit_logs",
+        detail=f"months={months} | deleted={deleted}",
+    )
+    await session.commit()
+    invalidate_cached(AUDIT_LOG_CACHE_NAMESPACE)
+    invalidate_cached(USER_PASSWORD_HISTORY_CACHE_NAMESPACE)
+    invalidate_cached(DASHBOARD_CACHE_NAMESPACE)
+    return {"deleted": deleted}
 
 async def get_admin_dashboard_summary(session: AsyncSession, *, trend_days: int = 14) -> dict[str, Any]:
     total_users = (

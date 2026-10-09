@@ -163,7 +163,7 @@ async def _compute_analysis_report(uid: str, task_id: str):
         user = await session.get(User, uid)
         if user is None:
             raise HTTPException(status_code=401, detail="Invalid token payload")
-        if user.is_banned:
+        if (user.status or "").lower() != "active" or user.is_banned:
             raise HTTPException(status_code=403, detail="Account is banned")
         row = await get_analysis_with_report(session, task_id, uid=uid)
         if not row:
@@ -265,7 +265,7 @@ async def get_file_by_hash_controller(task_id: str, uid: str, tool: str = "virus
         user = await session.get(User, uid)
         if user is None:
             raise HTTPException(status_code=401, detail="Invalid token payload")
-        if user.is_banned:
+        if (user.status or "").lower() != "active" or user.is_banned:
             raise HTTPException(status_code=403, detail="Account is banned")
         row = await get_analysis_with_report(session, task_id, uid=uid)
         if not row:
@@ -389,6 +389,8 @@ async def update_privacy_controller(task_id: str, token: str, privacy: bool):
         user = await session.get(User, uid)
         if user is None:
             raise HTTPException(status_code=401, detail="Invalid token payload")
+        if (user.status or "").lower() != "active":
+            raise HTTPException(status_code=401, detail="Account is not active")
         try:
             ensure_not_banned(user)
         except AuthError as exc:

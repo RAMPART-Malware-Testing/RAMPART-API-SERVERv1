@@ -11,11 +11,14 @@ from schemas.admin import (
     AdminBroadcastEmailParams,
     AdminBulkBanUsersParams,
     AdminBulkDeleteFilesParams,
-    AdminChangeRoleParams,
     AdminClearLockoutParams,
+    AdminCreateUserParams,
     AdminDashboardParams,
+    AdminDeleteAuditLogsParams,
     AdminDeleteFileParams,
     AdminDeleteHistoryParams,
+    AdminDeleteUserParams,
+    AdminResetUserPasswordParams,
     AdminListFilesParams,
     AdminListReportsParams,
     AdminListUsersParams,
@@ -28,7 +31,14 @@ from schemas.admin import (
     AdminUserSubHistoryParams,
 )
 from services.admin import admin_service
-from services.admin.authz import ADMIN_ROLES, AuthError, ensure_not_banned, ensure_role, get_current_user
+from services.admin.authz import (
+    ADMIN_ROLES,
+    AuthError,
+    ensure_can_manage_target,
+    ensure_not_banned,
+    ensure_role,
+    get_current_user,
+)
 from utils.response import error, success
 from utils.status_code import AuthStatus
 from utils.uuid import parse_uuid
@@ -53,12 +63,14 @@ def _parse_target_uid(raw: str):
 async def list_users_controller(body: AdminListUsersParams):
     async with SessionLocal() as session:
         try:
-            await _resolve_admin_actor(session, body.token)
+            actor = await _resolve_admin_actor(session, body.token)
+            print(f"[DEBUG] list_users_controller: actor.uid={actor.uid}, actor.role={actor.role}")
             return await admin_service.list_users(
                 session,
                 q=body.q,
                 role_filter=body.role,
                 banned_filter=body.banned,
+                status_filter=body.status,
                 page=body.page,
                 limit=body.limit,
             )
@@ -73,6 +85,7 @@ async def get_user_detail_controller(body: AdminTargetUserParams):
             target = await admin_service.get_user_admin_view(session, target_uid)
             if target is None:
                 return error(AuthStatus.TARGET_NOT_FOUND, "ไม่พบผู้ใช้เป้าหมาย")
+            ensure_can_manage_target(actor, target)
 
             await admin_service.write_audit_log(
                 session,
@@ -99,6 +112,7 @@ async def get_user_history_controller(body: AdminUserHistoryParams):
             target = await admin_service.get_user_admin_view(session, target_uid)
             if target is None:
                 return error(AuthStatus.TARGET_NOT_FOUND, "ไม่พบผู้ใช้เป้าหมาย")
+            ensure_can_manage_target(actor, target)
 
             history = await admin_service.get_user_analysis_history_admin(session, target_uid, body)
 
@@ -150,18 +164,76 @@ async def unban_user_controller(body: AdminUnbanUserParams):
         except AuthError as exc:
             return _auth_error_response(exc)
 
-async def change_role_controller(body: AdminChangeRoleParams):
+async def create_user_controller(body: AdminCreateUserParams):
+    async with SessionLocal() as session:
+        try:
+            actor = await _resolve_admin_actor(session, body.token)
+            target = await admin_service.create_user_by_master(
+                session,
+                actor=actor,
+                username=body.username,
+                email=body.email,
+                password=body.password,
+                role=body.role,
+            )
+            return success(
+                AuthStatus.REGISTER_SUCCESS,
+                "สร้างบัญชีผู้ใช้สำเร็จ",
+                admin_service.serialize_user(target),
+            )
+        except AuthError as exc:
+            return _auth_error_response(exc)
+
+async def delete_user_controller(body: AdminDeleteUserParams):
     async with SessionLocal() as session:
         try:
             actor = await _resolve_admin_actor(session, body.token)
             target_uid = _parse_target_uid(body.target_uid)
-            target = await admin_service.change_user_role(
-                session, actor=actor, target_uid=target_uid, new_role=body.new_role
+            target = await admin_service.delete_user(
+                session, actor=actor, target_uid=target_uid
             )
             return success(
-                AuthStatus.ROLE_CHANGE_SUCCESS,
-                "เปลี่ยน role สำเร็จ",
+                AuthStatus.ADMIN_ACTION_SUCCESS,
+                "ลบบัญชีผู้ใช้สำเร็จ",
                 admin_service.serialize_user(target),
+            )
+        except AuthError as exc:
+            return _auth_error_response(exc)
+
+
+async def reset_user_password_controller(body: AdminResetUserPasswordParams):
+    async with SessionLocal() as session:
+        try:
+            actor = await _resolve_admin_actor(session, body.token)
+            target_uid = _parse_target_uid(body.target_uid)
+            target = await admin_service.reset_user_password(
+                session,
+                actor=actor,
+                target_uid=target_uid,
+                new_password=body.new_password,
+            )
+            return success(
+                AuthStatus.ADMIN_ACTION_SUCCESS,
+                "ตั้งรหัสผ่านผู้ใช้สำเร็จ",
+                admin_service.serialize_user(target),
+            )
+        except AuthError as exc:
+            return _auth_error_response(exc)
+
+
+async def delete_audit_logs_controller(body: AdminDeleteAuditLogsParams):
+    async with SessionLocal() as session:
+        try:
+            actor = await _resolve_admin_actor(session, body.token)
+            result = await admin_service.delete_audit_logs_older_than(
+                session,
+                actor=actor,
+                months=body.months,
+            )
+            return success(
+                AuthStatus.ADMIN_ACTION_SUCCESS,
+                "ลบ audit log เก่าสำเร็จ",
+                {"deleted": result.get("deleted")},
             )
         except AuthError as exc:
             return _auth_error_response(exc)
@@ -185,6 +257,9 @@ async def audit_logs_controller(body: AdminAuditLogParams):
                 limit=body.limit,
                 actor_uid=actor_uid,
                 action=body.action,
+                q=body.q,
+                date_from=body.date_from,
+                date_to=body.date_to,
             )
         except AuthError as exc:
             return _auth_error_response(exc)
@@ -242,11 +317,12 @@ async def list_reports_controller(body: AdminListReportsParams):
 async def get_user_login_history_controller(body: AdminUserSubHistoryParams):
     async with SessionLocal() as session:
         try:
-            await _resolve_admin_actor(session, body.token)
+            actor = await _resolve_admin_actor(session, body.token)
             target_uid = _parse_target_uid(body.target_uid)
             target = await admin_service.get_user_admin_view(session, target_uid)
             if target is None:
                 return error(AuthStatus.TARGET_NOT_FOUND, "ไม่พบผู้ใช้เป้าหมาย")
+            ensure_can_manage_target(actor, target)
             return await admin_service.get_user_login_history_admin(
                 session, target_uid, page=body.page, limit=body.limit
             )
@@ -256,11 +332,12 @@ async def get_user_login_history_controller(body: AdminUserSubHistoryParams):
 async def get_user_password_history_controller(body: AdminUserSubHistoryParams):
     async with SessionLocal() as session:
         try:
-            await _resolve_admin_actor(session, body.token)
+            actor = await _resolve_admin_actor(session, body.token)
             target_uid = _parse_target_uid(body.target_uid)
             target = await admin_service.get_user_admin_view(session, target_uid)
             if target is None:
                 raise AuthError(404, "TARGET_NOT_FOUND", "ไม่พบผู้ใช้เป้าหมาย")
+            ensure_can_manage_target(actor, target)
             return await admin_service.get_user_password_history_admin(
                 session, target_uid, page=body.page, limit=body.limit
             )
@@ -270,11 +347,12 @@ async def get_user_password_history_controller(body: AdminUserSubHistoryParams):
 async def get_user_download_history_controller(body: AdminUserSubHistoryParams):
     async with SessionLocal() as session:
         try:
-            await _resolve_admin_actor(session, body.token)
+            actor = await _resolve_admin_actor(session, body.token)
             target_uid = _parse_target_uid(body.target_uid)
             target = await admin_service.get_user_admin_view(session, target_uid)
             if target is None:
                 return error(AuthStatus.TARGET_NOT_FOUND, "ไม่พบผู้ใช้เป้าหมาย")
+            ensure_can_manage_target(actor, target)
             return await admin_service.get_user_download_history_admin(
                 session, target_uid, page=body.page, limit=body.limit
             )

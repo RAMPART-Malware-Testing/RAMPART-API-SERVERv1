@@ -15,51 +15,6 @@ MAX_PASSWORD_LENGTH = 128
 class ProfileTokenParams(BaseModel):
     token: str
 
-MAX_EMAIL_LENGTH = 255
-
-class ChangeEmailParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    token: str
-    email: str
-
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, v: str) -> str:
-        v = v.strip().lower()
-        if not v:
-            raise ValueError("กรุณาระบุอีเมลใหม่")
-        if len(v) > MAX_EMAIL_LENGTH:
-            raise ValueError("อีเมลยาวเกินไป")
-        return v
-
-class VerifyOldEmailParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    token: str
-    otp_token: str
-    otp: str
-
-    @field_validator("otp")
-    @classmethod
-    def validate_otp(cls, v: str) -> str:
-        v = v.strip()
-        if not v.isdigit() or len(v) != 6:
-            raise ValueError("รหัส OTP ต้องเป็นตัวเลข 6 หลัก")
-        return v
-
-class ConfirmEmailParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    token: str
-    otp_token: str
-    otp: str
-
-    @field_validator("otp")
-    @classmethod
-    def validate_otp(cls, v: str) -> str:
-        v = v.strip()
-        if not v.isdigit() or len(v) != 6:
-            raise ValueError("รหัส OTP ต้องเป็นตัวเลข 6 หลัก")
-        return v
-
 HISTORY_DEFAULT_LIMIT = 25
 HISTORY_MAX_LIMIT = 100
 

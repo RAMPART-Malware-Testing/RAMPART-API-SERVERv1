@@ -30,7 +30,7 @@ async def check_hash_controller(user_id: str, sha256: str, file_name: str, file_
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={"success": False, "code": "USER_NOT_FOUND", "message": "User not found."},
             )
-        if user_record.is_banned:
+        if (user_record.status or "").lower() != "active" or user_record.is_banned:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={"success": False, "code": "USER_NOT_ACTIVE", "message": "User is not active."},

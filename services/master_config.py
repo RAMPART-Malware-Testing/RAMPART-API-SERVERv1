@@ -8,7 +8,7 @@ MASTER_CONFIG_PATH = Path(
     or (Path(__file__).resolve().parent.parent / "config" / "master_config.json")
 )
 
-_INITIAL_STATE = {"email_verified": False}
+_INITIAL_STATE = {}
 
 
 def _read() -> dict:
@@ -47,24 +47,12 @@ def _write(data: dict) -> None:
         raise
 
 
-def is_master_email_verified(uid) -> bool:
-    data = _read()
-    return data.get("uid") == str(uid) and data.get("email_verified") is True
-
-
-def _write_state(uid, email_verified: bool, email: str | None = None) -> None:
-    payload = {"uid": str(uid), "email_verified": email_verified}
+def record_master_identity(uid, email: str | None = None) -> None:
+    payload = {"uid": str(uid)}
     if email:
         payload["email"] = email
     _write(payload)
 
-
-def record_master_identity(uid, email: str | None = None) -> None:
-    _write_state(uid, False, email)
-
-
-def mark_master_email_verified(uid, email: str | None = None) -> None:
-    _write_state(uid, True, email)
 
 
 def reset_master_config() -> None:

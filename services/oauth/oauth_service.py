@@ -6,7 +6,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cores.Schema.schema_class import OAuthAccount, User
-from services.master_config import is_master_email_verified
 from utils.email_normalize import normalize_email, normalized_email_expr
 from utils.jwt import create_token
 
@@ -56,6 +55,8 @@ async def find_or_create_user(session: AsyncSession, profile: OAuthProfile) -> U
     if oauth_account is not None:
         user = await session.get(User, oauth_account.uid)
         if user is not None:
+            if (user.status or "").lower() != "active":
+                raise OAuthError("This account is not active.")
             return user
 
     existing_user_result = await session.execute(
@@ -75,6 +76,8 @@ async def find_or_create_user(session: AsyncSession, profile: OAuthProfile) -> U
         session.add(user)
         await session.flush()
     else:
+        if (user.status or "").lower() != "active":
+            raise OAuthError("This account is not active.")
         if not profile.email_verified:
             raise OAuthError(
                 "This e-mail is already registered with a different sign-in "
@@ -115,7 +118,6 @@ def issue_device_token(user: User) -> str:
     )
 
 def user_public_dict(user: User) -> dict:
-    email_verified = is_master_email_verified(user.uid) if user.role == "master" else True
     return {
         "uid": str(user.uid),
         "username": user.username,
@@ -123,6 +125,5 @@ def user_public_dict(user: User) -> dict:
         "avatar_url": user.avatar_url,
         "role": user.role,
         "status": user.status,
-        "email_verified": email_verified,
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }

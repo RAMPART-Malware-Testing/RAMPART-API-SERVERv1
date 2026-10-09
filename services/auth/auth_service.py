@@ -28,7 +28,6 @@ from cores.Schema.schema_class import LoginHistory, OAuthAccount, User
 from utils.cypto.PasswordCreateAndVerify import get_password_hash, verify_password
 from utils.email_normalize import normalize_email, normalized_email_expr
 from utils.jwt import create_token
-from services.master_config import is_master_email_verified
 from services.otp_service import OTPService, MAX_OTP_ATTEMPTS
 
 DEVICE_TOKEN_TTL_MINUTES = 60 * 24 * 7
@@ -89,6 +88,9 @@ class AuthService:
 
             if not user:
                 return error(AuthStatus.USER_NOT_FOUND, "ไม่พบผู้ใช้งานระบบ")
+
+            if (user.status or "").lower() != "active":
+                return error(AuthStatus.USER_NOT_FOUND, "ผู้ใช้งานถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ")
 
             if not user.password or not verify_password(user.password, body.password):
                 return error(AuthStatus.INVALID_CREDENTIALS, "ข้อมูลการเข้าสู่ระบบไม่ถูกต้อง")
@@ -153,30 +155,6 @@ class AuthService:
                     }
                 )
 
-            if user.role == "master" and not is_master_email_verified(user.uid):
-                access_token = create_token(
-                    subject=str(user.uid),
-                    token_type="access",
-                    expires_minutes=60 * 24 * 7
-                )
-                await _record_login_history(
-                    session, uid=user.uid, provider="password", ip=ip,
-                    user_agent=user_agent, status="success_unverified_master",
-                )
-                await session.commit()
-
-                user_dict = user.__dict__.copy()
-                user_dict.pop("password", None)
-                user_dict.pop("_sa_instance_state", None)
-                return success(
-                    AuthStatus.LOGIN_SUCCESS,
-                    "เข้าสู่ระบบสำเร็จ",
-                    {
-                        "access_token": access_token,
-                        "data": user_dict,
-                        "bypass_otp": True,
-                    }
-                )
 
             await _record_login_history(
                 session, uid=user.uid, provider="password", ip=ip,
@@ -231,6 +209,8 @@ class AuthService:
 
             if not user:
                 return error(AuthStatus.USER_NOT_FOUND, "ไม่พบผู้ใช้งานระบบ")
+            if (user["status"] or "").lower() != "active":
+                return error(AuthStatus.USER_NOT_FOUND, "ผู้ใช้งานถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ")
 
             await _record_login_history(
                 session, uid=user.uid, provider="password", ip=ip,
@@ -336,6 +316,8 @@ class AuthService:
                 user = result.scalar_one_or_none()
                 if not user:
                     return error(AuthStatus.USER_NOT_FOUND, "ไม่พบผู้ใช้งานระบบ")
+                if (user.status or "").lower() != "active":
+                    return error(AuthStatus.USER_NOT_FOUND, "ผู้ใช้งานถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ")
                 user.password = get_password_hash(body.newPasswd)
                 await session.commit()
             return success(
@@ -346,11 +328,13 @@ class AuthService:
             normalized_email = normalize_email(body.email)
             async with SessionLocal() as session:
                 result = await session.execute(
-                    select(User.uid, User.email).where(normalized_email_expr(User.email) == normalized_email)
+                    select(User.uid, User.email, User.status).where(normalized_email_expr(User.email) == normalized_email)
                 )
                 user = result.mappings().one_or_none()
             if not user:
                 return error(AuthStatus.USER_NOT_FOUND, "ไม่พบผู้ใช้งานระบบ")
+            if (user["status"] or "").lower() != "active":
+                return error(AuthStatus.USER_NOT_FOUND, "ผู้ใช้งานถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ")
 
             token = create_token(
                 subject=str(user.uid),
@@ -388,6 +372,9 @@ class AuthService:
             user = result.scalar_one_or_none()
             if not user:
                 return error(AuthStatus.USER_NOT_FOUND, "ไม่พบผู้ใช้งานระบบ")
+
+            if (user.status or "").lower() != "active":
+                return error(AuthStatus.USER_NOT_FOUND, "ผู้ใช้งานถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ")
 
             user.password = get_password_hash(body.newPasswd)
             await session.commit()
