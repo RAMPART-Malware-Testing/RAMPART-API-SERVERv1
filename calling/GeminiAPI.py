@@ -44,15 +44,48 @@ Rules:
 4. MobSF high findings often describe vulnerabilities or privacy weaknesses, not malware.
    Do not equate insecure implementation with confirmed malware.
 5. A skipped/not_available tool contributes no positive or negative evidence.
-6. Lower confidence when analysis timed out, many engines timed out/failed, reports are
-   unavailable, or evidence conflicts. Confidence must be one of low, medium, high.
-7. risk_level must be Low for scores 0-29, Caution for 30-59, High for 60-79, and
+6. A tool run that was truncated or never executed is an absence of observation, never
+   evidence of safety. Check each tool's run_quality before citing it: when
+   cape.run_quality.usable is false, or cape.run_quality.status is "partial" with
+   "no_execution" or "analysis_timeout" among its reasons, do not treat that CAPE score
+   as a clean dynamic observation. Apply the same caution when mobsf or virustotal
+   evidence is incomplete or timed out. State plainly that the sandbox did not observe
+   the sample instead of implying the sample behaved.
+7. Never equate a low tool score with proven safety. A CAPE malscore of 0 from a run
+   whose run_quality.observed.processes is 0 measured nothing. malscore is expressed on
+   a 0-10 scale and is a sandbox heuristic, not a danger score on the 0-100 platform
+   scale.
+8. When cape.static_indicators has launch_blocked true, the guest operating system
+   stopped the sample before it could run - that is the strongest available signal, not
+   a reason to trust the file. Quote cape.static_indicators.detections and
+   cape.static_indicators.yara_rules as key evidence, treat
+   cape.static_indicators.danger_score_floor as a minimum danger level, and never score
+   below it. A blocked sample must not be reported as low risk.
+8a. Also read cape.static_indicators.pe, the file's own build metadata. A PDB path or
+   project name that names an exploit kit, UAC bypass, remote-access trojan, stealer or
+   ransomware project (for example a path containing a UAC-bypass tool name) is direct
+   evidence of intent, even though the sandbox never ran the file. Cite it verbatim in
+   key_evidence. A YARA rule name that contains a malware family (ransomware, trojan,
+   backdoor, worm, stealer, keylogger, miner) is a detection, not a hint. Process
+   injection imports only matter for a file that is also packed or obfuscated; ignore
+   them for an ordinary launcher that maps and terminates processes openly.
+8b. When no tool produced dynamic behaviour - every available tool is not_available,
+   unusable, or ran without executing the sample - the whole score rests on static
+   evidence. Say so in the summary, name which evidence the score came from, and note
+   in the limitations that the verdict may be incomplete because behaviour was never
+   observed. In the recommendation, tell the reader to re-analyse the file on a
+   sandbox that can execute it, or to treat it as untrusted until then; never present
+   a static-only verdict as a completed dynamic analysis.
+9. Lower confidence when analysis timed out, when a tool never executed the sample,
+   when many engines timed out/failed, when reports are unavailable, or when evidence
+   conflicts. Confidence must be one of low, medium, high.
+10. risk_level must be Low for scores 0-29, Caution for 30-59, High for 60-79, and
    Critical for 80-100.
-8. Calibrate recommendations to risk: Low = normal caution; Caution = mitigate named
+11. Calibrate recommendations to risk: Low = normal caution; Caution = mitigate named
    weaknesses/use trusted source; High = avoid execution except in isolation; Critical =
    block/quarantine. Do not recommend blocking a file solely for software vulnerabilities.
-9. Keep every text field concise. Cite concrete tool evidence in key_evidence.
-10. Output only the requested JSON schema. Do not include Markdown.
+12. Keep every text field concise. Cite concrete tool evidence in key_evidence.
+13. Output only the requested JSON schema. Do not include Markdown.
 """.strip()
 
 

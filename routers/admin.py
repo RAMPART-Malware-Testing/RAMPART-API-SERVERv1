@@ -33,6 +33,8 @@ from controller.admin_controller import (
     task_queue_list_controller,
     task_retry_controller,
     unban_user_controller,
+    get_config_controller,
+    update_config_controller,
 )
 from schemas.admin import (
     AdminAuditLogParams,
@@ -41,6 +43,7 @@ from schemas.admin import (
     AdminBulkBanUsersParams,
     AdminBulkDeleteFilesParams,
     AdminClearLockoutParams,
+    AdminConfigParams,
     AdminCreateUserParams,
     AdminDashboardParams,
     AdminDeleteAuditLogsParams,
@@ -217,3 +220,11 @@ async def delete_user_history(body: AdminDeleteHistoryParams):
 @router.post("/users/password-history")
 async def get_user_password_history(body: AdminUserSubHistoryParams):
     return await get_user_password_history_controller(body)
+
+@router.post("/config")
+async def get_config(body: AdminTokenParams):
+    return await get_config_controller(body)
+
+@router.post("/config/update")
+async def update_config(body: AdminConfigParams):
+    return await update_config_controller(body)

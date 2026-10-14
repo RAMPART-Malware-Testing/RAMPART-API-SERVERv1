@@ -1393,3 +1393,59 @@ async def broadcast_email(
     await session.commit()
 
     return {"success": True, "data": {"sent": sent, "total_recipients": len(rows)}}
+
+async def get_config_value(session: AsyncSession, key: str) -> Any:
+    master_config = await session.get(Reports, None)
+
+MASTER_CONFIG_PATH = Path(__file__).parent.parent.parent / "config" / "master_config.json"
+
+def _read_master_config() -> dict[str, Any]:
+    try:
+        if MASTER_CONFIG_PATH.exists():
+            with open(MASTER_CONFIG_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+def _write_master_config(data: dict[str, Any]) -> bool:
+    try:
+        MASTER_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(MASTER_CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception:
+        return False
+
+async def get_config_value(key: str) -> Any:
+    config = _read_master_config()
+    return config.get(key)
+
+async def update_config_value(
+    session: AsyncSession,
+    *,
+    actor: User,
+    key: str,
+    value: Any,
+) -> dict[str, Any]:
+    config = _read_master_config()
+    config[key] = value
+    
+    if not _write_master_config(config):
+        return {"success": False, "status": "CONFIG_WRITE_ERROR", "message": "ไม่สามารถบันทึกการตั้งค่าได้"}
+    
+    await write_audit_log(
+        session,
+        actor_uid=actor.uid,
+        target_uid=None,
+        action="update_config",
+        detail=f"key={key}",
+    )
+    await session.commit()
+    
+    return {"success": True, "data": {key: value}}
+
+async def get_all_configs(session: AsyncSession) -> dict[str, Any]:
+    config = _read_master_config()
+    excluded_keys = {"uid", "email", "email_verified"}
+    return {k: v for k, v in config.items() if k not in excluded_keys}

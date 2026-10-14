@@ -13,6 +13,8 @@ from bgProcessing.task_handlers import (
     calculate_mobsf_danger_score,
     calculate_rampart_ai_score,
     calculate_threat_scoreVT,
+    cape_run_quality,
+    cape_static_indicators,
     get_malicious_virustotal_results,
     handle_cape,
     handle_mobsf,
@@ -92,8 +94,6 @@ def fail_task(db, task_id: str, error, *, report_paths=(), tool_notes: dict | No
         tool_notes=json.dumps(tool_notes, ensure_ascii=False) if tool_notes else None,
     )
     db.commit()
-    # แถวที่จบไปแล้ว (success/failed) จะไม่ถูกเปลี่ยนสถานะ — ห้ามส่งอีเมล/push
-    # ว่า "ไม่สำเร็จ" เพราะผู้ใช้จะได้แจ้งเตือนขัดกับรายงานที่วิเคราะห์สำเร็จแล้ว
     if not changed:
         print(f"[Notify] skip failure notice for {task_id}: task already finished")
         return {"success": False, "task_id": task_id, "error": message}
@@ -136,6 +136,50 @@ def tool_danger_score(status, path: str | None, calculator):
     if status is not True:
         return None
     return read_sandbox_score(path, calculator)
+
+def record_cape_run_quality(report_path: str | None, tool_notes: dict, tool_states: dict) -> dict | None:
+    """Surface an unusable, truncated or blocked CAPE run instead of letting it read as clean.
+
+    Only annotates; the CAPE state stays "success" and the report stays readable so
+    the web layer can still show the raw run. The danger score already reflects this
+    (static floor for a blocked launch, withheld score for an unusable run), so the
+    note is what makes that visible to a human.
+    """
+    if not report_path:
+        return None
+    try:
+        report = read_report(report_path)
+    except (OSError, json.JSONDecodeError, AttributeError, TypeError, ValueError):
+        return None
+    quality = cape_run_quality(report)
+    statics = cape_static_indicators(report)
+    reasons = list(quality.get("reasons") or [])
+    notes: list[str] = []
+    if statics.get("sample_blocked_by_guest_av"):
+        notes.append(
+            "CAPE could not run the sample: the sandbox guest blocked it as malicious "
+            "(Windows Defender). Dynamic behaviour is missing; score comes from static detections"
+        )
+    elif statics.get("launch_requires_elevation"):
+        notes.append(
+            "CAPE could not run the sample: it requires elevated rights (WinError 740). "
+            "Dynamic behaviour is missing; score comes from static detections"
+        )
+    if not quality.get("usable", True):
+        notes.append(f"CAPE run unusable ({', '.join(reasons)}); no behaviours observed")
+    elif reasons:
+        notes.append(f"CAPE run incomplete ({', '.join(reasons)}); score may understate danger")
+    if not notes:
+        return None
+    tool_notes["cape"] = " — ".join(notes)
+    if statics.get("detections") or statics.get("yara_rules"):
+        tool_notes["cape"] += (
+            f" [static: YARA={', '.join(statics['yara_rules']) or '-'}; "
+            f"detections={', '.join(statics['detections']) or '-'}]"
+        )
+    combined_reasons = reasons + list(statics.get("reasons") or [])
+    tool_states["cape"] = {"state": "success", "reason": ", ".join(dict.fromkeys(combined_reasons))}
+    return quality
 
 def task_is_complete(db, task_id: str) -> bool:
     statuses = db.execute(
@@ -220,6 +264,7 @@ def finalize_analysis_report(
     tools: str = "virustotal",
     tool_notes: dict | None = None,
     tool_states: dict | None = None,
+    enable_vt_hash_check: bool = True,
 ):
     try:
         db.execute(
@@ -385,6 +430,7 @@ def analyze_malware_task(
     gemini_status=None,
     tool_notes: dict | None = None,
     tool_states: dict | None = None,
+    enable_vt_hash_check: bool = True,
 ):
     db = SyncSessionLocal()
     task_id = self.request.id
@@ -393,6 +439,17 @@ def analyze_malware_task(
 
     try:
         publish_progress(task_id, "worker", "Celery worker accepted the task")
+        if not enable_vt_hash_check and vt_status is None:
+            vt_status = "skipped"
+            tool_notes["virustotal"] = "Skipped: VirusTotal hash check disabled in config"
+            tool_states["virustotal"] = {"state": "terminal", "reason": "disabled_by_config"}
+            publish_progress(
+                task_id,
+                "virustotal",
+                "VirusTotal hash check disabled",
+                tools={"virustotal": {"status": "skipped", "note": tool_notes["virustotal"]}},
+            )
+
         started = update_task_rows(db, task_id, "processing", ("dispatching", "queued"))
         db.commit()
         if not started and (
@@ -415,6 +472,7 @@ def analyze_malware_task(
                 total_size,
                 is_retry=vt_submitted,
                 report_path=vt_report_path,
+                enable_hash_check=enable_vt_hash_check,
             )
             if result.get("status") is True:
                 vt_report_path = result.get("report_path", vt_report_path)
@@ -709,6 +767,9 @@ def analyze_malware_task(
         successful_rampart_ai_path = rampart_ai_report_path if rampart_ai_status is True else None
         if rampart_ai_status is True:
             successful_tools.append("rampart_ai")
+
+        if cape_status is True:
+            record_cape_run_quality(successful_cape_path, tool_notes, tool_states)
 
         evidence = build_gemini_evidence(
             vt_report_path if vt_status is True else None,

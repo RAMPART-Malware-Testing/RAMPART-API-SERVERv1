@@ -23,6 +23,7 @@ from services.analy.analy_service import (
     completeness_summary,
     evaluate_tool_completeness,
     get_content_row_for_recovery,
+    get_vt_hash_check_enabled,
     update_analysis_rows_by_task_id,
     upsert_user_analysis,
 )
@@ -160,6 +161,8 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
 
             detection = await run_in_threadpool(detect_from_file, target_file_path, file_extension)
 
+            enable_vt_hash_check = await get_vt_hash_check_enabled(db_session)
+
             recovery_row = await get_content_row_for_recovery(db_session, final_sha256)
             carry_forward_kwargs = {}
             recovery_rid = None
@@ -171,6 +174,7 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
                 recovery_states = carry_forward_states(recovery_row)
                 if recovery_states:
                     carry_forward_kwargs["tool_states"] = recovery_states
+            carry_forward_kwargs["enable_vt_hash_check"] = enable_vt_hash_check
             task_id = str(uuid.uuid4())
             analysis = await upsert_user_analysis(
                 session=db_session,
@@ -194,7 +198,7 @@ async def scan_file_controller(file: UploadFile, user_id: str, is_private: bool)
                 await run_in_threadpool(
                     analyze_malware_task.apply_async,
                     args=(str(target_file_path), final_md5, final_sha256, accumulated_size),
-                    kwargs=carry_forward_kwargs or None,
+                    kwargs=carry_forward_kwargs,
                     task_id=task_id,
                 )
             except Exception:

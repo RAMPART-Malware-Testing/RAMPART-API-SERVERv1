@@ -105,6 +105,17 @@ CAPE report ────────┘        (report_evidence.py)             
 {
   "status": "complete",
   "identity": { "name", "type", "size", "md5", "sha256" },
+  "run_quality": {
+    "usable": true,
+    "status": "complete | partial | unusable | unreadable",
+    "reasons": ["analysis_timeout", "no_execution", "analysis_failed"],
+    "malscore": 7.5,
+    "malscore_scale_max": 10,
+    "malstatus": "Malicious",
+    "timed_out": false,
+    "duration_seconds": 120,
+    "observed": { "processes", "signatures", "dropped", "payloads", "network", "ttps" }
+  },
   "malscore": 7.5,
   "danger_score": 75,
   "malstatus": "Malicious",
@@ -166,6 +177,42 @@ Gemini ถูกสั่งชัดเจนใน system prompt ว่า too
    (จากหลาย antivirus vendor), MobSF คือ static code/permission analysis, CAPE คือ
    dynamic runtime behavior — system prompt สั่งชัดว่า *"Do not average tool scores
    mechanically"* เพราะ 3 อันนี้วัดคนละมิติกัน ต้องอธิบายความขัดแย้งแทนที่จะเฉลี่ยตัวเลขทิ้งๆ ขว้างๆ
+
+---
+
+### 2.5 CAPE run quality + static indicators (เพิ่ม 2026-10-13)
+
+CAPE เขียน report ได้แม้ sandbox ไม่ได้รันตัวอย่างเลย (guest AV บล็อก, ไฟล์ต้องยกระดับสิทธิ์)
+ในกรณีนั้น `malscore` จะเหลือ ~0 ซึ่งเดิมอ่านเป็น "ปลอดภัย" ได้ง่าย ตอนนี้ evidence ส่งเพิ่ม:
+
+```json
+{
+  "run_quality": {
+    "usable": false,
+    "status": "unusable | partial | complete | unreadable",
+    "reasons": ["analysis_failed", "no_execution", "analysis_timeout"],
+    "malscore": 0, "malscore_scale_max": 10,
+    "malstatus": "Failed", "timed_out": false, "duration_seconds": 33,
+    "observed": { "processes", "signatures", "dropped", "payloads", "network", "ttps" }
+  },
+  "static_indicators": {
+    "launch_blocked": true,
+    "sample_blocked_by_guest_av": true,
+    "never_instrumented": true,
+    "detections": ["packer_entropy", "contains_pe_overlay", "..."],
+    "yara_rules": ["INDICATOR_EXE_Packed_ASPack"],
+    "evidence_points": 4,
+    "danger_score_floor": 36
+  }
+}
+```
+
+`danger_score_floor` คิดจาก static detection เท่านั้น (YARA/PE anomaly/timestomping/packer/dropper)
+**ใช้เฉพาะ run ที่ `never_instrumented` และ target เป็น PE** เพื่อไม่ให้ไปลดหรือเพิ่มคะแนนของ run ที่รันจริง
+ระบบ prompt ข้อ 7–8b ห้ามให้คะแนนต่ำกว่า floor และห้ามนำเสนอ verdict จาก static ราวกับเป็นผล dynamic ที่สมบูรณ์
+
+API `/api/analy/v1/report` และ `/history` ส่งฟิลด์ `cape_run` (สรุปชุดเดียวกัน) ให้เว็บแสดงคำเตือน
+"Sandbox รันไฟล์นี้ไม่ได้ — คะแนนมาจากการตรวจแบบ static" พร้อมชิปหลักฐาน static
 
 ---
 

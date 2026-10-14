@@ -525,3 +525,44 @@ async def delete_user_history_controller(body: AdminDeleteHistoryParams):
             return success(AuthStatus.ADMIN_ACTION_SUCCESS, "ลบประวัติสำเร็จ", result.get("data"))
         except AuthError as exc:
             return _auth_error_response(exc)
+
+async def get_config_controller(body: AdminTokenParams):
+    async with SessionLocal() as session:
+        try:
+            await _resolve_admin_actor(session, body.token)
+            return await admin_service.get_all_configs(session)
+        except AuthError as exc:
+            return _auth_error_response(exc)
+
+
+async def update_config_controller(body: AdminConfigParams):
+    async with SessionLocal() as session:
+        try:
+            actor = await _resolve_admin_actor(session, body.token)
+            if actor.role != "master":
+                raise AuthError(403, "INSUFFICIENT_ROLE", "เฉพาะ master เท่านั้นที่สามารถตั้งค่าได้")
+            value = body.value
+            if isinstance(value, str):
+                if value.lower() == "true":
+                    value = True
+                elif value.lower() == "false":
+                    value = False
+                elif value.lower() == "null":
+                    value = None
+                else:
+                    try:
+                        if "." in value:
+                            value = float(value)
+                        else:
+                            value = int(value)
+                    except ValueError:
+                        pass
+            result = await admin_service.update_config_value(
+                session,
+                actor=actor,
+                key=body.key,
+                value=value,
+            )
+            return result
+        except AuthError as exc:
+            return _auth_error_response(exc)

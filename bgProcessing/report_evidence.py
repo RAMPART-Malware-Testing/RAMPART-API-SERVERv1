@@ -104,10 +104,19 @@ def extract_mobsf_evidence(report: dict) -> dict:
 
 
 def extract_cape_evidence(report: dict) -> dict:
+    from bgProcessing.task_handlers import cape_run_quality, cape_static_indicators
+
+    quality = cape_run_quality(report)
+    statics = cape_static_indicators(report)
     malscore = report.get("malscore")
     try:
         danger_score = round(max(0.0, min(float(malscore) * 10, 100.0)), 2)
     except (TypeError, ValueError):
+        danger_score = None
+    floor = statics.get("danger_score_floor") or 0
+    if floor:
+        danger_score = round(max(danger_score or 0.0, float(floor)), 2)
+    if not quality.get("usable", True) and not floor:
         danger_score = None
     signatures = sorted(
         (item for item in report.get("signatures") or [] if isinstance(item, dict)),
@@ -125,6 +134,8 @@ def extract_cape_evidence(report: dict) -> dict:
             "md5": target_file.get("md5"),
             "sha256": target_file.get("sha256"),
         },
+        "run_quality": quality,
+        "static_indicators": statics,
         "malscore": malscore,
         "danger_score": danger_score,
         "malstatus": _text(report.get("malstatus")),

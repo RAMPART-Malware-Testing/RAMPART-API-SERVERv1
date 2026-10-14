@@ -606,3 +606,18 @@ class AdminBroadcastEmailParams(AdminTokenParams):
         if v not in {"user", "admin", "master"}:
             raise ValueError("target_role must be one of: user, admin, master")
         return v
+
+
+class AdminConfigParams(AdminTokenParams):
+    key: str
+    value: str | bool | int | float | None
+
+    @field_validator("key")
+    @classmethod
+    def validate_key(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Config key is required")
+        if not re.fullmatch(r"^[A-Z0-9_]+$", v):
+            raise ValueError("Config key must be uppercase letters, numbers, and underscores only")
+        return v

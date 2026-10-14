@@ -15,6 +15,42 @@ from uuid import UUID, uuid4
 
 REPORTS_DIR = Path("reports")
 
+def cape_run_summary(md5: str | None) -> dict | None:
+    """Summarise how a CAPE run went so a blocked launch is not read as 'clean'.
+
+    A report file that exists while the sandbox never launched the sample otherwise
+    looks identical to a completed run in the list views.
+    """
+    if not md5:
+        return None
+    path = REPORTS_DIR / f"cape-{md5}.json"
+    if not path.is_file():
+        return None
+    try:
+        from bgProcessing.report_evidence import extract_cape_evidence
+
+        with path.open("r", encoding="utf-8") as handle:
+            evidence = extract_cape_evidence(json.load(handle))
+    except (OSError, json.JSONDecodeError, ValueError, TypeError, AttributeError):
+        return None
+    quality = evidence.get("run_quality") or {}
+    statics = evidence.get("static_indicators") or {}
+    return {
+        "usable": quality.get("usable"),
+        "status": quality.get("status"),
+        "reasons": quality.get("reasons") or [],
+        "timed_out": quality.get("timed_out"),
+        "duration_seconds": quality.get("duration_seconds"),
+        "malstatus": quality.get("malstatus"),
+        "launch_blocked": statics.get("launch_blocked"),
+        "sample_blocked_by_guest_av": statics.get("sample_blocked_by_guest_av"),
+        "launch_requires_elevation": statics.get("launch_requires_elevation"),
+        "never_instrumented": statics.get("never_instrumented"),
+        "static_detections": statics.get("detections") or [],
+        "static_yara_rules": statics.get("yara_rules") or [],
+        "static_danger_score_floor": statics.get("danger_score_floor") or 0,
+    }
+
 ANALYSIS_HISTORY_CACHE_NAMESPACE = "analy:history"
 ANALYSIS_HISTORY_CACHE_TTL_SECONDS = 5
 
@@ -90,6 +126,21 @@ def report_file_readable(path: Path) -> bool:
     except (OSError, json.JSONDecodeError):
         return False
     return True
+
+MASTER_CONFIG_PATH = Path(__file__).parent.parent.parent / "config" / "master_config.json"
+
+def _read_master_config() -> dict:
+    try:
+        if MASTER_CONFIG_PATH.exists():
+            with open(MASTER_CONFIG_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+async def get_vt_hash_check_enabled(session: AsyncSession) -> bool:
+    config = _read_master_config()
+    return config.get("VIRUSTOTAL_HASH_CHECK_ENABLED", True)
 
 def file_extension(row) -> str:
     path = row_field(row, "file_path")
@@ -676,6 +727,7 @@ async def get_analysis_history(
                 "mobsf_score":      float(r.mobsf_score) if r.mobsf_score is not None else None,
                 "cape_score":       float(r.cape_score) if r.cape_score is not None else None,
                 "rampart_ai_score": r.rampart_ai_score,
+                "cape_run":         cape_run_summary(a.md5),
             }
 
         return item

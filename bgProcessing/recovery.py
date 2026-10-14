@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 from pathlib import Path
@@ -21,17 +22,32 @@ SETTLE_SECONDS = 10
 SWEEP_INTERVAL_SECONDS = 300
 MAX_RECOVERY_ATTEMPTS = 2
 RECOVERY_COUNTER_TTL_SECONDS = 6 * 60 * 60
+MASTER_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "master_config.json"
+
+
+def vt_hash_check_enabled_from_config() -> bool:
+    try:
+        config = json.loads(MASTER_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return True
+    if not isinstance(config, dict):
+        return True
+    return config.get("VIRUSTOTAL_HASH_CHECK_ENABLED", True)
 
 
 def _task_owner_alive(task_id: str) -> bool:
     result = AsyncResult(id=task_id, app=celery_app)
-    if result.state != "STARTED":
+    state = result.state
+    if state == "RETRY":
+        # Waiting on a countdown retry: the message is parked in the broker, not orphaned.
+        return True
+    if state != "STARTED":
         return False
     info = result.info
     if not isinstance(info, dict):
-        return False
+        return True
     pid = info.get("pid")
-    return isinstance(pid, int) and Path(f"/proc/{pid}").exists()
+    return not isinstance(pid, int) or Path(f"/proc/{pid}").exists()
 
 
 def _recovery_attempts(task_id: str) -> int:
@@ -83,6 +99,7 @@ def sweep_orphaned_tasks() -> dict:
             db.commit()
             analyze_malware_task.apply_async(
                 args=(row.file_path, row.md5, row.file_hash, row.file_size or 0),
+                kwargs={"enable_vt_hash_check": vt_hash_check_enabled_from_config()},
                 task_id=task_id,
             )
             publish_progress(

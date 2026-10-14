@@ -10,7 +10,14 @@ from cores.Schema.schema_class import User
 from schemas.analy import AnalysisHistoryParams 
 from services.admin.admin_service import write_audit_log
 from services.admin.authz import ADMIN_ROLES, AuthError, ensure_not_banned, get_current_user
-from services.analy.analy_service import get_analysis_access_rows_by_md5, get_analysis_history, get_analysis_with_report, get_analysis_with_report_admin, get_public_analysis_with_report
+from services.analy.analy_service import (
+    cape_run_summary,
+    get_analysis_access_rows_by_md5,
+    get_analysis_history,
+    get_analysis_with_report,
+    get_analysis_with_report_admin,
+    get_public_analysis_with_report,
+)
 from services.token_service import TokenService
 from services.dashboard.dashboars_service import invalidate_public_caches
 import os
@@ -145,6 +152,9 @@ def _read_task_progress(task_id: str) -> dict | None:
     except (TypeError, ValueError, json.JSONDecodeError):
         return None
 
+def _cape_run_summary(md5: str | None) -> dict | None:
+    return cape_run_summary(md5)
+
 async def analysisReport_controller(uid: str, task_id: str):
     suffix = build_suffix(task_id=task_id, uid=uid)
     return await cached_async(
@@ -248,6 +258,7 @@ async def _compute_analysis_report(uid: str, task_id: str):
                 "risk_indicators": report.risk_indicators,
                 "gemini_recommendation": report.gemini_recommendation,
                 "malware_signatures": report.malware_signatures,
+                "cape_run": _cape_run_summary(analysis.md5),
                 "report_created_at": report.created_at.isoformat() if report.created_at else None,
             }
         }
