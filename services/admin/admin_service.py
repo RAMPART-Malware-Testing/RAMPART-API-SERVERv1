@@ -1074,6 +1074,46 @@ async def reset_user_password(
     return target
 
 
+async def change_user_role(
+    session: AsyncSession,
+    *,
+    actor: User,
+    target_uid: uuid.UUID,
+    new_role: str,
+) -> User:
+    if actor.role != ROLE_MASTER:
+        raise AuthError(403, "INSUFFICIENT_ROLE", "เฉพาะ master เท่านั้นที่เปลี่ยนสิทธิ์ได้")
+    if new_role not in ASSIGNABLE_ROLES:
+        raise AuthError(400, "INVALID_REQUEST", "สิทธิ์ต้องเป็นผู้ใช้หรือผู้ดูแลเท่านั้น")
+
+    target = await session.get(User, target_uid)
+    if target is None:
+        raise AuthError(404, "TARGET_NOT_FOUND", "ไม่พบผู้ใช้เป้าหมาย")
+    if actor.uid == target.uid:
+        raise AuthError(403, "SELF_ROLE_CHANGE_FORBIDDEN", "ไม่สามารถเปลี่ยนสิทธิ์ของตนเองได้")
+    ensure_can_manage_target(actor, target)
+    if (target.status or "").lower() != "active":
+        raise AuthError(409, "ACCOUNT_INACTIVE", "ไม่สามารถเปลี่ยนสิทธิ์ให้บัญชีที่ไม่ active ได้")
+
+    old_role = target.role
+    if old_role == new_role:
+        raise AuthError(409, "ROLE_UNCHANGED", "บัญชีนี้มีสิทธิ์นี้อยู่แล้ว")
+
+    target.role = new_role
+    await write_audit_log(
+        session,
+        actor_uid=actor.uid,
+        target_uid=target.uid,
+        action="role_change",
+        detail=f"{old_role} -> {new_role}",
+    )
+    await session.commit()
+    await session.refresh(target)
+    _invalidate_user_caches(target.uid)
+    invalidate_cached("profile:me", str(target.uid))
+    return target
+
+
 async def create_user_by_master(
     session: AsyncSession,
     *,

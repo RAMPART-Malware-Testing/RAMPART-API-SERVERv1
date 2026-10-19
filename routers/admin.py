@@ -8,6 +8,7 @@ from controller.admin_controller import (
     broadcast_email_controller,
     bulk_ban_users_controller,
     bulk_delete_files_controller,
+    change_user_role_controller,
     create_user_controller,
     delete_audit_logs_controller,
     delete_user_controller,
@@ -42,6 +43,7 @@ from schemas.admin import (
     AdminBroadcastEmailParams,
     AdminBulkBanUsersParams,
     AdminBulkDeleteFilesParams,
+    AdminChangeRoleParams,
     AdminClearLockoutParams,
     AdminConfigParams,
     AdminCreateUserParams,
@@ -113,6 +115,11 @@ async def delete_user(body: AdminDeleteUserParams):
 @router.post("/users/password-reset")
 async def reset_user_password(body: AdminResetUserPasswordParams):
     return await reset_user_password_controller(body)
+
+
+@router.post("/users/role")
+async def change_user_role(body: AdminChangeRoleParams):
+    return await change_user_role_controller(body)
 
 
 @router.post("/users/bulk-ban")

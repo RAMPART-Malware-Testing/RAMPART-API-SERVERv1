@@ -214,6 +214,20 @@ class AdminResetUserPasswordParams(AdminTargetUserParams):
         return v
 
 
+class AdminChangeRoleParams(AdminTargetUserParams):
+    new_role: str
+
+    @field_validator("new_role")
+    @classmethod
+    def validate_new_role(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        if v not in ASSIGNABLE_ROLES:
+            raise ValueError(
+                f"new_role must be one of: {', '.join(sorted(ASSIGNABLE_ROLES))}"
+            )
+        return v
+
+
 class AdminCreateUserParams(AdminTokenParams):
     username: str
     email: EmailStr

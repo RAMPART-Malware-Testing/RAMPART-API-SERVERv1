@@ -11,6 +11,7 @@ from schemas.admin import (
     AdminBroadcastEmailParams,
     AdminBulkBanUsersParams,
     AdminBulkDeleteFilesParams,
+    AdminChangeRoleParams,
     AdminClearLockoutParams,
     AdminCreateUserParams,
     AdminDashboardParams,
@@ -215,6 +216,26 @@ async def reset_user_password_controller(body: AdminResetUserPasswordParams):
             return success(
                 AuthStatus.ADMIN_ACTION_SUCCESS,
                 "ตั้งรหัสผ่านผู้ใช้สำเร็จ",
+                admin_service.serialize_user(target),
+            )
+        except AuthError as exc:
+            return _auth_error_response(exc)
+
+
+async def change_user_role_controller(body: AdminChangeRoleParams):
+    async with SessionLocal() as session:
+        try:
+            actor = await _resolve_admin_actor(session, body.token)
+            target_uid = _parse_target_uid(body.target_uid)
+            target = await admin_service.change_user_role(
+                session,
+                actor=actor,
+                target_uid=target_uid,
+                new_role=body.new_role,
+            )
+            return success(
+                AuthStatus.ADMIN_ACTION_SUCCESS,
+                "เปลี่ยนสิทธิ์ผู้ใช้สำเร็จ",
                 admin_service.serialize_user(target),
             )
         except AuthError as exc:
