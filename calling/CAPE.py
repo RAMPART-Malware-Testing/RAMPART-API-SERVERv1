@@ -2,6 +2,7 @@ import os
 import requests
 import hashlib
 import time
+from pathlib import Path
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 import json
@@ -9,6 +10,30 @@ import json
 load_dotenv()    
 
 CONNECT_TIMEOUT_SECONDS = 10
+
+MASTER_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "master_config.json"
+
+def _master_config_analysis_timeout() -> Optional[int]:
+    """CAPE_ANALYSIS_TIMEOUT from config/master_config.json, if it is set and valid.
+
+    config/ is mounted read-write into the API container, so the admin config API can
+    change this without a redeploy. A value in the environment still wins.
+    """
+    try:
+        config = json.loads(MASTER_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(config, dict):
+        return None
+    raw = config.get("CAPE_ANALYSIS_TIMEOUT")
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        seconds = int(float(raw))
+    except (TypeError, ValueError):
+        return None
+    return seconds if seconds > 0 else None
+
 
 def cape_timeout(read_seconds):
     return (CONNECT_TIMEOUT_SECONDS, read_seconds)
@@ -170,6 +195,28 @@ class CAPEAnalyzer:
         self.base_url = os.getenv("CAPE_BASE_URL")
         if not self.base_url:
             raise ValueError("CAPE_BASE_URL not found in .env file")
+        self.analysis_timeout = self._analysis_timeout()
+
+    @staticmethod
+    def _analysis_timeout() -> Optional[int]:
+        """Seconds CAPE may run a sample before it reports a timed-out analysis.
+
+        CAPE's configured default cuts long-running samples off; when that happens the
+        report carries `info.timeout` and holds no completed behavioural picture. Set
+        CAPE_ANALYSIS_TIMEOUT (seconds) in the environment or in
+        config/master_config.json to raise it. Missing, non-positive or unparsable
+        values keep CAPE's own default rather than sending a broken number.
+        """
+        configured = _master_config_analysis_timeout()
+        raw = (os.getenv("CAPE_ANALYSIS_TIMEOUT") or "").strip()
+        if not raw:
+            return configured
+        try:
+            seconds = int(float(raw))
+        except (TypeError, ValueError):
+            print(f"[CAPE] Ignoring invalid CAPE_ANALYSIS_TIMEOUT={raw!r}")
+            return configured
+        return seconds if seconds > 0 else configured
 
     def calculate_hash(self, file_path: str, hash_type: str = "sha256") -> str:
         hash_obj = hashlib.new(hash_type)
@@ -196,7 +243,7 @@ class CAPEAnalyzer:
             requests.get(f"{self.base_url}/apiv2/tasks/delete/{task_id}", timeout=cape_timeout(30))
         except: pass
 
-    def create_file_task(self, file_path: str, machine: Optional[str] = None, package: Optional[str] = None, is_pcap: bool = False) -> Dict[str, Any]:
+    def create_file_task(self, file_path: str, machine: Optional[str] = None, package: Optional[str] = None, is_pcap: bool = False, timeout: Optional[int] = None) -> Dict[str, Any]:
         url = f"{self.base_url}/apiv2/tasks/create/file/"
         try:
             files = {'file': open(file_path, 'rb')}
@@ -206,6 +253,8 @@ class CAPEAnalyzer:
         if machine: data['machine'] = machine
         if package: data['package'] = package
         if is_pcap: data['pcap'] = '1'
+        analysis_timeout = timeout if timeout is not None else self.analysis_timeout
+        if analysis_timeout: data['timeout'] = str(analysis_timeout)
 
         try:
             response = requests.post(url, files=files, data=data, timeout=cape_timeout(600))

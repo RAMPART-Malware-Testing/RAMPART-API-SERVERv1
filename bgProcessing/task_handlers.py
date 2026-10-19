@@ -310,7 +310,9 @@ CAPE_BLOCKED_LAUNCH_MARKERS = (
 CAPE_PRIVILEGE_LAUNCH_MARKERS = ("(error: 740)", "(error:740)")
 
 # Detections a static loader raised before the sample could be instrumented. These
-# describe the file itself, so they hold even when the sandbox never ran it.
+# describe the file itself, so they hold even when the sandbox never ran it. They are
+# reported to the analyst as evidence of *intent*; they never become the tool's score,
+# because a static loader verdict is not a measurement of behaviour or of total danger.
 CAPE_STATIC_MALWARE_SIGNATURES = {
     "binary_yara": 3,
     "procmem_yara": 3,
@@ -323,12 +325,6 @@ CAPE_STATIC_MALWARE_SIGNATURES = {
     "dropper": 2,
     "deletes_executed_files": 2,
 }
-CAPE_STATIC_SCORE_PER_POINT = 9
-
-# A run the sandbox refused to start still carries file-intrinsic evidence. Even a
-# single such indicator means the sample is not proven clean, so the floor never
-# reads as "safe" once anything was found.
-CAPE_STATIC_FLOOR_MINIMUM = 30
 
 # A YARA rule that names a malware family, not just "suspicious/indicator", is close
 # to a detection on its own.
@@ -386,6 +382,197 @@ CAPE_CONCEALMENT_SIGNATURES = {
     "procmem_yara", "pe_compile_timestomping", "contains_pe_overlay",
     "antianalysis_tls_section", "static_pe_anomaly",
 }
+
+# Strings CAPE harvested from the file itself. A blocked sample whose build path,
+# mutex, registry key or C2 host still sits in its .rdata is not a sample the
+# classifier failed to read - it is one the file is telling on itself.
+CAPE_STRING_SUSPICIOUS_TOKENS = (
+    "currentversion\\run", "winlogon\\shell", "software\\microsoft\\windows\\currentversion",
+    "schtasks", "vssadmin", "bcdedit", "wbadmin", "netsh firewall", "netsh advfirewall",
+    "taskkill", "reg add", "reg delete", "powershell -enc", "powershell -e ",
+    "frombase64string", "downloadstring", "invoke-expression", "iex(",
+    "virtualalloc", "writeprocessmemory", "createremotethread",
+    "seDebugPrivilege".lower(), "adjusttokenprivileges",
+    "bitcoin", "wallet", "ransom", "decrypt your files", "your files have been",
+    "keylog", "screenshot", "webcam", "clipboard",
+    "cmd.exe /c", "cmd.exe /k", "\\temp\\", "%appdata%", "%temp%",
+)
+CAPE_STRING_TOKEN_POINTS = 1
+CAPE_STRING_TOKEN_CAP = 6
+
+# A single one of these is stronger than a pile of the generic tokens above. Each
+# names an act, not a capability: deleting shadow copies, disabling the AV, or
+# pulling a second stage from a paste site is something a blocked sample still
+# announces in its own strings. Verified against the demo corpus, where a benign
+# Edge installer and a Win32 launcher carry none of them.
+CAPE_STRING_STRONG_EVIDENCE = {
+    "vssadmin delete shadows": 6,
+    "wbadmin delete systemstatebackup": 5,
+    "bcdedit /set {default} recoveryenabled no": 5,
+    "set-mppreference": 5,
+    "add-mppreference -exclusionpath": 5,
+    "netsh advfirewall set": 4,
+    "pastebin.com/raw": 4,
+    "raw.githubusercontent": 4,
+    "discord.com/api/webhooks": 4,
+    "api.telegram.org/bot": 4,
+    "cryptlexchange": 3,
+    "frombase64string": 3,
+    "downloadstring": 3,
+    "invoke-expression": 3,
+    "schtasks /create": 3,
+    "reg add \\\\": 3,
+    "start-process -windowstyle hidden": 3,
+    "wevtutil cl": 3,
+}
+CAPE_STRING_STRONG_CAP = 12
+
+# Window and PE resource names the sample carries: a fake dialog ("Install Error"),
+# a brand it impersonates (Microsoft/Adobe), or a build-toolchain tell.
+CAPE_RESOURCE_BRAND_TOKENS = (
+    "microsoft", "windows", "adobe", "oracle", "java", "chrome", "firefox",
+    "winrar", "7-zip", "nvidia", "intel", "autodesk", "dropbox", "skype",
+    "telegram", "whatsapp", "paypal", "binance",
+)
+CAPE_RESOURCE_ATTENTION_TOKENS = (
+    "error", "warning", "update", "install", "setup", "crack", "keygen", "patch",
+    "activator", "license", "serial", "invoice", "receipt", "payment",
+    "your order", "your files", "encrypted", "locked", "bitcoin",
+)
+CAPE_RESOURCE_BRAND_POINTS = 1
+CAPE_RESOURCE_ATTENTION_POINTS = 2
+
+# API reach that only shows up in an import table: registry persistence, service
+# control, and privilege escalation primitives a blocked sample cannot demonstrate
+# by running.
+CAPE_PERSISTENCE_IMPORTS = {
+    "regsetvalueexw", "regsetvalueexa", "regcreatekeyexw", "regcreatekeyexa",
+    "openscmanagers", "createservicew", "createservicea", "startservicew",
+    "startservicea", "changeserviceconfigw",
+    "createtoolhelp32snapshot", "setwindowshookexw", "setwindowshookexa",
+}
+CAPE_ELEVATION_IMPORTS = {
+    "shellexecutew", "shellexecuteexw", "shellexecuteexa",
+    "adjusttokenprivileges", "openprocesstoken", "lookupprivilegevaluew",
+    "lookupprivilegevaluea", "impersonateloggedonuser",
+    "createprocesswithlogonw", "createprocessasuserw",
+}
+CAPE_PERSISTENCE_IMPORT_POINTS = 2
+CAPE_ELEVATION_IMPORT_POINTS = 2
+
+# Build paths that name the compiler/obfuscator rather than the product are a
+# weaker but still real signal: malware toolkits ship these, installers do not.
+CAPE_TOOLCHAIN_PDB_TOKENS = (
+    "\\desktop\\", "\\users\\", "\\home\\", "\\downloads\\",
+    "automated_build", "crypter", "obfuscator",
+)
+CAPE_TOOLCHAIN_PDB_POINTS = 1
+
+def _cape_collect_strings(data: dict, target_file: dict) -> list[str]:
+    """Every string CAPE captured for the target, whichever dialect stored it.
+
+    CAPE has moved these around across versions (`strings` on the target file,
+    `target.strings`, or a list of dicts with a `string` key), and one sample
+    yielded 1456 of them. They are collected defensively because a version bump
+    must not silently turn this evidence off.
+    """
+    collected: list[str] = []
+
+    def _absorb(value) -> None:
+        if isinstance(value, str):
+            collected.append(value)
+        elif isinstance(value, dict):
+            for key in ("string", "value", "data", "name"):
+                if isinstance(value.get(key), str):
+                    collected.append(value[key])
+                    break
+        elif isinstance(value, list):
+            for item in value:
+                _absorb(item)
+
+    for container in (target_file, data.get("target") if isinstance(data.get("target"), dict) else {}, data):
+        if not isinstance(container, dict):
+            continue
+        for key in ("strings", "cape_strings", "floss_strings"):
+            if key in container:
+                _absorb(container[key])
+    return collected
+
+def cape_string_indicators(data: dict, target_file: dict | None = None) -> dict:
+    """Suspicious strings the file carries, scored independently of behaviour."""
+    target_file = target_file if isinstance(target_file, dict) else _cape_target_file(data)
+    strings = _cape_collect_strings(data, target_file)
+    lowered = "\n".join(strings).lower()
+    matched = sorted({token for token in CAPE_STRING_SUSPICIOUS_TOKENS if token in lowered})
+    strong = sorted({
+        token for token in CAPE_STRING_STRONG_EVIDENCE if token in lowered
+    })
+    points = min(len(matched), CAPE_STRING_TOKEN_CAP) * CAPE_STRING_TOKEN_POINTS
+    points += min(
+        sum(CAPE_STRING_STRONG_EVIDENCE[token] for token in strong),
+        CAPE_STRING_STRONG_CAP,
+    )
+    return {
+        "string_count": len(strings),
+        "suspicious_strings": matched[:12],
+        "strong_evidence_strings": strong[:12],
+        "evidence_points": points,
+    }
+
+def cape_resource_indicators(target_file: dict) -> dict:
+    """Brand names and alarm words the sample's resources/version info expose."""
+    pe = _cape_pe_metadata(target_file)
+    parts: list[str] = []
+    for key in ("resource", "resources", "versioninfo", "version_info"):
+        value = pe.get(key) if isinstance(pe, dict) else None
+        if isinstance(value, dict):
+            parts.extend(str(v) for v in value.values() if isinstance(v, (str, int)))
+        elif isinstance(value, list):
+            parts.extend(_flatten_strings(value))
+        elif isinstance(value, str):
+            parts.append(value)
+    for key in ("resource", "resources"):
+        value = target_file.get(key)
+        if value is not None:
+            parts.extend(_flatten_strings(value))
+
+    lowered = " ".join(parts).lower()
+    brands = sorted({token for token in CAPE_RESOURCE_BRAND_TOKENS if token in lowered})
+    attention = sorted({token for token in CAPE_RESOURCE_ATTENTION_TOKENS if token in lowered})
+    points = 0
+    reasons: list[str] = []
+    if brands:
+        points += CAPE_RESOURCE_BRAND_POINTS
+        reasons.append("impersonates_known_brand")
+    if attention:
+        points += CAPE_RESOURCE_ATTENTION_POINTS
+        reasons.append("social_engineering_resource_names")
+    return {
+        "brands": brands[:8],
+        "attention_words": attention[:8],
+        "evidence_points": points,
+        "reasons": reasons,
+    }
+
+def _flatten_strings(value, depth: int = 0) -> list[str]:
+    if depth > 4:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        out: list[str] = []
+        for key, item in value.items():
+            out.append(str(key))
+            out.extend(_flatten_strings(item, depth + 1))
+        return out
+    if isinstance(value, list):
+        out = []
+        for item in value:
+            out.extend(_flatten_strings(item, depth + 1))
+        return out
+    if isinstance(value, (int, float)):
+        return [str(value)]
+    return []
 
 def _cape_pe_metadata(target_file: dict) -> dict:
     pe = target_file.get("pe")
@@ -454,12 +641,30 @@ def cape_pe_indicators(target_file: dict, concealed: bool = False) -> dict:
         points += CAPE_INJECTION_IMPORT_POINTS
         reasons.append("process_injection_imports")
 
+    persistence = sorted({n for n in CAPE_PERSISTENCE_IMPORTS if n in lowered_imports})
+    if persistence:
+        points += CAPE_PERSISTENCE_IMPORT_POINTS
+        reasons.append("persistence_imports")
+
+    elevation = sorted({n for n in CAPE_ELEVATION_IMPORTS if n in lowered_imports})
+    if elevation:
+        points += CAPE_ELEVATION_IMPORT_POINTS
+        reasons.append("privilege_escalation_imports")
+
+    toolchain = sorted({t for t in CAPE_TOOLCHAIN_PDB_TOKENS if t in lowered_pdb})
+    if toolchain:
+        points += CAPE_TOOLCHAIN_PDB_POINTS
+        reasons.append("pdb_path_names_build_machine")
+
     return {
         "pdb_path": pdb or None,
         "pdb_strong_tokens": strong,
         "pdb_weak_tokens": weak,
+        "pdb_toolchain_tokens": toolchain,
         "injection_imports": matched_imports[:12],
         "strong_injection_imports": strong_injection[:12],
+        "persistence_imports": persistence[:12],
+        "elevation_imports": elevation[:12],
         "evidence_points": points,
         "reasons": reasons,
     }
@@ -531,31 +736,41 @@ def cape_static_indicators(data: dict) -> dict:
     )
     evidence_points += pe_indicators["evidence_points"]
 
+    string_indicators = cape_string_indicators(data, target_file)
+    evidence_points += string_indicators["evidence_points"]
+
+    resource_indicators = cape_resource_indicators(target_file)
+    evidence_points += resource_indicators["evidence_points"]
+
     executable = str(target_file.get("type") or "").lower().startswith(("pe32", "ms-dos"))
     never_instrumented = processes == 0
     if not executable or not never_instrumented:
         evidence_points = 0
 
-    static_minimum = (
-        min(100, int(evidence_points * CAPE_STATIC_SCORE_PER_POINT)) if evidence_points else 0
-    )
-    if static_minimum:
-        static_minimum = max(CAPE_STATIC_FLOOR_MINIMUM, static_minimum)
     return {
         "launch_blocked": launch_blocked,
         "sample_blocked_by_guest_av": bool(reasons and "sample_blocked_by_guest_av" in reasons),
         "launch_requires_elevation": privileged_launch_failed,
         "never_instrumented": never_instrumented,
-        "reasons": reasons + pe_indicators["reasons"],
+        "reasons": reasons + pe_indicators["reasons"] + resource_indicators["reasons"],
         "yara_rules": yara_rules[:5],
         "yara_family_rules": named_yara[:5],
         "detections": hits,
         "pe": pe_indicators,
+        "strings": string_indicators,
+        "resources": resource_indicators,
         "evidence_points": evidence_points,
-        "danger_score_floor": static_minimum,
     }
 
 def calculate_cape_danger_score(report: dict | str | Path) -> float | None:
+    """CAPE's own danger score: malscore (0-10) expressed on the platform's 0-100 scale.
+
+    The score is deliberately the sandbox's own verdict. Static indicators are *not*
+    folded in: a run that never launched the sample produced malscore 0, and inflating
+    that from file metadata would report a number CAPE never measured. The absence of
+    observation is carried separately by `cape_run_quality` (which the UI and the
+    synthesis prompt surface as an incomplete run), not by a fabricated score.
+    """
     if isinstance(report, dict):
         data = report
     else:
@@ -564,19 +779,11 @@ def calculate_cape_danger_score(report: dict | str | Path) -> float | None:
                 data = json.load(file)
         except (OSError, json.JSONDecodeError):
             return None
-    if not cape_run_quality(data).get("usable", True):
-        return None
     malscore = data.get("malscore", data.get("score"))
     try:
-        native_score = None if malscore is None else _clamp_score(float(malscore) * (100.0 / CAPE_NATIVE_MAX_SCORE))
+        return None if malscore is None else _clamp_score(float(malscore) * (100.0 / CAPE_NATIVE_MAX_SCORE))
     except (TypeError, ValueError):
-        native_score = None
-    floor = cape_static_indicators(data).get("danger_score_floor") or 0
-    if floor:
-        # A run that never instrumented the sample can only under-report; the static
-        # floor prevents a blocked malware file from being scored as low danger.
-        return round(max(native_score or 0.0, float(floor)), 2)
-    return native_score
+        return None
 
 def cape_run_quality(report: dict | str | Path) -> dict:
     """Classify how much of a CAPE run actually happened.
@@ -649,31 +856,6 @@ def cape_run_quality(report: dict | str | Path) -> dict:
         "duration_seconds": info.get("duration"),
         "observed": observed_counts,
     }
-
-def calculate_cape_danger_score(report: dict | str | Path) -> float | None:
-    if isinstance(report, dict):
-        data = report
-    else:
-        try:
-            with Path(report).open("r", encoding="utf-8") as file:
-                data = json.load(file)
-        except (OSError, json.JSONDecodeError):
-            return None
-    floor = cape_static_indicators(data).get("danger_score_floor") or 0
-    if not cape_run_quality(data).get("usable", True):
-        # The run carries no usable dynamic observation, but static detections still
-        # stand on their own; report the floor rather than nothing.
-        return round(float(floor), 2) if floor else None
-    malscore = data.get("malscore", data.get("score"))
-    try:
-        native_score = None if malscore is None else _clamp_score(float(malscore) * (100.0 / CAPE_NATIVE_MAX_SCORE))
-    except (TypeError, ValueError):
-        native_score = None
-    if floor:
-        # A run that never instrumented the sample can only under-report; the static
-        # floor prevents a blocked malware file from being scored as low danger.
-        return round(max(native_score or 0.0, float(floor)), 2)
-    return native_score
 
 def _write_report(reports_dir: Path, name: str, report: dict) -> str:
     reports_dir.mkdir(parents=True, exist_ok=True)

@@ -7,7 +7,11 @@ from sqlalchemy import select, text, update
 
 from bgProcessing.celery_app import celery_app
 from bgProcessing.report_evidence import build_gemini_evidence
-from bgProcessing.task_utils import apply_evidence_fallback, apply_gemini_assessment
+from bgProcessing.task_utils import (
+    apply_evidence_fallback,
+    apply_gemini_assessment,
+    cape_coverage_state,
+)
 from bgProcessing.task_handlers import (
     calculate_cape_danger_score,
     calculate_mobsf_danger_score,
@@ -568,9 +572,11 @@ def analyze_malware_task(
                     tool_notes=tool_notes or None, tool_states=tool_states or None,
                 )
                 if assessment:
-                    apply_gemini_assessment(report, assessment)
+                    # VirusTotal short-circuited the sandboxes: nothing needed the
+                    # observation cap, the engines already confirmed the threat.
+                    apply_gemini_assessment(report, assessment, None)
                 else:
-                    apply_evidence_fallback(report)
+                    apply_evidence_fallback(report, None)
                 db.commit()
                 try:
                     notify_analysis_success(db, task_id)
@@ -771,6 +777,12 @@ def analyze_malware_task(
         if cape_status is True:
             record_cape_run_quality(successful_cape_path, tool_notes, tool_states)
 
+        # Coverage decides whether an unconfirmed score may claim the Critical band.
+        # A CAPE run that never launched the sample is the common case: its malscore
+        # measured nothing, so a high total built on it is inference, not observation.
+        coverage = {"cape": cape_coverage_state(successful_cape_path)}
+        coverage = {tool: state for tool, state in coverage.items() if state}
+
         evidence = build_gemini_evidence(
             vt_report_path if vt_status is True else None,
             successful_mobsf_path,
@@ -844,9 +856,9 @@ def analyze_malware_task(
             tool_states=tool_states or None,
         )
         if assessment:
-            apply_gemini_assessment(report, assessment)
+            apply_gemini_assessment(report, assessment, coverage)
         else:
-            apply_evidence_fallback(report)
+            apply_evidence_fallback(report, coverage)
         db.commit()
         try:
             notify_analysis_success(db, task_id)

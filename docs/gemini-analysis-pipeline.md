@@ -201,18 +201,54 @@ CAPE เขียน report ได้แม้ sandbox ไม่ได้รั�
     "never_instrumented": true,
     "detections": ["packer_entropy", "contains_pe_overlay", "..."],
     "yara_rules": ["INDICATOR_EXE_Packed_ASPack"],
-    "evidence_points": 4,
-    "danger_score_floor": 36
-  }
+    "pe": {
+      "pdb_path": "C:\\Users\\...\\NebulaWorm.pdb",
+      "pdb_strong_tokens": ["byeintegrity", "pcapayload"],
+      "pdb_weak_tokens": ["worm"],
+      "persistence_imports": ["RegCreateKeyExW"],
+      "elevation_imports": ["AdjustTokenPrivileges"],
+      "reasons": ["pdb_path_names_exploit_or_toolkit"]
+    },
+    "strings": {
+      "string_count": 702,
+      "strong_evidence_strings": ["vssadmin delete shadows", "set-mppreference"],
+      "suspicious_strings": ["schtasks", "virtualalloc"],
+      "evidence_points": 11
+    },
+    "resources": {
+      "brands": ["java"],
+      "attention_words": ["update"],
+      "reasons": ["impersonates_known_brand"]
+    },
+    "evidence_points": 19
+  },
+  "coverage": "incomplete"
 }
 ```
 
-`danger_score_floor` คิดจาก static detection เท่านั้น (YARA/PE anomaly/timestomping/packer/dropper)
-**ใช้เฉพาะ run ที่ `never_instrumented` และ target เป็น PE** เพื่อไม่ให้ไปลดหรือเพิ่มคะแนนของ run ที่รันจริง
-ระบบ prompt ข้อ 7–8b ห้ามให้คะแนนต่ำกว่า floor และห้ามนำเสนอ verdict จาก static ราวกับเป็นผล dynamic ที่สมบูรณ์
+**คะแนน CAPE = `malscore` ของ CAPE เองเท่านั้น (×10)** ไม่ถูกเติมด้วยหลักฐาน static อีกต่อไป
+เพราะ run ที่ sandbox ไม่ได้รันให้ `malscore ≈ 0` ซึ่งแปลว่า "ไม่ได้วัด" ไม่ใช่ "อันตราย 100"
+การเติมคะแนนจาก metadata จะเป็นการรายงานตัวเลขที่ CAPE ไม่เคยวัด
 
-API `/api/analy/v1/report` และ `/history` ส่งฟิลด์ `cape_run` (สรุปชุดเดียวกัน) ให้เว็บแสดงคำเตือน
-"Sandbox รันไฟล์นี้ไม่ได้ — คะแนนมาจากการตรวจแบบ static" พร้อมชิปหลักฐาน static
+สิ่งที่แทนที่คือ **`coverage`** (และ `cape_run` บน API): เมื่อ `status != "complete"`
+ระบบถือว่า **ยังไม่มีการยืนยันด้วยการสังเกต** แล้ว:
+
+1. **จำกัดคะแนนรวมไว้ที่ 59 (Caution)** ใน `utils/evidence_score.py::apply_unverified_cap`
+   เฉพาะกรณีที่ไม่มีเครื่องมือใดสังเกตพฤติกรรมได้เลย และเป็น **เพดาน ไม่ใช่พื้น** —
+   ถ้า VirusTotal ตรวจเจอ หรือ CAPE รันได้จริง จะไม่ถูกแตะ
+2. **แสดงแถบเตือนสีเหลือง** บนการ์ด CAPE พร้อมเหตุผลและรายการหลักฐาน static ที่พบ
+3. **prompt ข้อ 8d** สั่งไม่ให้ AI อ้างยืนยันระดับ High/Critical จากหลักฐานเชิงอนุมาน
+
+`static_indicators` ทั้ง 4 กลุ่มยังถูกส่งให้ Gemini เหมือนเดิม ในฐานะ **หลักฐานเจตนา**
+(detection/YARA, PE metadata + import, string ที่บอกการกระทำ, resource ที่ปลอมแบรนด์)
+แต่ **ห้ามใช้เป็นตัวเลขคะแนน** และใช้เฉพาะ run ที่ `never_instrumented` + target เป็น PE
+
+น้ำหนักของหลักฐานถูกคาลิเบรตกับ corpus จริง: string โครงสร้างพื้นฐานอย่าง `SOFTWARE\Microsoft\Windows
+NT\CurrentVersion` หรือ URL ของ `ocsp.digicert.com` ที่ Edge installer ก็มี ถูกกันออกจากกลุ่ม
+"strong" โดยเจตนา
+
+API `/api/analy/v1/task_id` และ `/history` ส่งฟิลด์ `cape_run` (สรุปชุดเดียวกัน) ให้เว็บแสดงคำเตือน
+"Sandbox รันไฟล์นี้ไม่ได้ — ยังไม่ได้ยืนยันพฤติกรรมจริง" พร้อมชิปหลักฐาน static
 
 ---
 

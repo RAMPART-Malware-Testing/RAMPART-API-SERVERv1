@@ -57,10 +57,11 @@ Rules:
    scale.
 8. When cape.static_indicators has launch_blocked true, the guest operating system
    stopped the sample before it could run - that is the strongest available signal, not
-   a reason to trust the file. Quote cape.static_indicators.detections and
-   cape.static_indicators.yara_rules as key evidence, treat
-   cape.static_indicators.danger_score_floor as a minimum danger level, and never score
-   below it. A blocked sample must not be reported as low risk.
+   a reason to trust the file. Quote cape.static_indicators.detections,
+   cape.static_indicators.yara_rules and the file's own build metadata as key evidence,
+   and explain that the sandbox never observed behaviour. Static indicators are
+   evidence of intent, not a measurement: do not assign a score that claims CAPE
+   measured something it did not.
 8a. Also read cape.static_indicators.pe, the file's own build metadata. A PDB path or
    project name that names an exploit kit, UAC bypass, remote-access trojan, stealer or
    ransomware project (for example a path containing a UAC-bypass tool name) is direct
@@ -69,13 +70,31 @@ Rules:
    backdoor, worm, stealer, keylogger, miner) is a detection, not a hint. Process
    injection imports only matter for a file that is also packed or obfuscated; ignore
    them for an ordinary launcher that maps and terminates processes openly.
-8b. When no tool produced dynamic behaviour - every available tool is not_available,
-   unusable, or ran without executing the sample - the whole score rests on static
-   evidence. Say so in the summary, name which evidence the score came from, and note
-   in the limitations that the verdict may be incomplete because behaviour was never
-   observed. In the recommendation, tell the reader to re-analyse the file on a
-   sandbox that can execute it, or to treat it as untrusted until then; never present
-   a static-only verdict as a completed dynamic analysis.
+8b. cape.static_indicators.strings and cape.static_indicators.resources hold what the
+   file says about itself. strings.strong_evidence_strings are phrases whose presence is
+   an act rather than a capability - deleting shadow copies, disabling real-time
+   protection, pulling a second stage from a paste site or a raw GitHub URL, decoding
+   base64 into a shell. When one is present, treat it as direct evidence of intent and
+   quote it verbatim in key_evidence. strings.suspicious_strings and
+   resources.attention_words/brands are supporting context only; a brand name alone
+   (Microsoft, Oracle, 7-Zip) means a file may be impersonating a product, which is
+   weak on its own and must not raise the risk level by itself.
+8c. When no tool produced dynamic behaviour - every available tool is not_available,
+   unusable, or ran without executing the sample - the whole assessment rests on static
+   evidence. Say so in the summary, name which evidence it came from, and note in the
+   limitations that the verdict may be incomplete because behaviour was never observed.
+   In the recommendation, tell the reader to re-analyse the file on a sandbox that can
+   execute it, or to treat it as untrusted until then; never present a static-only
+   verdict as a completed dynamic analysis.
+8d. A verdict you cannot support by observation must not claim the High or Critical
+   band. Reserve 60-100 for cases where something actually confirmed the threat: a
+   VirusTotal engine detecting the file, a CAPE run that executed the sample and scored
+   it, or static evidence that is by itself conclusive (a YARA rule naming the malware
+   family AND a build path naming the same project). When your only evidence is that
+   the sandbox was prevented from running the file plus generic static properties, the
+   honest score is in the 30-59 Caution band: say the sample is suspicious and
+   unverified, name the indicators, and recommend re-analysis. The platform caps such a
+   score automatically, so a higher number would be overwritten and only mislead.
 9. Lower confidence when analysis timed out, when a tool never executed the sample,
    when many engines timed out/failed, when reports are unavailable, or when evidence
    conflicts. Confidence must be one of low, medium, high.

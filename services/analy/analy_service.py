@@ -35,9 +35,10 @@ def cape_run_summary(md5: str | None) -> dict | None:
         return None
     quality = evidence.get("run_quality") or {}
     statics = evidence.get("static_indicators") or {}
+    status = quality.get("status")
     return {
         "usable": quality.get("usable"),
-        "status": quality.get("status"),
+        "status": status,
         "reasons": quality.get("reasons") or [],
         "timed_out": quality.get("timed_out"),
         "duration_seconds": quality.get("duration_seconds"),
@@ -48,7 +49,13 @@ def cape_run_summary(md5: str | None) -> dict | None:
         "never_instrumented": statics.get("never_instrumented"),
         "static_detections": statics.get("detections") or [],
         "static_yara_rules": statics.get("yara_rules") or [],
-        "static_danger_score_floor": statics.get("danger_score_floor") or 0,
+        "static_reasons": statics.get("reasons") or [],
+        "static_strong_strings": (statics.get("strings") or {}).get("strong_evidence_strings") or [],
+        "static_pdb_path": (statics.get("pe") or {}).get("pdb_path"),
+        # A run that observed nothing must not read as a clean pass. The flag is the
+        # analyst-facing signal; it never alters the tool's score.
+        "coverage": "incomplete" if status != "complete" else "complete",
+        "observed_processes": (quality.get("observed") or {}).get("processes"),
     }
 
 ANALYSIS_HISTORY_CACHE_NAMESPACE = "analy:history"
