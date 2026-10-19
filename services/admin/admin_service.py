@@ -6,7 +6,7 @@ from datetime import datetime, timedelta as _timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import and_, asc, delete, desc, func, or_, select
+from sqlalchemy import and_, asc, delete, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import contains_eager, joinedload
@@ -1009,39 +1009,40 @@ async def delete_user(
     *,
     actor: User,
     target_uid: uuid.UUID,
-) -> User:
+) -> dict[str, Any]:
     target = await session.get(User, target_uid)
     if target is None:
         raise AuthError(404, "TARGET_NOT_FOUND", "ไม่พบผู้ใช้เป้าหมาย")
     if actor.uid == target.uid:
         raise AuthError(403, "SELF_DELETE_FORBIDDEN", "ไม่สามารถลบบัญชีของตนเองได้")
     ensure_can_manage_non_master_target(actor, target)
-    if target.status == "deleted":
-        raise AuthError(409, "ALREADY_DELETED", "บัญชีนี้ถูกลบไปแล้ว")
 
-    target.status = "deleted"
-    target.password = None
-    target.fcm_token = None
-    target.is_banned = False
-    target.banned_at = None
-    target.banned_reason = None
-    target.banned_by = None
+    snapshot = serialize_user(target)
+    await session.execute(
+        update(User).where(User.created_by == target.uid).values(created_by=None)
+    )
+    await session.execute(
+        update(User).where(User.banned_by == target.uid).values(banned_by=None)
+    )
+    await session.execute(
+        update(Analysis).where(Analysis.deleted_by == target.uid).values(deleted_by=None)
+    )
     await write_audit_log(
         session,
         actor_uid=actor.uid,
         target_uid=target.uid,
         action="delete_user",
-        detail="logical_delete",
+        detail="hard_delete",
     )
+    await session.delete(target)
     await session.commit()
-    await session.refresh(target)
-    _invalidate_user_caches(target.uid)
-    invalidate_cached(USER_LOGIN_HISTORY_CACHE_NAMESPACE, str(target.uid))
-    invalidate_cached(USER_DOWNLOAD_HISTORY_CACHE_NAMESPACE, str(target.uid))
-    invalidate_cached(USER_PASSWORD_HISTORY_CACHE_NAMESPACE, str(target.uid))
-    invalidate_cached("profile:me", str(target.uid))
+    _invalidate_user_caches(target_uid)
+    invalidate_cached(USER_LOGIN_HISTORY_CACHE_NAMESPACE, str(target_uid))
+    invalidate_cached(USER_DOWNLOAD_HISTORY_CACHE_NAMESPACE, str(target_uid))
+    invalidate_cached(USER_PASSWORD_HISTORY_CACHE_NAMESPACE, str(target_uid))
+    invalidate_cached("profile:me", str(target_uid))
     invalidate_cached(DASHBOARD_CACHE_NAMESPACE)
-    return target
+    return snapshot
 
 
 async def reset_user_password(

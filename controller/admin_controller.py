@@ -195,7 +195,7 @@ async def delete_user_controller(body: AdminDeleteUserParams):
             return success(
                 AuthStatus.ADMIN_ACTION_SUCCESS,
                 "ลบบัญชีผู้ใช้สำเร็จ",
-                admin_service.serialize_user(target),
+                target,
             )
         except AuthError as exc:
             return _auth_error_response(exc)

@@ -246,9 +246,10 @@ class AuthService:
 
         async with SessionLocal() as session:
             result = await session.execute(
-                select(User).where(normalized_email_expr(User.email) == normalized_email)
+                select(User.status).where(normalized_email_expr(User.email) == normalized_email)
             )
-            if result.scalar_one_or_none():
+            existing_status = result.scalar_one_or_none()
+            if existing_status is not None and (existing_status or "").lower() != "deleted":
                 return error(
                     AuthStatus.USER_NOT_FOUND,
                     "มีอีเมลผู้ใช้งานนี้ในระบบแล้ว"
@@ -279,14 +280,38 @@ class AuthService:
             return _otp_error_response(outcome, detail)
 
         async with SessionLocal() as session:
-            new_user = User(
-                username=payload.get("username") or body.username or payload["sub"],
-                email=payload["sub"],
-                password=get_password_hash(payload["password"]),
-                role="user",
-                status="active",
+            result = await session.execute(
+                select(User).where(normalized_email_expr(User.email) == payload["sub"]).with_for_update()
             )
-            session.add(new_user)
+            existing = result.scalar_one_or_none()
+            username = payload.get("username") or body.username or payload["sub"]
+
+            conflict_query = select(User.uid).where(User.username == username)
+            if existing is not None:
+                conflict_query = conflict_query.where(User.uid != existing.uid)
+            conflict = await session.execute(conflict_query)
+            if conflict.scalar_one_or_none() is not None:
+                return error(AuthStatus.USERNAME_TAKEN, "ชื่อผู้ใช้นี้ถูกใช้งานแล้ว")
+
+            if existing is not None:
+                if (existing.status or "").lower() != "deleted":
+                    return error(AuthStatus.USER_NOT_FOUND, "มีอีเมลผู้ใช้งานนี้ในระบบแล้ว")
+                existing.username = username
+                existing.password = get_password_hash(payload["password"])
+                existing.role = "user"
+                existing.status = "active"
+                existing.is_banned = False
+                existing.banned_at = None
+                existing.banned_reason = None
+                existing.banned_by = None
+            else:
+                session.add(User(
+                    username=username,
+                    email=payload["sub"],
+                    password=get_password_hash(payload["password"]),
+                    role="user",
+                    status="active",
+                ))
             await session.commit()
 
         OTPService.clear_otp_session("register", body.token, payload["sub"])
